@@ -2,7 +2,7 @@
 
 Newest first. Notes for releases up to 0.10.2 are on the GitHub releases page: https://github.com/subaud-tools/galley/releases
 
-## Unreleased
+## 0.15.1
 
 - `galley help` says to install the Claude Code plugin and no longer prints the `--dangerously-load-development-channels` launch flag.
 
