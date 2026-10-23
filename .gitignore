@@ -46,3 +46,7 @@ web/node_modules/
 docs/specs/
 docs/plans/
 docs/superpowers/
+
+# Claude Code writes the mods API types here when the plugin is loaded with --plugin-dir.
+plugin/galley/tsconfig.json
+plugin/galley/.claude-plugin/types/
