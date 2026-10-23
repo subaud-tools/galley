@@ -41,10 +41,16 @@ type chanRig struct {
 
 func newRig(t *testing.T, scope, self string, scanEvery time.Duration) *chanRig {
 	t.Helper()
-	clientOut, serverIn := io.Pipe()
-	serverOut, clientIn := io.Pipe()
 	ch := newChannel(scope, self)
 	ch.scanEvery = scanEvery
+	return newRigFor(t, ch)
+}
+
+// newRigFor is newRig for a channel the test built itself.
+func newRigFor(t *testing.T, ch *channel) *chanRig {
+	t.Helper()
+	clientOut, serverIn := io.Pipe()
+	serverOut, clientIn := io.Pipe()
 	go func() { _ = ch.run(clientOut, clientIn) }()
 	t.Cleanup(func() { _ = serverIn.Close() })
 

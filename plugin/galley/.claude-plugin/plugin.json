@@ -1,7 +1,6 @@
 {
   "name": "galley",
   "displayName": "galley",
-  "version": "0.2.0",
   "description": "Review documents in the browser; rounds land in the session that wrote them.",
   "author": {
     "name": "Court Schuett",

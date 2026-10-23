@@ -36,11 +36,13 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/subaud-tools/galley/internal/debug"
@@ -49,6 +51,7 @@ import (
 	"github.com/subaud-tools/galley/internal/version"
 	tools "github.com/subaud-tools/tools-common"
 	"github.com/subaud-tools/tools-common/channelmcp"
+	"github.com/subaud-tools/tools-common/harness"
 )
 
 // channelInstructions reaches the session's system prompt through the MCP
@@ -57,7 +60,7 @@ import (
 // V8 rewrites agentprompt.go next against the SAME protocol, so keep this
 // wording portable — its implementer reads this diff.
 const channelInstructions = `You are paired with galley, a browser review surface for documents this session produces.
-Events arrive as <channel source="galley" doc="…" reason="revise|settle|changed|approve|closed">. On "revise" and "settle", the notification carries the rules for answering it — read what arrives with the event, not only this.
+Events arrive as <channel source="galley" doc="…" reason="…"> or as a turn whose first line is galley event doc=… reason=…. On "revise" and "settle", the event carries the rules for answering it: read them, not only this.
 Whenever you write to answer a round, on any event: make targeted, in-place edits to the .md file and never rewrite the whole file — the reviewer may be editing it at the same time, and a whole-file write can silently erase what they just wrote.
 Between rounds, galley loads your edits to an open document. If you and the reviewer change it at the same time, the reviewer's copy is kept and yours is saved in .galley/recovery. Stop the review before moving or deleting the file.
 If you have LOST the round — your context was compacted, or this session restarted mid-review — run galley round <doc> to read it again, with the same instructions and the same keys you were given. A sent round is no longer pending, so do not reach for galley pending instead.
@@ -204,8 +207,16 @@ type channel struct {
 	shutdownWait time.Duration
 	openPage     func(url string)
 	srv          *channelmcp.Server
-	mu           sync.Mutex
-	attached     map[string]bool
+	// push is where emit sends each wake: the MCP server for `galley
+	// channel`, a JSON line on stdout for `galley watch`. One loop, two
+	// outputs.
+	push channelmcp.Pusher
+	// serveOnly is `galley channel` under Claude Code: the plugin's mod runs
+	// `galley watch`, which takes the rounds, so this process serves the
+	// tools and never attaches. Two takers would split a session's rounds.
+	serveOnly bool
+	mu        sync.Mutex
+	attached  map[string]bool
 	// The diagnostic's state — the answer to "why am I not attached?", which
 	// until now no surface in this process could give. Rebuilt on every scan,
 	// except `gone`, which is a short history: an advert that was reaped or an
@@ -293,6 +304,16 @@ func newChannel(scope, self string) *channel {
 		}},
 		Call: c.callTool,
 	})
+	c.push = c.srv
+	return c
+}
+
+// channelFromEnv is the channel `galley channel` runs: this session's id, and
+// serve-only when the session is Claude Code's (see serveOnly).
+func channelFromEnv(scope string) *channel {
+	h := harness.FromEnv()
+	c := newChannel(scope, h.SessionID)
+	c.serveOnly = h.IsClaude()
 	return c
 }
 
@@ -471,11 +492,12 @@ func (c *channel) claimForAttach(e registry.Entry) (bool, string) {
 	}
 }
 
-// run starts the scan loop and serves MCP until the reader closes. The scan
-// lives HERE rather than in runChannel so the test's newChannel(...).run(pipes)
-// exercises the same lifecycle the real command does. The context cancels
-// every held long-poll when the reader closes — without it, an attach parked
-// on a five-minute poll outlives the session that wanted its wakes.
+// run serves MCP until the reader closes, and runs the scan loop unless the
+// channel is serve-only. The scan lives HERE rather than in runChannel so the
+// test's newChannel(...).run(pipes) exercises the same lifecycle the real
+// command does. The context cancels every held long-poll when the reader
+// closes — without it, an attach parked on a five-minute poll outlives the
+// session that wanted its wakes.
 func (c *channel) run(r io.Reader, w io.Writer) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -483,7 +505,8 @@ func (c *channel) run(r io.Reader, w io.Writer) error {
 	// tell an orphaned document from one that is still spoken for — see claim.
 	// Best-effort in both directions: a channel that cannot write its presence
 	// still attaches to everything it owns, and one that dies without
-	// withdrawing is reaped by PID on the next read.
+	// withdrawing is reaped by PID on the next read. A serve-only channel
+	// still says so: galley_open's editor binds to this presence.
 	if c.self != "" {
 		if err := registry.AnnounceSession(c.self); err != nil {
 			fmt.Fprintf(os.Stderr, "[galley channel] cannot record this session's presence: %v — "+
@@ -491,17 +514,23 @@ func (c *channel) run(r io.Reader, w io.Writer) error {
 		}
 		defer func() { _ = registry.WithdrawSession(c.self) }()
 	}
-	go func() {
-		for {
-			c.scanOnce(ctx)
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(c.scanEvery):
-			}
-		}
-	}()
+	if !c.serveOnly {
+		go c.watch(ctx)
+	}
 	return c.srv.Run(r, w)
+}
+
+// watch is the scan loop: scan, wait scanEvery, scan again, until ctx ends.
+// `galley channel` runs it beside the MCP server; `galley watch` runs only it.
+func (c *channel) watch(ctx context.Context) {
+	for {
+		c.scanOnce(ctx)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(c.scanEvery):
+		}
+	}
 }
 
 // scanOnce attaches to everything this channel may attach to, AND RECORDS WHY
@@ -662,6 +691,11 @@ func (c *channel) status() string {
 			"(neither CLAUDE_CODE_SESSION_ID nor AGENT_SESSION_ID was set, so this channel attaches to unowned documents only)\n", c.scope)
 	} else {
 		fmt.Fprintf(&b, "galley channel — scope %s, session %s\n", c.scope, self)
+	}
+	if c.serveOnly {
+		b.WriteString("This is a Claude Code session: rounds reach it through `galley watch`, which the galley plugin starts, " +
+			"not through this process, so it attaches to no editor. If a Revise never arrived, check that the galley plugin is installed and enabled (/plugin).")
+		return b.String()
 	}
 	if len(attached) > 0 {
 		fmt.Fprintf(&b, "attached (%d) — a Revise here reaches this session:\n%s\n",
@@ -951,7 +985,7 @@ func (c *channel) emit(e registry.Entry, reason, fp, note string, pending pendin
 		Instructions: debug.Int(instructions),
 		Asks:         debugAsks(pending.Instructions),
 	})
-	_ = c.srv.Notify(content, meta)
+	_ = c.push.Notify(content, meta)
 }
 
 // debugAsks copies the captured round into the debug record's own type. It is
@@ -975,8 +1009,11 @@ type channelFlags struct {
 	scope *string
 }
 
-func newChannelFlags() (*flag.FlagSet, *channelFlags) {
-	fs := flag.NewFlagSet("channel", flag.ContinueOnError)
+func newChannelFlags() (*flag.FlagSet, *channelFlags) { return newScopeFlags("channel") }
+
+// newScopeFlags is the one flag `channel` and `watch` share.
+func newScopeFlags(name string) (*flag.FlagSet, *channelFlags) {
+	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	v := &channelFlags{
 		scope: fs.String("scope", ".", "root directory; editors no session owns are attached only under it"),
 	}
@@ -998,7 +1035,10 @@ func runChannel(args []string, out, errw io.Writer) error {
 	// visible in the harness debug log (~/.claude/debug/<session>.txt).
 	fmt.Fprintf(os.Stderr, "[galley channel] cwd=%s session_id_present=%t scope=%s\n", cwd, self != "", *scope)
 
-	c := newChannel(*scope, self)
+	c := channelFromEnv(*scope)
+	if c.serveOnly {
+		fmt.Fprintln(os.Stderr, "[galley channel] Claude Code session: serving tools only; the galley plugin's `galley watch` delivers the rounds")
+	}
 	// AND THE ROOT AS IT WILL ACTUALLY BE COMPARED. A scope typed one way and
 	// an editor opened the other way round a symlink is the most likely way a
 	// launch silently attaches to nothing — /tmp is /private/tmp on macOS —
@@ -1010,4 +1050,25 @@ func runChannel(args []string, out, errw io.Writer) error {
 	}
 	c.scanEvery = 2 * time.Second
 	return c.run(os.Stdin, os.Stdout)
+}
+
+// runWatch is `galley watch`: the channel's scan and attach loop, printing
+// each wake as one JSON line on stdout for the Claude Code plugin's mod, which
+// starts a turn with it. stdout carries only those lines; every diagnostic
+// goes to stderr. It runs until it is signalled.
+func runWatch(args []string, out, errw io.Writer) error {
+	fs, v := newScopeFlags("watch")
+	if err := tools.ParseFlags(fs, args, out); err != nil {
+		return err
+	}
+	self := sessionID()
+	cwd, _ := os.Getwd()
+	_, _ = fmt.Fprintf(errw, "[galley watch] cwd=%s session_id_present=%t scope=%s\n", cwd, self != "", *v.scope)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	c := newChannel(*v.scope, self)
+	c.push = channelmcp.NewLines(out)
+	c.scanEvery = 2 * time.Second
+	c.watch(ctx)
+	return nil
 }
