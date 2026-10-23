@@ -45,7 +45,7 @@ the room, push can spawn one — with the document and nothing else — and
 The channel is pull, packaged: 'galley channel' is an MCP server the agent
 harness starts with the session. It attaches to every editor this session
 opens — and any unowned one under its root — and pushes each Revise, settle
-and Approve into the session as a channel event. No listener to remember.
+and Approve into the session as an event. No listener to remember.
   claude --channels plugin:galley@galley                         installed
   claude --dangerously-load-development-channels server:galley   development
 
@@ -272,16 +272,30 @@ func newApp() *tools.App {
 		Group:    "agent",
 		Summary:  "MCP channel server — pushes review wakes into the session",
 		Synopsis: "channel [--scope <dir>]",
-		Help: "An MCP channel server on stdio. Registered in .mcp.json and named in\n" +
-			"--channels, it opens editors for this session through its galley_open tool,\n" +
+		Help: "An MCP channel server on stdio. It opens editors for this session through\n" +
+			"its galley_open tool and serves galley's other tools. Under pi it also\n" +
 			"attaches to every editor this session owns, plus\n" +
 			"any editor under --scope that no session owns at all, and pushes each\n" +
 			"Revise, settle, Approve — and the editor going away —\n" +
-			"into the session as a channel event. Every editor it does NOT attach to\n" +
+			"into the session as an event. Every editor it does NOT attach to\n" +
 			"is reported with its reason, on stderr and through the\n" +
-			"galley_channel_status tool.",
+			"galley_channel_status tool. Under Claude Code it serves the tools only:\n" +
+			"`galley watch`, which the galley plugin runs, delivers the events.\n",
 		NewFlags: func() *flag.FlagSet { fs, _ := newChannelFlags(); return fs },
 		Run:      runChannel,
+	})
+	app.Register(tools.Command{
+		Name:     "watch",
+		Group:    "agent",
+		Summary:  "print review wakes as JSON lines — the Claude Code plugin's feed",
+		Synopsis: "watch [--scope <dir>]",
+		Help: "Attaches to the editors `galley channel` would and prints each\n" +
+			"Revise, settle, Approve — and the editor going away — as one JSON line\n" +
+			"{\"content\": ..., \"meta\": {...}} on stdout. The galley plugin's mod runs it\n" +
+			"for a Claude Code session and starts a turn with each line. Diagnostics go\n" +
+			"to stderr. Runs until signalled.",
+		NewFlags: func() *flag.FlagSet { fs, _ := newScopeFlags("watch"); return fs },
+		Run:      runWatch,
 	})
 	// ledger dispatches its own sub-verbs; declaring them as Subcommands lets
 	// `galley ledger -h` show this help while `galley ledger sync -h` reaches
