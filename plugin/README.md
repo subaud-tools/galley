@@ -13,30 +13,7 @@ claude plugin marketplace add subaud-tools/galley
 claude plugin install galley@galley
 ```
 
-The repository is public, so both commands work for anyone with `galley` on PATH.
-
-## The launch flag does not go away
-
-**Installing the plugin does not remove the per-session opt-in.** Channel servers are not ordinary MCP servers: they push events into the session, and Claude Code requires an explicit flag naming them at launch, installed or not.
-
-What the install changes is *which* flag:
-
-```sh
-claude --channels plugin:galley@galley                          # installed
-claude --dangerously-load-development-channels server:galley    # development path
-```
-
-The first needs no project `.mcp.json` and no `enabledMcpjsonServers` entry, and carries no `--dangerously-` prefix. That is the whole of the difference, and it is worth having — but a session launched without a flag hears nothing, and that is by design upstream, not a gap here.
-
-The development path is the one that needs wiring, and **this repository does not ship the `.mcp.json` it wants** — it is per-project, and belongs in whichever repo holds the documents you are reviewing, not in galley's own tree. Write it there:
-
-```json
-{ "mcpServers": { "galley": { "command": "galley", "args": ["channel"] } } }
-```
-
-`galley` must be on PATH either way: both paths run the bare command, and neither ships the binary.
-
-For an org, the equivalent is `channelsEnabled: true` plus an `allowedChannelPlugins` entry naming `galley` and this marketplace. Note that the key **replaces** the Anthropic default list — re-list Telegram, Discord and iMessage if the org uses them.
+The repository is public, so both commands work for anyone with `galley` on PATH. A session started after the install hears galley with plain `claude`. In a session that is already open, run `/reload-plugins` to load it.
 
 ## Versions
 
@@ -56,6 +33,6 @@ The floor is the one that catches people. **v0.4.0 is the first build with the v
 
 The channel opens documents for its own session through the `galley_open` tool. It starts `galley edit <doc> --owner <session>` detached, which opens the page in the reviewer's browser, waits for the editor's advert, and returns the URL. A document the session already has open returns the same URL and opens nothing. The editor is bound to the session's channel presence and stops itself a few seconds after the session ends. An agent must not run `galley edit` from a shell while the channel is present: an editor opened that way carries no owner, and the first channel whose scope covers it claims it. `galley edit` without `--owner` is the human's command. The skill says so, and so do the channel instructions.
 
-## Where the channel is not available
+## Without the plugin
 
-Channels are a research preview: they require Anthropic authentication and do not exist on Bedrock, Vertex or Foundry. Everywhere the channel cannot go, `galley wait <doc>` is the same events over a blocking pull, and `galley agent-prompt <doc>` prints the protocol for an agent starting cold. Neither needs a plugin, a flag, or Claude Code.
+In an agent without the plugin or channels.tools, `galley wait <doc>` is the same events over a blocking pull, and `galley agent-prompt <doc>` prints the protocol for an agent starting cold. Neither needs a plugin or Claude Code.
