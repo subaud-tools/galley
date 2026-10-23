@@ -2,6 +2,12 @@
 
 Newest first. Notes for releases up to 0.10.2 are on the GitHub releases page: https://github.com/subaud-tools/galley/releases
 
+## 0.15.0
+
+- **Claude Code hears galley without a launch flag.** Install the galley plugin and a session started with plain `claude` gets each Revise as a turn: the plugin's mod runs the new `galley watch` for the session. No `--dangerously-load-development-channels` and no warning dialog at launch.
+- `galley watch` prints each event as one JSON line, for the plugin's mod.
+- Under Claude Code, `galley channel` serves galley's tools only and leaves rounds to `galley watch`; under pi it works as before.
+
 ## 0.14.0
 
 - Module path is now github.com/subaud-tools/galley; the source lives at github.com/subaud-tools/galley.
