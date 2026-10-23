@@ -9,7 +9,7 @@ galley is a document two parties revise in rounds. The reviewer reads a draft in
 
 ## Starting a review
 
-**A review does not exist until an editor is running, and you start one with the `galley_open` tool.** Call it with the document's path. It starts the editor for this session, in the background, and opens the page in the human's browser. From then on their Revise rounds arrive here as channel events. It returns the URL too: give it to the human if they closed the tab. Calling it again for the same document returns the same URL and opens the page again, unless another session owns it; if that document's review has ended, it stops the old editor and starts a fresh review. To review an approved document again, call `galley_open` again.
+**A review does not exist until an editor is running, and you start one with the `galley_open` tool.** Call it with the document's path. It starts the editor for this session, in the background, and opens the page in the human's browser. From then on their Revise rounds arrive here as events. It returns the URL too: give it to the human if they closed the tab. Calling it again for the same document returns the same URL and opens the page again, unless another session owns it; if that document's review has ended, it stops the old editor and starts a fresh review. To review an approved document again, call `galley_open` again.
 
 `galley_open` accepts HTML files too. For `page.html` it extracts the prose into `.galley/pages/<base>/content.md`, opens the editor on that file, and re-renders the page after every round. The agent edits `content.md` — not `page.html` directly.
 
@@ -37,7 +37,7 @@ Between rounds, galley loads your edits to an open document. If you and the revi
 
 ## Answering a round
 
-A round arrives as `<channel source="galley" doc="…" reason="revise|settle|changed|approve|closed">`. The notification carries the instructions and their quoted anchors. **Use that captured round.** Do not re-read `galley pending` for it — a sent round is no longer pending, and `pending` will show you only newer unsent work.
+A round arrives as an event. In Claude Code it is a turn whose first line reads galley event doc=… reason=… fingerprint=… instructions=…, with the round below it; in pi it is `<channel source="galley" doc="…" reason="…">`. The reason is `revise`, `settle`, `changed`, `approve` or `closed`. The event carries the instructions and their quoted anchors. **Use that captured round.** Do not re-read `galley pending` for it — a sent round is no longer pending, and `pending` will show you only newer unsent work.
 
 1. If the work will take more than a moment, ack `working` first so the reviewer is not staring at silence.
 2. **Edit the `.md` file directly with your normal file tools.** While you hold the round, galley watches the file and streams every save into the reviewer's browser — so save as often as you like. They are watching it happen.

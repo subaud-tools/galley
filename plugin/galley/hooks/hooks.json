@@ -1,0 +1,6 @@
+{
+  "description": "Starts a turn with each galley event",
+  "modules": [
+    "./register.js"
+  ]
+}

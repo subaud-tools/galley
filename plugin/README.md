@@ -1,6 +1,6 @@
 # galley plugin
 
-The plugin carries three things: the `.mcp.json` entry pointing at `galley channel` on PATH, the skill that teaches an agent the review loop, and the manifest that lets both install in one step.
+The plugin carries four things: the `.mcp.json` entry pointing at `galley channel` on PATH, which serves galley's tools; the mod in `hooks/`, which runs `galley watch` and starts a turn with each event; the skill that teaches an agent the review loop; and the manifest that lets them install in one step. Everything but the skill is rendered by tools-common (`claudeplugin`), and `TestPluginIsCurrent` fails when the committed copy differs.
 
 **The binary is the product and the licence boundary.** The plugin ships no galley code and grants no entitlement. `galley` must already be on PATH.
 
@@ -13,7 +13,7 @@ claude plugin marketplace add subaud-tools/galley
 claude plugin install galley@galley
 ```
 
-**Today that is the maintainer's path only.** The repository is private, so both commands need git credentials that can read it (`gh auth login`, ssh-agent, or keychain) — which is not the case for anyone who mailed for a build. Until it opens, an early user wires the development path below by hand. When galley goes public, the same two commands work for buyers unchanged.
+The repository is public, so both commands work for anyone with `galley` on PATH.
 
 ## The launch flag does not go away
 
@@ -38,17 +38,17 @@ The development path is the one that needs wiring, and **this repository does no
 
 For an org, the equivalent is `channelsEnabled: true` plus an `allowedChannelPlugins` entry naming `galley` and this marketplace. Note that the key **replaces** the Anthropic default list — re-list Telegram, Discord and iMessage if the org uses them.
 
-## Three version numbers, three meanings
+## Versions
 
-A version sweep across this repo will find three, and they are not the same number. Nothing here should ever be "kept in sync".
+A version sweep across this repo will find two numbers and one place without one, and they are not the same thing. Nothing here should ever be "kept in sync".
 
 | Where | What it is | Moves when |
 |---|---|---|
 | `/VERSION` | galley the binary | a galley release is cut |
-| `plugin/galley/.claude-plugin/plugin.json` | **the plugin artifact, versioned on its own line** | the plugin's own contents change |
+| `plugin/galley/.claude-plugin/plugin.json` | **no version at all**: Claude Code versions the plugin by the commit it was installed from | any commit that changes the plugin |
 | `skills/…/SKILL.md`'s "galley 0.4.0 or newer" | **a compatibility floor, not a stamp** | never, unless the floor itself moves |
 
-The plugin does not track the binary. It ships protocol text, not code, and most galley releases — a lint fix, a ratchet, a gate — change nothing here; bumping it in lockstep would force a reinstall of an identical plugin, because Claude Code resolves updates on that field.
+The plugin does not track the binary. It ships protocol text and a mod, not galley code, and its manifest carries no version on purpose, so nobody has to bump one.
 
 The floor is the one that catches people. **v0.4.0 is the first build with the verification key embedded**, so anything older runs trial-only whatever key it is given. Raising that sentence to the current version would tell a 0.4.0 user their licence is no good, which is false. It is a statement about the past and it stays put.
 
