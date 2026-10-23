@@ -42,17 +42,15 @@ the room, push can spawn one — with the document and nothing else — and
 'galley agent-prompt' is the text that tells it what to do:
   galley edit doc.md --on-revise 'claude -p "$(galley agent-prompt doc.md)"'
 
-The channel is pull, packaged: 'galley channel' is an MCP server the agent
-harness starts with the session. It attaches to every editor this session
-opens — and any unowned one under its root — and pushes each Revise, settle
-and Approve into the session as an event. No listener to remember.
-  claude --channels plugin:galley@galley                         installed
-  claude --dangerously-load-development-channels server:galley   development
+The channel is pull, packaged: it starts with the session, attaches to every
+editor this session opens — and any unowned one under its root — and delivers
+each Revise, settle and Approve into the session as an event. No listener to
+remember. In Claude Code it comes from galley's plugin; install it once, then
+start claude as usual:
+  claude plugin marketplace add subaud-tools/galley
+  claude plugin install galley@galley
 
-The installed path comes from this repository's own marketplace manifest
-(.claude-plugin/marketplace.json); the development path needs a project
-.mcp.json running 'galley channel'. A channel needs a launch flag either
-way — installing changes WHICH flag, not whether one is required. See
+In pi, the channels.tools extension runs 'galley channel'. See
 plugin/README.md.
 
 'galley render doc.md' writes the document's branded HTML page without an
