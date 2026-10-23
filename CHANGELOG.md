@@ -2,7 +2,7 @@
 
 Newest first. Notes for releases up to 0.10.2 are on the GitHub releases page: https://github.com/subaud-tools/galley/releases
 
-## Unreleased
+## 0.15.2
 
 - In a pi session on the claude-bridge, events arrive once instead of twice: the Claude Code plugin's mod stays quiet there.
 
