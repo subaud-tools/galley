@@ -1057,17 +1057,28 @@ func runChannel(args []string, out, errw io.Writer) error {
 // starts a turn with it. stdout carries only those lines; every diagnostic
 // goes to stderr. It runs until it is signalled.
 func runWatch(args []string, out, errw io.Writer) error {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return watchUntil(ctx, args, out, errw)
+}
+
+// watchUntil is runWatch until ctx ends, so a test can stop it.
+func watchUntil(ctx context.Context, args []string, out, errw io.Writer) error {
 	fs, v := newScopeFlags("watch")
 	if err := tools.ParseFlags(fs, args, out); err != nil {
+		return err
+	}
+	// In a bridge child this prints the stop line and the mod never restarts
+	// watch: the hosting pi session's channel delivers the rounds.
+	lines, run, err := channelmcp.StartWatch(out, "galley")
+	if !run || err != nil {
 		return err
 	}
 	self := sessionID()
 	cwd, _ := os.Getwd()
 	_, _ = fmt.Fprintf(errw, "[galley watch] cwd=%s session_id_present=%t scope=%s\n", cwd, self != "", *v.scope)
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 	c := newChannel(*v.scope, self)
-	c.push = channelmcp.NewLines(out)
+	c.push = lines
 	c.scanEvery = 2 * time.Second
 	c.watch(ctx)
 	return nil

@@ -289,9 +289,10 @@ func newApp() *tools.App {
 		Synopsis: "watch [--scope <dir>]",
 		Help: "Attaches to the editors `galley channel` would and prints each\n" +
 			"Revise, settle, Approve — and the editor going away — as one JSON line\n" +
-			"{\"content\": ..., \"meta\": {...}} on stdout. The galley plugin's mod runs it\n" +
-			"for a Claude Code session and starts a turn with each line. Diagnostics go\n" +
-			"to stderr. Runs until signalled.",
+			"{\"text\": ..., \"content\": ..., \"meta\": {...}} on stdout. The galley plugin's\n" +
+			"mod runs it for a Claude Code session and starts a turn with each line's text.\n" +
+			"Diagnostics go to stderr. Runs until signalled. In a session pi's claude-bridge\n" +
+			"runs, it prints {\"stop\": ...} and exits 0.",
 		NewFlags: func() *flag.FlagSet { fs, _ := newScopeFlags("watch"); return fs },
 		Run:      runWatch,
 	})
