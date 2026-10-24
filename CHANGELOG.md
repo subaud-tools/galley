@@ -2,6 +2,10 @@
 
 Newest first. Notes for releases up to 0.10.2 are on the GitHub releases page: https://github.com/subaud-tools/galley/releases
 
+## 0.15.5
+
+- Two galley pages on different ports can stay signed in in the same browser: the sign-in cookie is named per port (tools-common v0.22.0).
+
 ## 0.15.4
 
 - `galley help` tells you to turn on auto-update for the galley marketplace in Claude Code, so the plugin stays current.
