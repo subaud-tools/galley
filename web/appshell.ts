@@ -130,6 +130,7 @@ import type { OverallCard, CaptureCard } from './cards.ts';
 import type { DocMenu, MenuItem } from './menu.ts';
 import type { ReviseWatchView } from './verdict.ts';
 import type { growthWatch } from './card.ts';
+import type { ShareMenu } from './share.ts';
 
 // --- shapes AppShell's members are built from ---
 
@@ -391,9 +392,9 @@ export interface AppState {
   cancelBtn: HTMLButtonElement | null;
   // `this.share = this.makeShare();` — direct and unconditional, nullable
   // for the cancel button's reason (no `#gly-revise`, nothing to sit beside).
-  // The menu is built on the first press, like the verdict menu.
+  // makeShare builds the kit's menu with it, hidden.
   share: HTMLButtonElement | null;
-  shareMenu: HTMLElement | null;
+  shareMenu: ShareMenu | null;
 
   // --- the block grips (web/figures.ts) ---
   //
@@ -683,8 +684,6 @@ export interface AppMethods {
   // --- Share, and the bar's preview button (web/share.ts) ---
   makeShare(): HTMLButtonElement | null;
   swapShare(sealed: boolean): void;
-  makeShareMenu(): HTMLElement;
-  openShareMenu(): void;
   closeShareMenu(): void;
   runShare(
     act: 'download-html' | 'download-md' | 'share-html' | 'share-md',

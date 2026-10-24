@@ -258,13 +258,13 @@ const shareShown = (page) =>
     .catch(() => {});
 const menuItems = (page) =>
   page.evaluate(() =>
-    [...document.querySelectorAll('.gly-share-menu button')]
+    [...document.querySelectorAll('.kit-share-menu button')]
       .filter((b) => b.getBoundingClientRect().height > 0)
       .map((b) => b.textContent),
   );
 const pick = (page, label) =>
   page
-    .click(`.gly-share-menu button:has-text("${label}")`, { timeout: 5000 })
+    .click(`.kit-share-menu button:has-text("${label}")`, { timeout: 5000 })
     .catch(() => {});
 // The suggested filename of the download one press of label starts.
 async function downloadName(page, label) {

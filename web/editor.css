@@ -1,3 +1,9 @@
+/* Share's menu is tools-common's (web/kit/, refreshed from the module go.mod
+   pins by `just assets`), bundled in here so galley serves nothing new and
+   loads none of kit.css. Its --share-* properties are set to galley's own
+   tokens beside the verdict menu below. An @import must come first. */
+@import "./kit/share.css";
+
 /* galley edit mode — the editing surface, its suggestion marks, the bubble
    that decides them, and the notes rail beside them.
 
@@ -1956,8 +1962,7 @@ html.gly-panel-door {
 .gly-bar button,
 .gly-bottombar button,
 .gly-census button,
-.gly-verdict-menu button,
-.gly-share-menu button {
+.gly-verdict-menu button {
   font: inherit;
   border: 1px solid var(--gly-line);
   border-radius: 6px;
@@ -2467,8 +2472,7 @@ html.gly-panel-door {
    them, at the same shape, and nothing out-specifies it. Both labels are
    fixed strings (MENU_REVISE, MENU_TRUST), so no width reservation is needed:
    nothing in this menu ever changes size once it is open. */
-.gly-verdict-menu,
-.gly-share-menu {
+.gly-verdict-menu {
   position: absolute;
   z-index: 40;
   display: flex;
@@ -2489,8 +2493,7 @@ html.gly-panel-door {
    list of two choices, not two pills — so the only thing it overrides in the
    chrome button is the border's colour. It reserves the 1px either way, so
    hovering one cannot move the other. */
-.gly-verdict-menu button,
-.gly-share-menu button {
+.gly-verdict-menu button {
   font-size: 12px;
   padding: 5px 14px;
   border-color: transparent;
@@ -2498,6 +2501,18 @@ html.gly-panel-door {
   white-space: nowrap;
 }
 .gly-verdict-menu button:hover { border-color: var(--gly-signal); }
+
+/* Share's menu (tools-common's share.css) in the verdict menu's furniture:
+   the card's ground, one hairline, --gly-lift, the page's sans. Its rows
+   take no outline on hover, as they never have here. */
+.kit-share-menu {
+  --share-ground: var(--gly-card);
+  --share-ink: var(--gly-fg);
+  --share-line: var(--gly-line);
+  --share-lift: var(--gly-lift);
+  --share-hover: transparent;
+  --share-font: var(--gly-sans);
+}
 
 /* --- Share: the approved document's way to a reader (web/share.ts) ---
    FILLED, LIKE REVISE, because it is the slot's primary: after approval it is
@@ -3796,7 +3811,6 @@ body.gly-history-mode > main {
 .gly-strip-read[hidden],
 .gly-strip-show[hidden],
 .gly-verdict-menu[hidden],
-.gly-share-menu[hidden],
 .gly-versions[hidden] { display: none; }
 
 /* THE REVIEWER'S OWN EDITS, IN THE RAIL. One surface: the rail is the list of

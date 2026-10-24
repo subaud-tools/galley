@@ -5,6 +5,7 @@ Newest first. Notes for releases up to 0.10.2 are on the GitHub releases page: h
 ## 0.15.4
 
 - `galley help` tells you to turn on auto-update for the galley marketplace in Claude Code, so the plugin stays current.
+- The Share menu and its clipboard come from tools-common v0.19.0 (`localweb.PutFile` and the page kit's `share.js`), built into galley's own bundle. It looks and works as before; Escape now closes it too.
 
 ## 0.15.3
 

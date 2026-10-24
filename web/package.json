@@ -12,11 +12,12 @@
     "dead-code": "fallow dead-code",
     "dupes": "fallow dupes",
     "complexity": "fallow health",
+    "kit-share": "go mod download github.com/subaud-tools/tools-common && KIT_DIR=$(go list -m -f '{{.Dir}}' github.com/subaud-tools/tools-common) && test -n \"$KIT_DIR\" && mkdir -p kit && cp -f \"$KIT_DIR/localweb/page/assets/share.js\" \"$KIT_DIR/localweb/page/assets/share.css\" kit/ && sed -n '/^\\/\\/ ---- share.js/,$p' \"$KIT_DIR/localweb/page/assets/kit.d.ts\" > kit/share.d.ts && chmod 644 kit/share.js kit/share.css kit/share.d.ts",
     "build:editor-js": "esbuild entry.ts --bundle --minify --format=iife --target=es2019 --charset=utf8 --outfile=../internal/serve/assets/editor.js",
     "build:editor-css": "esbuild editor.css --bundle --minify --charset=utf8 --outfile=../internal/serve/assets/editor.css",
     "build:mermaid": "esbuild mermaid-entry.ts --bundle --minify --format=iife --global-name=galleyMermaid --target=es2019 --charset=utf8 --outfile=../internal/serve/assets/mermaid.js",
     "probe": "node probe.mjs",
-    "build": "npm run --silent build:editor-js && npm run --silent build:editor-css && npm run --silent build:mermaid && npm run --silent probe"
+    "build": "npm run --silent kit-share && npm run --silent build:editor-js && npm run --silent build:editor-css && npm run --silent build:mermaid && npm run --silent probe"
   },
   "dependencies": {
     "@tiptap/core": "2.27.2",
