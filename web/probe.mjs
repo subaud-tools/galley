@@ -7927,6 +7927,25 @@ function bindsContentField(src) {
       PREVIEW_LABEL,
     ].every((l) => bundle.includes(l)),
   );
+  // The menu is tools-common's (web/kit/share.js, refreshed from the pinned
+  // module by `just assets`), bundled into editor.js with its stylesheet in
+  // editor.css: galley serves nothing new and loads no kit.css.
+  let css = '';
+  try {
+    css = readFileSync(
+      new URL('../internal/serve/assets/editor.css', import.meta.url),
+      'utf8',
+    );
+  } catch {
+    // Reported below.
+  }
+  check(
+    "the built bundle builds the kit's Share menu and carries its stylesheet",
+    bundle.includes('kit-share-menu') &&
+      css.includes('.kit-share-menu') &&
+      !css.includes('.gly-share-menu') &&
+      !bundle.includes('/_kit/'),
+  );
 }
 
 process.exit(failures === 0 ? 0 : 1);

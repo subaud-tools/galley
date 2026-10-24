@@ -29,7 +29,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -48,6 +47,7 @@ import (
 	"github.com/subaud-tools/galley/internal/unsent"
 	"github.com/subaud-tools/galley/internal/versions"
 	"github.com/subaud-tools/galley/internal/ydoc"
+	"github.com/subaud-tools/tools-common/localweb"
 )
 
 // EditServer serves one markdown document, live as a ygo XML fragment, and
@@ -122,8 +122,8 @@ type EditServer struct {
 	OnStop func()
 
 	// canShare is whether this machine can put a file on the clipboard for the
-	// reviewer to paste as an attachment: macOS only (see share.go). putFile
-	// does it, the osascript call by default; a test supplies its own so it
+	// reviewer to paste as an attachment: macOS only (localweb.CanShare). putFile
+	// does it, localweb.PutFile by default; a test supplies its own so it
 	// never touches the real clipboard.
 	canShare bool
 	putFile  func(path string) error
@@ -534,8 +534,8 @@ func NewEdit(mdPath string) (*EditServer, error) {
 		// depend on push being configured.
 		Notify: &Notifier{},
 
-		canShare: runtime.GOOS == "darwin",
-		putFile:  putFileOnClipboard,
+		canShare: localweb.CanShare(),
+		putFile:  localweb.PutFile,
 	}
 
 	// The review map is pending.json's live state. Where each comment sits is

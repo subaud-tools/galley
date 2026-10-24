@@ -60,8 +60,10 @@ plugin-valid:
 # builds, and the browser silently runs last week's editor. mermaid.js is
 # checked with the other two; it is the output a page only fetches when it
 # holds a diagram, so nobody would find a stale one by opening a document.
+# web/kit is tools-common's Share menu, copied from the module go.mod pins by
+# the build: a copy that disagrees with the pin is the same stale bundle.
 bundle-fresh: assets
-    git diff --exit-code -- internal/serve/assets/editor.js internal/serve/assets/editor.css internal/serve/assets/mermaid.js \
+    git diff --exit-code -- internal/serve/assets/editor.js internal/serve/assets/editor.css internal/serve/assets/mermaid.js web/kit \
       || { echo "the committed editor bundle does not match web/: run 'just assets' and commit the result"; exit 1; }
 
 # The browser gates (below): a real chromium, minutes, one at a time. Not in

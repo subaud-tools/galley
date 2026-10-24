@@ -1,11 +1,9 @@
 package serve
 
 import (
-	"fmt"
 	"mime"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -189,22 +187,4 @@ func (s *EditServer) shareFile(w http.ResponseWriter, path string) {
 		return
 	}
 	writeJSON(w, map[string]string{"path": path})
-}
-
-// putFileOnClipboard puts the file itself, not its path, on the macOS
-// clipboard, so pasting into a chat attaches it. The path is an argument to
-// the script, never part of its text.
-func putFileOnClipboard(path string) error {
-	out, err := exec.Command("osascript",
-		"-e", "on run argv",
-		"-e", "set the clipboard to (POSIX file (item 1 of argv))",
-		"-e", "end run",
-		path).CombinedOutput()
-	if err != nil {
-		if msg := strings.TrimSpace(string(out)); msg != "" {
-			return fmt.Errorf("could not put %s on the clipboard: %s", filepath.Base(path), msg)
-		}
-		return fmt.Errorf("could not put %s on the clipboard: %w", filepath.Base(path), err)
-	}
-	return nil
 }

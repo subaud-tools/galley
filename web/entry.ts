@@ -141,7 +141,7 @@ import { historyMethods } from './history.ts';
 import { barMethods, MODE_ASK } from './bar.ts';
 import { verdictMethods } from './verdict.ts';
 import { sealMethods } from './seal.ts';
-import { shareMethods } from './share.ts';
+import { shareMethods, type ShareMenu } from './share.ts';
 import { coerceLevel } from './heading.ts';
 import { runFor, markElement } from './runs.ts';
 // ONE CARD AND ONE REVEAL, shared with History's rail. See web/card.ts, whose
@@ -858,7 +858,7 @@ class App implements AppState {
   sealUI: { readout: HTMLElement };
   cancelBtn: HTMLButtonElement | null;
   share: HTMLButtonElement | null;
-  shareMenu: HTMLElement | null;
+  shareMenu: ShareMenu | null;
 
   // --- the block grips (web/figures.ts) ---
   grips: HTMLElement;

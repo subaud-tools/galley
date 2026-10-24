@@ -15,6 +15,8 @@ claude plugin install galley@galley
 
 The repository is public, so both commands work for anyone with `galley` on PATH. A session started after the install hears galley with plain `claude`. In a session that is already open, run `/reload-plugins` to load it.
 
+Turn on auto-update for the `galley` marketplace so the plugin stays current: in Claude Code, run `/plugin`, open the **Marketplaces** tab, select `galley` and choose **Enable auto-update**.
+
 ## Versions
 
 A version sweep across this repo will find two numbers and one place without one, and they are not the same thing. Nothing here should ever be "kept in sync".

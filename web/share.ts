@@ -23,36 +23,48 @@
 // and the Shares are absent where it cannot. A page under review (page mode)
 // is already the HTML a reader gets: its menu hands over the page itself and
 // has no Markdown items.
+//
+// THE MENU AND ITS WORDS ARE TOOLS-COMMON'S. web/kit/share.js is the kit's
+// share.js, copied from the module go.mod pins by `just assets` (the
+// `kit-share` script) and bundled into editor.js, its share.css into
+// editor.css; `bundle-fresh` fails when the copy and the pin disagree. Its
+// labels, status line and reply time are re-exported here so the harnesses
+// keep importing them from this file. Which items, in what order, and what
+// each does stay galley's.
 
 import { postJSON } from './net.ts';
 import type { AppShell } from './appshell.ts';
+import {
+  SHARE_LABEL,
+  SHARE_DOWNLOAD_HTML,
+  SHARE_DOWNLOAD_MD,
+  SHARE_SHARE_HTML,
+  SHARE_SHARE_MD,
+  SHARE_REPLY_MS,
+  sharedLine,
+  shareMenu,
+  type ShareMenu,
+} from './kit/share.js';
 
-export const SHARE_LABEL = 'Share ▾';
-export const SHARE_DOWNLOAD_HTML = 'Download HTML';
-export const SHARE_DOWNLOAD_MD = 'Download Markdown';
-export const SHARE_SHARE_HTML = 'Share HTML';
-export const SHARE_SHARE_MD = 'Share Markdown';
+export {
+  SHARE_LABEL,
+  SHARE_DOWNLOAD_HTML,
+  SHARE_DOWNLOAD_MD,
+  SHARE_SHARE_HTML,
+  SHARE_SHARE_MD,
+  SHARE_REPLY_MS,
+  sharedLine,
+} from './kit/share.js';
+export type { ShareMenu };
+
 export const PREVIEW_LABEL = 'HTML preview ↗';
 const PREVIEW_HREF = '/_galley/render';
 
-function baseName(path: string): string {
-  const i = path.lastIndexOf('/');
-  return i === -1 ? path : path.slice(i + 1);
-}
-
-/** SHARE_REPLY_MS is how long a Share's copied line stays on the status line
- * before it clears itself. An error stays until something else is said. */
-export const SHARE_REPLY_MS = 5000;
-
-/** sharedLine is the status line after a Share put the file at path on the
- * clipboard. */
-export function sharedLine(path: string): string {
-  return `${baseName(path)} copied · paste to attach`;
-}
+type ShareAct = 'download-html' | 'download-md' | 'share-html' | 'share-md';
 
 export interface ShareItem {
   label: string;
-  act: 'download-html' | 'download-md' | 'share-html' | 'share-md';
+  act: ShareAct;
 }
 
 /** shareItems is the menu, in order: the downloads, then, where the server
@@ -108,14 +120,15 @@ export const shareMethods = {
     b.textContent = SHARE_LABEL;
     b.title = 'hand the approved document to a reader';
     b.hidden = true;
-    b.addEventListener('click', () => {
-      if (this.shareMenu && !this.shareMenu.hidden) {
-        this.closeShareMenu();
-      } else {
-        this.openShareMenu();
-      }
-    });
     revise.parentNode.insertBefore(b, revise.nextSibling);
+    // The kit's menu binds the button's click to its toggle, and closes on an
+    // outside click, Escape and a resize. Built now, hidden: the button is
+    // hidden until the seal edge, so nothing can open it before approval.
+    this.shareMenu = shareMenu(
+      b,
+      shareItems(this.pageMode, this.canShare),
+      (act) => this.runShare(act),
+    );
     return b;
   },
 
@@ -138,71 +151,11 @@ export const shareMethods = {
     revise.hidden = false;
   },
 
-  makeShareMenu(this: AppShell): HTMLElement {
-    const el = document.createElement('div');
-    el.className = 'gly-share-menu';
-    el.setAttribute('role', 'menu');
-    el.hidden = true;
-    for (const item of shareItems(this.pageMode, this.canShare)) {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.setAttribute('role', 'menuitem');
-      b.textContent = item.label;
-      b.addEventListener('click', () => {
-        this.closeShareMenu();
-        this.runShare(item.act);
-      });
-      el.append(b);
-    }
-    document.body.appendChild(el);
-    // Outside-click closes, in capture, the verdict menu's way: the button
-    // itself is not "outside", it owns the toggle.
-    document.addEventListener(
-      'click',
-      (event) => {
-        if (el.hidden || !(event.target instanceof Node)) {
-          return;
-        }
-        if (el.contains(event.target)) {
-          return;
-        }
-        if (this.share && this.share.contains(event.target)) {
-          return;
-        }
-        this.closeShareMenu();
-      },
-      true,
-    );
-    window.addEventListener('resize', () => this.closeShareMenu());
-    return el;
-  },
-
-  openShareMenu(this: AppShell) {
-    const share = this.share;
-    if (!share || share.hidden) {
-      return;
-    }
-    if (!this.shareMenu) {
-      this.shareMenu = this.makeShareMenu();
-    }
-    const menu = this.shareMenu;
-    // Right-aligned under the button: the slot is the bar's rightmost, so
-    // the menu grows leftward over the page rather than off its edge.
-    const at = share.getBoundingClientRect();
-    const right = document.documentElement.clientWidth - at.right;
-    menu.hidden = false;
-    menu.style.top = `${at.bottom + window.scrollY + 4}px`;
-    menu.style.right = `${Math.max(4, right - window.scrollX)}px`;
-    menu.style.left = 'auto';
-  },
-
   closeShareMenu(this: AppShell) {
-    if (this.shareMenu) {
-      this.shareMenu.hidden = true;
-    }
+    this.shareMenu?.close();
   },
 
-  runShare(this: AppShell, act: ShareItem['act']) {
+  runShare(this: AppShell, act: ShareAct) {
     const href = DOWNLOADS[act];
     if (href) {
       download(href);
