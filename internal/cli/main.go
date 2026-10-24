@@ -50,6 +50,10 @@ start claude as usual:
   claude plugin marketplace add subaud-tools/galley
   claude plugin install galley@galley
 
+Turn on auto-update for the galley marketplace so the plugin stays current:
+in Claude Code, run /plugin, open the Marketplaces tab, select galley and
+choose Enable auto-update.
+
 In pi, the channels.tools extension runs 'galley channel'. See
 plugin/README.md.
 
