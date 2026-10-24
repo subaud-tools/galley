@@ -2,6 +2,10 @@
 
 Newest first. Notes for releases up to 0.10.2 are on the GitHub releases page: https://github.com/subaud-tools/galley/releases
 
+## 0.15.3
+
+- The Claude Code plugin's mod is now a thin shim: `galley watch` decides what each event says and whether a session hears it, so later fixes arrive with the binary.
+
 ## 0.15.2
 
 - In a pi session on the claude-bridge, events arrive once instead of twice: the Claude Code plugin's mod stays quiet there.

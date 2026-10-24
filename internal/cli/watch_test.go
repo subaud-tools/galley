@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -26,7 +27,7 @@ func TestWatchPrintsARevisePressAsOneLine(t *testing.T) {
 	r, w := io.Pipe()
 	c := newChannel(dir, "me")
 	c.scanEvery = 20 * time.Millisecond
-	c.push = channelmcp.NewLines(w)
+	c.push = channelmcp.NewLinesFor(w, "galley")
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	go c.watch(ctx)
@@ -101,5 +102,76 @@ func TestChannelAttachesOnlyOutsideClaudeCode(t *testing.T) {
 				t.Fatalf("status does not say rounds go through galley watch:\n%s", s)
 			}
 		})
+	}
+}
+
+// Inside pi's claude-bridge the hosting pi session's channel delivers the
+// rounds, so `galley watch` prints one stop line and returns at once: the mod
+// then never restarts it, and no editor is attached a second time.
+func TestWatchStopsInABridgeChild(t *testing.T) {
+	t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
+	t.Setenv("AGENT_SESSION_CHILD", "1")
+	t.Setenv("AGENT_SESSION_ID", "x")
+	var out bytes.Buffer
+	done := make(chan error, 1)
+	go func() { done <- runWatch([]string{"--scope", t.TempDir()}, &out, io.Discard) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("runWatch = %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("galley watch started its loop in a bridge child")
+	}
+	lines := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
+	var stop struct {
+		Stop string `json:"stop"`
+	}
+	if len(lines) != 1 || json.Unmarshal([]byte(lines[0]), &stop) != nil || stop.Stop == "" {
+		t.Fatalf("want exactly one stop line, got %q", out.String())
+	}
+}
+
+// Outside the bridge `galley watch` prints each wake with `text`, the whole
+// prompt the plugin's mod submits as the turn.
+func TestWatchLineCarriesText(t *testing.T) {
+	t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
+	t.Setenv("AGENT_SESSION_CHILD", "")
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
+	t.Setenv("AGENT_SESSION_ID", "me")
+	dir := t.TempDir()
+	doc := writeDoc(t, dir, "doc.md", "# T\n\nHello.\n")
+	srv, ts, _ := liveEditor(t, doc, registry.Entry{})
+
+	r, w := io.Pipe()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go func() { _ = watchUntil(ctx, []string{"--scope", dir}, w, io.Discard) }()
+
+	until(t, "the attach", func() bool { return srv.Waiting() > 0 })
+	press(t, ts)
+
+	lines := make(chan string, 1)
+	go func() {
+		sc := bufio.NewScanner(r)
+		sc.Buffer(make([]byte, 1<<20), 1<<24)
+		if sc.Scan() {
+			lines <- sc.Text()
+		}
+	}()
+	var line string
+	select {
+	case line = <-lines:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no line printed for the Revise press")
+	}
+	var ev struct {
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal([]byte(line), &ev); err != nil {
+		t.Fatalf("not one JSON line: %q (%v)", line, err)
+	}
+	if !strings.HasPrefix(ev.Text, "galley event") {
+		t.Fatalf("text = %q, want it to start with \"galley event\"", ev.Text)
 	}
 }
