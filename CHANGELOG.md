@@ -2,6 +2,10 @@
 
 Newest first. Notes for releases up to 0.10.2 are on the GitHub releases page: https://github.com/subaud-tools/galley/releases
 
+## Unreleased
+
+- `galley help` tells you to turn on auto-update for the galley marketplace in Claude Code, so the plugin stays current.
+
 ## 0.15.3
 
 - The Claude Code plugin's mod is now a thin shim: `galley watch` decides what each event says and whether a session hears it, so later fixes arrive with the binary.
