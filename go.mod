@@ -5,7 +5,7 @@ go 1.26
 require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/reearth/ygo v1.43.0
-	github.com/subaud-tools/tools-common v0.17.0
+	github.com/subaud-tools/tools-common v0.18.0
 	github.com/subaud-tools/tools-common/sqlitedb v0.2.0
 	github.com/yuin/goldmark v1.8.5
 	golang.org/x/net v0.58.0
