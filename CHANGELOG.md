@@ -2,7 +2,7 @@
 
 Newest first. Notes for releases up to 0.10.2 are on the GitHub releases page: https://github.com/subaud-tools/galley/releases
 
-## Unreleased
+## 0.15.6
 
 - Enter in a comment box comes from tools-common v0.25.0's page kit (`enter.js`, copied into the bundle like the Share menu): Enter files, Shift-Enter breaks the line, as before. The Share menu is unchanged.
 
