@@ -2,6 +2,10 @@
 
 Newest first. Notes for releases up to 0.10.2 are on the GitHub releases page: https://github.com/subaud-tools/galley/releases
 
+## 0.15.6
+
+- Enter in a comment box comes from tools-common v0.25.0's page kit (`enter.js`, copied into the bundle like the Share menu): Enter files, Shift-Enter breaks the line, as before. The Share menu is unchanged.
+
 ## 0.15.5
 
 - Two galley pages on different ports can stay signed in in the same browser: the sign-in cookie is named per port (tools-common v0.22.0).

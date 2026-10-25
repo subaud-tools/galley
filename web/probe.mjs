@@ -201,7 +201,6 @@ import {
   decidable,
   stepPending,
   keyTargetIsEditable,
-  submitOnEnter,
   threadLabel,
   growOnInput,
   HEAD_QUOTE_CHARS,
@@ -213,6 +212,7 @@ import {
   RAIL_MIN_WIDTH,
 } from './rail.ts';
 import { strandedValue } from './cards.ts';
+import { submitOnEnter } from './kit/enter.js';
 
 let failures = 0;
 
@@ -4457,8 +4457,10 @@ const unplacedEntry = (c) => {
   // handlers, of which only two existed: the reply boxes filed on Enter and
   // the composer that CREATES a comment had no handler at all, so a reviewer
   // who typed a comment and pressed Enter got nothing. submitOnEnter is the
-  // one copy now, and web/typing.mjs drives it from a real keyboard; this
-  // pins the decision itself, with no DOM in the way.
+  // one copy now, tools-common's (web/kit/enter.js, copied from the pinned
+  // module; its long reasoning is in git history at web/rail.ts), and
+  // web/typing.mjs drives it from a real keyboard; this pins the decision
+  // itself, with no DOM in the way.
   const fired = [];
   let prevented = 0;
   const field = {

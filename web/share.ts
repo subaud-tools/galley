@@ -26,7 +26,7 @@
 //
 // THE MENU AND ITS WORDS ARE TOOLS-COMMON'S. web/kit/share.js is the kit's
 // share.js, copied from the module go.mod pins by `just assets` (the
-// `kit-share` script) and bundled into editor.js, its share.css into
+// `kit-copy` script) and bundled into editor.js, its share.css into
 // editor.css; `bundle-fresh` fails when the copy and the pin disagree. Its
 // labels, status line and reply time are re-exported here so the harnesses
 // keep importing them from this file. Which items, in what order, and what
