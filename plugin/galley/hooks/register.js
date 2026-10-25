@@ -5,6 +5,10 @@
 // hears anything; this mod only carries its lines:
 //   {"text": ...}   submit text, word for word
 //   {"stop": ...}   log the reason; watch exits and is not restarted
+// and reports back by running the binary, passing a line's "report" token
+// unchanged:
+//   BIN report landed <token>   the line's prompt started a turn
+//   BIN report turn-ended       a turn completed after one of its lines landed
 
 const NAME = "galley"
 const BIN = "galley"
@@ -25,17 +29,51 @@ let pending = []
 let generation = 0
 let current = null
 let delay = FIRST_DELAY
+// landed is true once one of this mod's lines started a turn, until that turn
+// completes: only then does turn.complete run the binary.
+let landed = false
+// reports runs each report after the one before it has exited: each is its
+// own process calling the tool's server, so started together they could
+// arrive in either order.
+let reports = Promise.resolve()
 
-async function submitPrompt($, text) {
+// queueReport runs report($, args) once every earlier report has exited.
+function queueReport($, args) {
+  reports = reports.then(() => report($, args))
+}
+
+// report runs `BIN report ...args` in this session. A failure goes to the
+// debug log (a binary older than its plugin has no report command, and would
+// otherwise log every turn) and is never retried.
+async function report($, args) {
+  const what = BIN + ' report ' + args.join(' ')
+  try {
+    const id = await $.session.id()
+    const child = $.process.spawn({ argv: [BIN, 'report', ...args], env: { CLAUDE_CODE_SESSION_ID: id } })
+    for await (const _ of child) {
+    }
+    const r = await child.result
+    if (r.code !== 0 || r.signal) $.ui.log(what + ' failed: ' + (r.signal ?? 'exit code ' + r.code), { to: 'debug' })
+  } catch (error) {
+    $.ui.log(what + ' failed: ' + String(error?.message ?? error), { to: 'debug' })
+  }
+}
+
+// submitPrompt resolves when the prompt's turn starts, or with a drop.
+async function submitPrompt($, ev) {
   let reason
   try {
-    const result = await $.prompt.submit({ text })
+    const result = await $.prompt.submit({ text: ev.text })
     reason = result?.drop ?? ''
   } catch (error) {
     reason = String(error?.message ?? error)
   }
-  if (RETRY.some(s => reason.includes(s))) pending.push(text)
+  if (RETRY.some(s => reason.includes(s))) pending.push(ev)
   else if (reason) $.ui.log(NAME + ' event not delivered: ' + reason)
+  else if (typeof ev.report === 'string' && ev.report) {
+    landed = true
+    queueReport($, ['landed', ev.report])
+  }
 }
 
 async function watch($, gen) {
@@ -72,7 +110,7 @@ async function watch($, gen) {
         }
         delay = FIRST_DELAY
         // Not awaited: submit waits until the session is idle.
-        void submitPrompt($, ev.text)
+        void submitPrompt($, ev)
       }
     }
     const r = await child.result
@@ -110,11 +148,15 @@ export function register(on) {
   })
 
   on('turn.complete', async ($, e, next) => {
+    if (landed) {
+      landed = false
+      queueReport($, ['turn-ended'])
+    }
     if (pending.length) {
-      const texts = pending
+      const events = pending
       // Emptied first, so a second run of this hook doesn't submit them twice.
       pending = []
-      for (const text of texts) void submitPrompt($, text)
+      for (const ev of events) void submitPrompt($, ev)
     }
     return next(e)
   })
