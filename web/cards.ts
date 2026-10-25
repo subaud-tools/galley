@@ -27,11 +27,11 @@ import {
   anchorNote,
 } from './card.ts';
 import { runFor, runTop } from './runs.ts';
+import { submitOnEnter } from './kit/enter.js';
 import { postJSON } from './net.ts';
 import { age } from './suggestions.ts';
 import {
   censusCounts,
-  submitOnEnter,
   growOnInput,
   threadLabel,
   overallThreads,

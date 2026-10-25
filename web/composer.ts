@@ -23,7 +23,8 @@
 // block grip, which opens a section's composer.
 
 import { postJSON } from './net.ts';
-import { submitOnEnter, growOnInput, elide, AUTHOR } from './rail.ts';
+import { growOnInput, elide, AUTHOR } from './rail.ts';
+import { submitOnEnter } from './kit/enter.js';
 import { literalHit } from './suggestions.ts';
 import type { LiteralHit } from './suggestions.ts';
 import type { EditorState } from '@tiptap/pm/state';
