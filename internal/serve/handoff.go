@@ -18,6 +18,7 @@ import (
 
 	"github.com/subaud-tools/galley/internal/markdown"
 	"github.com/subaud-tools/galley/internal/ondisk"
+	"github.com/subaud-tools/tools-common/msgstate"
 )
 
 // handoffLeaseVersion is the lease's schema generation, written as `v`.
@@ -46,7 +47,12 @@ import (
 //
 // A lease with no `v` is generation 1 — the shape this field was added to — so
 // a window open across the upgrade still resumes.
-const handoffLeaseVersion = 1
+//
+// Generation 2 adds the window's message: state, line, held and report. A
+// generation 1 lease resumes its message as with_agent (a window only opened
+// once a reader took the press or the command ran) and is rewritten as 2 at
+// once. A galley that knows only 1 refuses a 2 as newer, by the rule above.
+const handoffLeaseVersion = 2
 
 // handoffLease is the window made durable. It is written on every transition
 // so a restart mid-response reopens the window instead of cutting the agent's
@@ -66,6 +72,20 @@ type handoffLease struct {
 	// imported.
 	LastImported    string `json:"lastImported,omitempty"`
 	ApproveOnAnswer bool   `json:"approveOnAnswer,omitempty"`
+	// State, Line, Held and Report are the window's message (reviseMessage),
+	// so a restart mid-window resumes where the Revise stood.
+	State  msgstate.State `json:"state,omitempty"`
+	Line   string         `json:"line,omitempty"`
+	Held   bool           `json:"held,omitempty"`
+	Report string         `json:"report,omitempty"`
+}
+
+// withMessage copies m into the lease's message fields.
+func (l *handoffLease) withMessage(m *reviseMessage) {
+	if m == nil {
+		return
+	}
+	l.State, l.Line, l.Held, l.Report = m.state, m.line, m.held, m.token
 }
 
 // leasePath lives beside the round manifest: the lease is round state.
@@ -84,9 +104,11 @@ func (s *EditServer) openHandoff(round int, fp string, approveOnAnswer bool) {
 		OpenedAt: time.Now().UTC(), ApproveOnAnswer: approveOnAnswer,
 	}
 	s.reviseMu.Lock()
+	l.withMessage(s.msg)
 	s.handoffLease = l
+	snap := *l
 	s.reviseMu.Unlock()
-	if err := writeLease(s.leasePath(), l); err != nil && s.Log != nil {
+	if err := writeLease(s.leasePath(), &snap); err != nil && s.Log != nil {
 		// The ledger's rule: a lease that could not be written may not fail the
 		// round. The window still works for this process's lifetime; only
 		// restart recovery is lost, and the log says so.
@@ -121,8 +143,22 @@ func (s *EditServer) resumeHandoff(l *handoffLease) {
 	s.reviseMu.Lock()
 	s.watch = &reviseWatch{at: l.OpenedAt, fingerprint: l.Fingerprint, round: l.Round}
 	s.approveOnAnswer = l.ApproveOnAnswer
+	// A lease from before the message (generation 1 or none) was written for
+	// a window a reader had already taken: the message is with the agent, and
+	// the rewrite below records it as generation 2.
+	rewrite := l.V < 2 || l.State == ""
+	if rewrite {
+		l.State = msgstate.WithAgent
+	}
+	s.msg = &reviseMessage{state: l.State, line: l.Line, held: l.Held, token: l.Report}
 	s.handoffLease = l
+	snap := *l
 	s.reviseMu.Unlock()
+	if rewrite {
+		if err := writeLease(s.leasePath(), &snap); err != nil && s.Log != nil {
+			s.Log(fmt.Sprintf("could not rewrite the handoff lease: %v", err))
+		}
+	}
 	if l.LastImported != "" {
 		// Imports already happened in the previous run; who moved the document
 		// must survive the restart, or the resumed round loses its author.
@@ -409,6 +445,24 @@ func (s *EditServer) loadDraft(l handoffLease) (string, bool, error) {
 	}
 	s.setBaseline(live, raw)
 	return digest, true, nil
+}
+
+// persistMessage writes the window's message into the lease, so a restart
+// mid-window resumes it. With no window open there is no lease to write: a
+// settled message lives in memory only, and the round it closed is the record.
+// Callers hold no lock.
+func (s *EditServer) persistMessage() {
+	s.reviseMu.Lock()
+	if s.handoffLease == nil {
+		s.reviseMu.Unlock()
+		return
+	}
+	s.handoffLease.withMessage(s.msg)
+	snap := *s.handoffLease
+	s.reviseMu.Unlock()
+	if err := writeLease(s.leasePath(), &snap); err != nil && s.Log != nil {
+		s.Log(fmt.Sprintf("could not persist the revision's state: %v", err))
+	}
 }
 
 // setDraftError and draftError carry the one sentence the readout needs when

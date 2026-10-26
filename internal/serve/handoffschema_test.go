@@ -107,7 +107,7 @@ func TestALeaseFromANewerGalleyIsRefused(t *testing.T) {
 	if !errors.Is(err, ondisk.ErrFuture) {
 		t.Fatalf("err = %v, want the ErrFuture sentinel", err)
 	}
-	if !strings.Contains(err.Error(), "v99") || !strings.Contains(err.Error(), "v1") {
+	if !strings.Contains(err.Error(), "v99") || !strings.Contains(err.Error(), "v2") {
 		t.Fatalf("refusal %q must say what it found and what it knows", err)
 	}
 }
@@ -126,11 +126,11 @@ func TestNoLeaseIsStillNotAnError(t *testing.T) {
 // stops carrying it), so the list is pinned here as well.
 func TestTheLeaseKeysAreTheContract(t *testing.T) {
 	keys, err := ondisk.Keys(handoffLease{V: 1, Round: 1, Baseline: "b", Fingerprint: "f",
-		LastImported: "l", ApproveOnAnswer: true})
+		LastImported: "l", ApproveOnAnswer: true, State: "working", Line: "x", Held: true, Report: "t"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "v,round,baseline,fingerprint,openedAt,lastImported,approveOnAnswer"
+	want := "v,round,baseline,fingerprint,openedAt,lastImported,approveOnAnswer,state,line,held,report"
 	if got := strings.Join(keys, ","); got != want {
 		t.Fatalf("lease keys = %s\n          want %s", got, want)
 	}

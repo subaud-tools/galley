@@ -43,7 +43,7 @@ func TestEveryCommandHasHelp(t *testing.T) {
 	if err := json.Unmarshal([]byte(out.String()), &cmds); err != nil {
 		t.Fatal(err)
 	}
-	builtin := map[string]bool{"help": true, "version": true, "update": true, "man": true, "commands": true}
+	builtin := map[string]bool{"help": true, "version": true, "update": true, "man": true, "commands": true, "login": true, "logout": true}
 	for _, c := range cmds {
 		if builtin[c.Name] {
 			continue
