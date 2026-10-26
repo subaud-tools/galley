@@ -120,6 +120,20 @@ With instructions pending it reads **`Revise · N ▾`** — the count is the nu
 
 While a revision is out, the button counts: `revising · 12s`. It counts until the revision *lands*, not until the request returns, so a six-second revision shows six seconds. The document is read-only while the agent holds it and the readout says `with the agent`. A **`✕ cancel`** button appears beside the primary; it takes the document back, keeping the agent's partial work as that round if the file parses.
 
+Beside the button, a pill says where the last Revise stands:
+
+| Pill | Meaning |
+|---|---|
+| `sent` | Handed over, not yet in front of the agent. If the agent is mid-turn, the line beside it says it reads this when the turn ends. |
+| `with the agent` | It landed in the agent's session. |
+| `working` | The agent said it is on it; its one line on what it is doing is beside the pill. |
+| `answered` | The agent returned with the revision. |
+| `declined` | The agent won't do it, and says why. |
+| `failed` | The agent tried and couldn't, and says why. A `cannot` shows as failed with its reason. |
+| `no reply` | The agent's turn ended without settling it. A late answer still lands; press Revise again to send it again. |
+
+Hover the pill for the whole line. The pill goes when the review is approved.
+
 With no instructions pending the button reads **`Approve`** and the press sends the approve directly — there is nothing to choose between. Once it lands, the label becomes `approved`, the bar shows the terminal line (`Approved 14:32`), and the page stops taking input.
 
 ## Reading what came back

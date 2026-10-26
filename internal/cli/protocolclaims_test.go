@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -66,6 +67,11 @@ var fileEditLoopClaims = []string{
 	// other line here: the per-save ack is the six-rounds failure both
 	// carriers exist to prevent.
 	"once",
+	// WHERE THE ROUND STANDS IS THE AGENT'S TO SAY. The page shows each Revise
+	// as a pill with the agent's line under it, and the only way that line is
+	// written is an ack: `working` first, with one line, on a round that takes
+	// more than a moment; `declined` and `failed` settle it with why.
+	"working", "one line", "declined", "failed",
 }
 
 // The per-change manifest: there is a list, each entry quotes what was
@@ -96,6 +102,9 @@ var forbiddenClaims = []string{
 	"never edit the .md",
 	"galley suggest", "galley accept", "galley reject", "galley approve <doc>",
 	"galley decline", "galley reply", "galley resolve", "galley reopen", "entrusted",
+	// `received` is no ack: that a round reached the agent is the harness's
+	// to report.
+	"received",
 }
 
 // assertTeaches fails for every claim the carrier does not make. It reports
@@ -322,4 +331,21 @@ func channelDelivery() string {
 		parts = append(parts, reasonGuidance(r))
 	}
 	return strings.Join(parts, "\n")
+}
+
+// galley_ack's schema offers the four acknowledgements galley takes.
+func TestTheAckSchemaOffersTheFourAcknowledgements(t *testing.T) {
+	var schema struct {
+		Properties struct {
+			State struct {
+				Enum []string `json:"enum"`
+			} `json:"state"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(ackSchema, &schema); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(schema.Properties.State.Enum, ","); got != "working,answered,declined,failed" {
+		t.Fatalf("galley_ack state enum = %s, want working,answered,declined,failed", got)
+	}
 }

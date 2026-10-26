@@ -1,10 +1,9 @@
 // ack is the status half of answering a review. The revision itself is the
 // .md file, which the agent edits directly and which needs nothing here; this
-// is the one message with no passage to anchor to: "heard you", "working on it",
-// "done", "no", "can't". The server RECORDS it and the revising readout
-// (GET /_galley/revise) carries it — the raw material for telling an agent
-// that is thinking from one that died. Rendering it in the browser is a
-// deferred gap, not something this file can promise.
+// is the one message with no passage to anchor to: "working on it", "done",
+// "no", "can't". The server moves the Revise's message with it, and the
+// revising readout (GET /_galley/revise) carries it to the page, which shows
+// it as the pill beside Revise with the note as its line.
 //
 // No offline form, exactly like revise: an ack with no server has no one to
 // reassure.
@@ -34,7 +33,7 @@ type ackFlags struct {
 func newAckFlags() (*flag.FlagSet, *ackFlags) {
 	fs := flag.NewFlagSet("ack", flag.ContinueOnError)
 	v := &ackFlags{
-		state: fs.String("state", "", "one of: received, working, answered, declined, failed"),
+		state: fs.String("state", "", "one of: working (first, with a one-line --note, on a round that takes more than a moment), answered, declined, failed (with why in --note)"),
 		note:  fs.String("note", "", "a sentence for the reviewer (optional)"),
 		changes: fs.String("changes", "", `a JSON array annotating the changes you made: `+
 			`[{"quote":"…","answers":["<key>"],"note":"…"}]. "-" reads it from stdin`),
