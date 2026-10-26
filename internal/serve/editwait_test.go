@@ -243,6 +243,12 @@ func TestASecondPressReachesAReArmedWaiter(t *testing.T) {
 	h := s.Handler()
 
 	for press := 1; press <= 3; press++ {
+		// Each earlier press got no reply; while the agent still had the
+		// Revise, a press with nothing new would send nothing.
+		if press > 1 {
+			report(t, s, "landed", windowToken(t, s))
+			report(t, s, "turn_ended", "")
+		}
 		reply := blockedWait(h, "", time.Hour)
 		waitersRegistered(t, s, 1)
 		if rec := post(t, h, "/_galley/revise", nil); rec.Code != http.StatusNoContent {

@@ -2156,11 +2156,16 @@ type reviewerRound struct {
 // and ledger before those affordances are removed.
 //
 // resend is the unanswered round's asks (see unansweredAsks): sent again only
-// when the page has no instruction of its own to send.
-func (s *EditServer) sendReviewerRound(reason string, resend []versions.Ask) (reviewerRound, int, error) {
+// when the page has no instruction of its own to send. holdEmpty is a press
+// while the agent still has the last Revise (see agentHasRevise): with no
+// instruction on the page it sends nothing, answering errNothingNew.
+func (s *EditServer) sendReviewerRound(reason string, resend []versions.Ask, holdEmpty bool) (reviewerRound, int, error) {
 	handoff, err := s.pending()
 	if err != nil {
 		return reviewerRound{}, statusFor(err), err
+	}
+	if holdEmpty && len(handoff.Instructions) == 0 {
+		return reviewerRound{}, http.StatusNoContent, errNothingNew
 	}
 	if len(handoff.Instructions) == 0 {
 		for _, a := range resend {
@@ -2352,6 +2357,27 @@ func (s *EditServer) unansweredAsks() []versions.Ask {
 	return r.Asks
 }
 
+// errNothingNew is a press with no instruction on the page while the agent
+// still has the last Revise: nothing is sent, and the press is not an error.
+var errNothingNew = errors.New("nothing new to send while the agent has the Revise")
+
+// agentHasRevise is whether the open window's message is sent, with the agent
+// or working. A press then with nothing new on the page sends nothing: an
+// empty round would take the window from the round the agent is answering,
+// and its answer would be matched against the empty one.
+func (s *EditServer) agentHasRevise() bool {
+	s.reviseMu.Lock()
+	defer s.reviseMu.Unlock()
+	if s.watch == nil || s.msg == nil {
+		return false
+	}
+	switch s.msg.state {
+	case msgstate.Sent, msgstate.WithAgent, msgstate.Working:
+		return true
+	}
+	return false
+}
+
 // handleRevise starts the configured command and returns immediately. See
 // EditServer.OnRevise for why it is neither debounced nor awaited.
 //
@@ -2440,7 +2466,9 @@ func (s *EditServer) handleRevise(w http.ResponseWriter, r *http.Request) {
 	// below has said so since `galley wait` existed, and it is the recovery
 	// path when a woken agent dies. Under the handoff it is also harmless:
 	// the locked browser can have written nothing new, so the press re-sends
-	// the same work and re-opens the same window.
+	// the same work and re-opens the same window. Except while the agent
+	// still has the Revise (sent, with the agent, working): a press with
+	// nothing new then sends nothing (see agentHasRevise).
 
 	// THE ASK'S OWN GUARD, and it waits before it refuses. Pull means the
 	// session that is already here is blocked on GET /_galley/wait, and
@@ -2472,7 +2500,11 @@ func (s *EditServer) handleRevise(w http.ResponseWriter, r *http.Request) {
 	// The button chooses WHEN to send. Everything after that choice is the same
 	// handoff live mode performs: capture, clean, cut, and open one response
 	// window pointing at the round the agent is answering.
-	sent, code, err := s.sendReviewerRound(versions.ReasonRevise, s.unansweredAsks())
+	sent, code, err := s.sendReviewerRound(versions.ReasonRevise, s.unansweredAsks(), s.agentHasRevise())
+	if errors.Is(err, errNothingNew) {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if err != nil {
 		writeMutationError(w, code, err)
 		return
@@ -3270,7 +3302,7 @@ func (s *EditServer) wakeSettle(fp string) {
 	// Live chooses WHEN to send; it does not define a second kind of handoff.
 	// Capture and clean through the same path as Revise, open the same response
 	// window, and carry the same immutable work order to blocked readers.
-	sent, _, err := s.sendReviewerRound(versions.ReasonSettled, nil)
+	sent, _, err := s.sendReviewerRound(versions.ReasonSettled, nil, false)
 	if err != nil {
 		if s.Log != nil {
 			s.Log("could not send the settled reviewer round: " + err.Error())

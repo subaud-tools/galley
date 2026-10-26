@@ -287,11 +287,15 @@ func TestAnAgentThatNeverAcksStillGetsItsRoundFirst(t *testing.T) {
 	press(t, s, "{}")
 
 	agentEdits(t, s, "# Title\n\nOne better sentence.\n")
-	// No ack. The reviewer presses again — the first press's command has to have
-	// exited first, since a second press over one in flight is single-flighted.
+	// No ack: the agent's turn ends with no reply, and the reviewer presses
+	// again — the first press's command has to have exited first, since a
+	// second press over one in flight is single-flighted. While the agent still
+	// had the Revise, a press with nothing new would send nothing.
 	if done, running := s.ReviseInFlight(); running {
 		<-done
 	}
+	report(t, s, "landed", windowToken(t, s))
+	report(t, s, "turn_ended", "")
 	press(t, s, "{}")
 
 	rs := rounds(t, s)

@@ -180,6 +180,7 @@ function reviseFace(
   approved: boolean,
   verdictIsApprove: boolean,
   reviseRunning: boolean,
+  agentHasIt: boolean,
   approveNotBefore: number,
   now: number,
 ): { approve: boolean; disabled: boolean; title: string } {
@@ -194,13 +195,16 @@ function reviseFace(
   // like", and the case where the agent died is exactly when a reviewer
   // needs that. A landed approve is the exception: the review is over, and
   // the guard lives HERE, where disabled is re-computed every second — a
-  // guard in askRevise alone would be undone by the next tick.
+  // guard in askRevise alone would be undone by the next tick. And while the
+  // agent has the Revise with nothing new on the page (agentHasIt), the server
+  // sends nothing for a press, so the button matches the pill.
   const approveCooling = approve && now < approveNotBefore;
   // The way out of a reading mode is never disabled. Every other reason this
   // button goes dead is a reason not to SEND, and leaving History sends
   // nothing — a disabled exit is the covered-control defect wearing the one
   // set of clothes CLAUDE.md has not already recorded it in.
-  const disabled = !history && (approved || reviseRunning || approveCooling);
+  const disabled =
+    !history && (approved || reviseRunning || agentHasIt || approveCooling);
   // The title follows the verdict the label shows: an Approve button
   // explaining how to hand the document back would be the label and the
   // tooltip disagreeing about what the click does. The Revise face's press
@@ -214,6 +218,15 @@ function reviseFace(
         ? 'approve the document as it stands — the review is over'
         : 'hand back for revision, or accept everything and approve — the press offers both';
   return { approve, disabled, title };
+}
+
+// agentHasRevise is whether the last Revise is still the agent's: sent, with
+// the agent or working. A press then with nothing new sends nothing.
+function agentHasRevise(m: MessageView | null | undefined): boolean {
+  return (
+    !!m &&
+    (m.state === 'sent' || m.state === 'with_agent' || m.state === 'working')
+  );
 }
 
 /** The verdict menu's two exits, over a document with work still pending.
@@ -753,6 +766,7 @@ export const verdictMethods = {
       this.approved,
       this.verdict === APPROVE_IDLE,
       this.reviseRunning,
+      this.pendingCount === 0 && agentHasRevise(this.reviseMessage),
       this.approveNotBefore,
       Date.now(),
     );

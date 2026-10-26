@@ -232,16 +232,25 @@ function check(name, ok, detail) {
 // paintedRevise is the primary's label as PRODUCTION paints it: makeRevise
 // builds the button over a fake DOM, paintRevise writes the digits and the
 // count and picks the face, and this reads back the one label left
-// unreserved. The fake carries only what those two methods touch.
-function paintedRevise({ pendingCount = 0, waitedMs = null }) {
-  class FakeEl {
+// unreserved, or with `disabled` whether the button is. The fake carries only
+// what those two methods touch.
+function paintedRevise({
+  pendingCount = 0,
+  waitedMs = null,
+  message = null,
+  disabled = false,
+}) {
+  class FakeNode {}
+  class FakeEl extends FakeNode {
     constructor(tag) {
+      super();
       this.tagName = tag;
       this.className = '';
       this.nodes = [];
       this.text = '';
       this.disabled = false;
       this.title = '';
+      this.dataset = {};
     }
     get classList() {
       const names = () => this.className.split(/\s+/).filter(Boolean);
@@ -292,10 +301,14 @@ function paintedRevise({ pendingCount = 0, waitedMs = null }) {
       reviseWaiting: waitedMs !== null,
       reviseStartedAt: Date.now() - (waitedMs ?? 0),
       pendingCount,
+      reviseMessage: message,
       paintMessage: verdictMethods.paintMessage,
     },
     (shell, button) => {
       verdictMethods.paintRevise.call(shell);
+      if (disabled) {
+        return button.disabled;
+      }
       return button.nodes
         .filter((n) => !n.classList.contains('gly-reserved'))
         .map((n) => n.textContent)
@@ -6572,6 +6585,26 @@ function bindsContentField(src) {
         paintedRevise({ waitedMs: -500 }) === 'revising · 0s',
         paintedRevise({ waitedMs: -500 }),
       );
+      // While the agent has the Revise, a press with nothing new does nothing
+      // on the server, so the button matches the pill.
+      const pressable = (state, pendingCount) =>
+        !paintedRevise({
+          waitedMs: 1500,
+          pendingCount,
+          message: { state, line: '', held: false },
+          disabled: true,
+        });
+      for (const state of ['sent', 'with_agent', 'working']) {
+        check(
+          `Revise is disabled while ${state} with nothing new`,
+          !pressable(state, 0),
+        );
+        check(
+          `Revise sends a new instruction while ${state}`,
+          pressable(state, 1),
+        );
+      }
+      check('Revise re-sends after no reply', pressable('no_reply', 0));
     }
 
     {
