@@ -47,6 +47,7 @@ import (
 	"github.com/subaud-tools/galley/internal/unsent"
 	"github.com/subaud-tools/galley/internal/versions"
 	"github.com/subaud-tools/galley/internal/ydoc"
+	"github.com/subaud-tools/tools-common/channelmcp"
 	"github.com/subaud-tools/tools-common/localweb"
 	"github.com/subaud-tools/tools-common/msgstate"
 )
@@ -1345,6 +1346,7 @@ func (s *EditServer) Handler() http.Handler {
 	mux.HandleFunc("/_galley/revise", s.handleRevise)
 	mux.HandleFunc("/_galley/stop", s.handleStop)
 	mux.HandleFunc("/_galley/ack", s.handleAck)
+	mux.HandleFunc("/_galley/report", s.handleReport)
 	// The reviewer taking the document back mid-window — see handoff.go.
 	mux.HandleFunc("/_galley/handoff/cancel", s.handleHandoffCancel)
 	mux.HandleFunc("/_galley/wait", s.handleWait)
@@ -2295,15 +2297,19 @@ func newReportToken() string {
 // Each opening is a new message in sent with a fresh token. A second press
 // mid-window replaces the first message: it is a new message, so it asks
 // msgstate nothing.
-func (s *EditServer) openResponseWindow(round int, fp string, approveOnAnswer bool) {
+//
+// It answers the message's report token, which the wake carries to the harness.
+func (s *EditServer) openResponseWindow(round int, fp string, approveOnAnswer bool) string {
+	token := newReportToken()
 	s.reviseMu.Lock()
 	s.watch = &reviseWatch{at: time.Now(), fingerprint: fp, round: round}
 	s.approveOnAnswer = approveOnAnswer
-	s.msg = &reviseMessage{state: msgstate.Sent, token: newReportToken()}
+	s.msg = &reviseMessage{state: msgstate.Sent, token: token}
 	s.reviseMu.Unlock()
 	// The window IS the handoff: from here until the agent's return the .md
 	// file is the agent's editing surface. See handoff.go.
 	s.openHandoff(round, fp, approveOnAnswer)
+	return token
 }
 
 // handleRevise starts the configured command and returns immediately. See
@@ -2472,7 +2478,7 @@ func (s *EditServer) handleRevise(w http.ResponseWriter, r *http.Request) {
 	// revision landing. See reviseWatch. One opener for the press and the live
 	// settle alike — it resets the ack (a fresh ask must not wear the last
 	// review's answer) and opens the file handoff with the window.
-	s.openResponseWindow(sent.round, sent.fingerprint, req.ApproveOnAnswer)
+	token := s.openResponseWindow(sent.round, sent.fingerprint, req.ApproveOnAnswer)
 
 	// THE VERDICT THAT DOES NOT END THE REVIEW, and the count that says how
 	// many rounds a document took. The trail is deliberately NOT swept up here:
@@ -2484,7 +2490,7 @@ func (s *EditServer) handleRevise(w http.ResponseWriter, r *http.Request) {
 	// nothing here needs the two held together; taking them in one order here
 	// and another anywhere else is how this file would acquire its first
 	// deadlock.
-	s.wakeWaiters(waitRevise, sent.fingerprint, &sent.pending)
+	s.wakeRound(waitRevise, sent.fingerprint, &sent.pending, token)
 
 	if cmd != "" {
 		go func() {
@@ -2858,6 +2864,61 @@ func (s *EditServer) handleAck(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handleReport is the harness saying where the window's message stands: held
+// (the agent is mid-turn, so the event waits), landed (it is in the agent's
+// session) or turn_ended (the agent's turn ended). held and landed name the
+// message by its report token; a report for another token, or with no window
+// open, changes nothing. Every move asks msgstate.Allowed and a refused one is
+// skipped, so a late landed report leaves a working message working. Each
+// change is written to the lease; the window itself is never touched, so a
+// late answer still lands after turn_ended.
+func (s *EditServer) handleReport(w http.ResponseWriter, r *http.Request) {
+	if !guard(w, r) {
+		return
+	}
+	var req struct {
+		Event channelmcp.ReportEvent `json:"event"`
+		Token string                 `json:"token"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	switch req.Event {
+	case channelmcp.ReportHeld, channelmcp.ReportLanded, channelmcp.ReportTurnEnded:
+	default:
+		http.Error(w, fmt.Sprintf("event %q: want held, landed or turn_ended", req.Event), http.StatusBadRequest)
+		return
+	}
+	s.reviseMu.Lock()
+	changed := false
+	if m := s.msg; m != nil && s.handoffLease != nil {
+		ours := req.Token != "" && req.Token == m.token
+		switch {
+		case req.Event == channelmcp.ReportLanded && ours:
+			if msgstate.Allowed(m.state, msgstate.WithAgent) {
+				m.state = msgstate.WithAgent
+				changed = true
+			}
+			if m.held {
+				m.held, changed = false, true
+			}
+		case req.Event == channelmcp.ReportHeld && ours:
+			if m.state == msgstate.Sent && !m.held {
+				m.held, changed = true, true
+			}
+		case req.Event == channelmcp.ReportTurnEnded:
+			if msgstate.Allowed(m.state, msgstate.NoReply) {
+				m.state, changed = msgstate.NoReply, true
+			}
+		}
+	}
+	s.reviseMu.Unlock()
+	if changed {
+		s.persistMessage()
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // ackMoves reports whether the agent's ack may move a message in from to st:
 // msgstate.Acknowledge, plus the two moves that change nothing it draws, which
 // diazo allows too: working again only replaces the line, and a settled state
@@ -2964,13 +3025,18 @@ type waitEvent struct {
 	reason  string
 	fp      string
 	pending *PendingView
+	report  string
 }
 
-// waitReply is GET /_galley/wait's JSON body.
+// waitReply is GET /_galley/wait's JSON body. Report is the message's report
+// token on a revise or settle wake: the channel sets it as
+// channelmcp.MetaReport, and the harness names it when it reports the wake
+// held or landed (POST /_galley/report).
 type waitReply struct {
 	Reason      string       `json:"reason"`
 	Fingerprint string       `json:"fingerprint"`
 	Pending     *PendingView `json:"pending"`
+	Report      string       `json:"report,omitempty"`
 }
 
 // How long ONE poll is held open. The caller names its own bound with
@@ -3119,11 +3185,17 @@ func (s *EditServer) awaitReArm() bool {
 // carries the captured round because clearing the browser's pending state is
 // part of the same handoff; re-reading would erase the message being sent.
 func (s *EditServer) wakeWaiters(reason, fp string, pending *PendingView) {
+	s.wakeRound(reason, fp, pending, "")
+}
+
+// wakeRound is wakeWaiters for a wake that opened a message: the readers are
+// handed its report token with the round.
+func (s *EditServer) wakeRound(reason, fp string, pending *PendingView, report string) {
 	s.waitMu.Lock()
 	defer s.waitMu.Unlock()
 	for ch := range s.waiters {
 		select {
-		case ch <- waitEvent{reason: reason, fp: fp, pending: pending}:
+		case ch <- waitEvent{reason: reason, fp: fp, pending: pending, report: report}:
 		default:
 		}
 	}
@@ -3165,11 +3237,11 @@ func (s *EditServer) wakeSettle(fp string) {
 		}
 		return
 	}
-	s.openResponseWindow(sent.round, sent.fingerprint, false)
+	token := s.openResponseWindow(sent.round, sent.fingerprint, false)
 	// The cursor is the fingerprint that CAUSED this wake. Cleanup deliberately
 	// moved the current pending set again; returning that post-clean value can
 	// equal the caller's old cursor and make a real wake look like nothing moved.
-	s.wakeWaiters(waitSettle, fp, &sent.pending)
+	s.wakeRound(waitSettle, fp, &sent.pending, token)
 }
 
 // ReleaseWaiters ends every blocked GET /_galley/wait and refuses new ones, so
@@ -3361,7 +3433,7 @@ func (s *EditServer) handleWait(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		writeJSON(w, waitReply{Reason: ev.reason, Fingerprint: fp, Pending: &view})
+		writeJSON(w, waitReply{Reason: ev.reason, Fingerprint: fp, Pending: &view, Report: ev.report})
 	case <-timer.C:
 		s.unregisterWaiter(ch)
 		fp, view, err := s.waitFingerprint()

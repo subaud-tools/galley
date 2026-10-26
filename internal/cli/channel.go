@@ -736,6 +736,9 @@ type waitWire struct {
 	// on one side for a phase with every gate green. It cost us the
 	// instruction key once already.
 	Pending pendingPayload `json:"pending"`
+	// Report is the revise or settle wake's report token, which emit sets as
+	// channelmcp.MetaReport for the harness to name in its reports.
+	Report string `json:"report,omitempty"`
 }
 
 // attach holds one editor's long-poll until the editor goes away — AND SAYS SO
@@ -819,7 +822,7 @@ func (c *channel) attach(ctx context.Context, e registry.Entry) {
 			// never widens the unregistered window.
 			since = reply.Fingerprint
 			go c.emit(e, reply.Reason, reply.Fingerprint, reply.Note,
-				reply.Pending, len(reply.Pending.Instructions))
+				reply.Pending, len(reply.Pending.Instructions), reply.Report)
 			// THE TWO TERMINAL ENDINGS DETACH; THE REOPEN DOES NOT. Approve and
 			// discard both end the review and both withdraw the registry entry
 			// server-side, so there is nothing left to poll and this attach
@@ -878,7 +881,7 @@ func (c *channel) emitGone(e registry.Entry, why string) {
 	c.mu.Unlock()
 	c.remember(fmt.Sprintf("%s — %s (no verdict was given)", e.Page, why))
 	c.say(e.Room, "gone", fmt.Sprintf("%s: %s — the review ended without a verdict", e.Page, why))
-	c.emit(e, reasonClosed, "", why, pendingPayload{}, countUnknown)
+	c.emit(e, reasonClosed, "", why, pendingPayload{}, countUnknown, "")
 }
 
 // reapStaleAdvert handles the advert that answered nothing on its very first
@@ -927,8 +930,9 @@ func countMeta(n int) string {
 // emit renders one wake as a channel notification. `note` is the reopen's
 // reason and is empty on every other wake — a single parameter rather than two
 // entry points, because a wrapper nothing called was dead code the linter
-// caught immediately.
-func (c *channel) emit(e registry.Entry, reason, fp, note string, pending pendingPayload, instructions int) {
+// caught immediately. `report` is the wake's report token, set as
+// channelmcp.MetaReport when there is one.
+func (c *channel) emit(e registry.Entry, reason, fp, note string, pending pendingPayload, instructions int, report string) {
 	// THE FOUR ENDINGS COME FROM wake.go, which is the ONE place either
 	// carrier turns a wake into a meaning. This switch used to hold them, and
 	// `galley wait` held its own four — which is how the pull carrier came to
@@ -967,6 +971,9 @@ func (c *channel) emit(e registry.Entry, reason, fp, note string, pending pendin
 	// advertise a field that means nothing on four of the five.
 	if note != "" {
 		meta["note"] = note
+	}
+	if report != "" {
+		meta[channelmcp.MetaReport] = report
 	}
 	// THE NOTIFICATION AS SENT, and it is recorded HERE — after `content` is
 	// composed and before it goes out — because the whole point is the rendered
