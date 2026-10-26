@@ -191,3 +191,39 @@ func TestAPressAfterADeclineOrFailureSendsNothingAgain(t *testing.T) {
 		})
 	}
 }
+
+// Revise & Approve with nothing new while the agent is working sends nothing,
+// and approves the review once the agent answers the Revise it has.
+func TestReviseAndApproveWithNothingNewWhileTheAgentIsWorkingApprovesOnTheAnswer(t *testing.T) {
+	s, md := messageDoc(t)
+	instructDocument(t, s, "Add a sentence: Water is wet.")
+	heard(t, pressAndHear(t, s), "Add a sentence: Water is wet.")
+	asked := rounds(t, s)
+	if rec := postAckRec(t, s, "working", "adding it"); rec.Code != http.StatusNoContent {
+		t.Fatalf("working: %d %s", rec.Code, rec.Body.String())
+	}
+
+	h := s.Handler()
+	reply := blockedWait(h, "", 300*time.Millisecond)
+	waitersRegistered(t, s, 1)
+	if rec := post(t, h, "/_galley/revise", map[string]any{"approveOnAnswer": true}); rec.Code != http.StatusNoContent {
+		t.Fatalf("revise & approve: %d %s", rec.Code, rec.Body.String())
+	}
+	if got := <-reply; got.Reason != waitTimeout {
+		t.Fatalf("the press woke the reader (%q) with nothing to send", got.Reason)
+	}
+	if got := len(rounds(t, s)); got != len(asked) {
+		t.Fatalf("the press cut %d rounds, want none", got-len(asked))
+	}
+	if s.Sealed() {
+		t.Fatal("Revise & Approve sealed before the agent answered")
+	}
+
+	if err := os.WriteFile(md, []byte("# T\n\nProse. Water is wet.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ackAs(t, s, "answered", "added")
+	if !s.Sealed() {
+		t.Fatal("the agent answered and the review was not approved")
+	}
+}

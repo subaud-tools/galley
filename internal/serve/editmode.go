@@ -2361,6 +2361,21 @@ func (s *EditServer) unansweredAsks() []versions.Ask {
 // still has the last Revise: nothing is sent, and the press is not an error.
 var errNothingNew = errors.New("nothing new to send while the agent has the Revise")
 
+// armApproveOnAnswer sets approveOnAnswer on the open window, as opening it
+// with Revise & Approve would, so the agent's answered ack approves the review.
+// With no window open it does nothing. Call it with neither mu nor reviseMu
+// held.
+func (s *EditServer) armApproveOnAnswer() {
+	s.reviseMu.Lock()
+	if s.watch != nil {
+		s.approveOnAnswer = true
+	}
+	s.reviseMu.Unlock()
+	if err := s.saveLease(func(l *handoffLease) { l.ApproveOnAnswer = true }); err != nil && s.Log != nil {
+		s.Log(fmt.Sprintf("could not persist the handoff window: %v", err))
+	}
+}
+
 // agentHasRevise is whether the open window's message is sent, with the agent
 // or working. A press then with nothing new on the page sends nothing: an
 // empty round would take the window from the round the agent is answering,
@@ -2502,6 +2517,12 @@ func (s *EditServer) handleRevise(w http.ResponseWriter, r *http.Request) {
 	// window pointing at the round the agent is answering.
 	sent, code, err := s.sendReviewerRound(versions.ReasonRevise, s.unansweredAsks(), s.agentHasRevise())
 	if errors.Is(err, errNothingNew) {
+		// Revise & Approve then sends nothing either, but its approve rides
+		// on the Revise the agent already has: the review is approved when
+		// that Revise is answered.
+		if req.ApproveOnAnswer {
+			s.armApproveOnAnswer()
+		}
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
