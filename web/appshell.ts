@@ -122,6 +122,7 @@ import type {
   Region,
   ReviseStateView,
   ReviewerChange,
+  MessageView,
 } from './wire';
 import type { Composer } from './composer.ts';
 import type { GripTarget } from './grips.ts';
@@ -363,6 +364,11 @@ export interface AppState {
   reviseSecs?: HTMLElement;
   reviseApprove?: HTMLElement;
   reviseBack?: HTMLElement;
+  // Where the last Revise stands: the cell makeRevise puts beside the button,
+  // and the message readRevise last read (none before the first poll, and
+  // none when the server has none).
+  reviseMsg?: HTMLElement;
+  reviseMessage?: MessageView | null;
   // The verdict menu — built on the first press that needs it
   // (`this.verdictMenu = null;` is the constructor's own direct,
   // unconditional line; `openVerdictMenu` fills it in later).
@@ -480,6 +486,7 @@ export interface AppMethods {
   paintRail(): void;
   paintReadout(): void;
   paintRevise(): void;
+  paintMessage(): void;
   pulseCensus(): void;
   readRevise(): void;
   refreshPending(): Promise<void>;

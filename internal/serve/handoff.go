@@ -18,6 +18,7 @@ import (
 
 	"github.com/subaud-tools/galley/internal/markdown"
 	"github.com/subaud-tools/galley/internal/ondisk"
+	"github.com/subaud-tools/tools-common/msgstate"
 )
 
 // handoffLeaseVersion is the lease's schema generation, written as `v`.
@@ -46,7 +47,12 @@ import (
 //
 // A lease with no `v` is generation 1 — the shape this field was added to — so
 // a window open across the upgrade still resumes.
-const handoffLeaseVersion = 1
+//
+// Generation 2 adds the window's message: state, line, held and report. A
+// generation 1 lease resumes its message as with_agent (a window only opened
+// once a reader took the press or the command ran) and is rewritten as 2 at
+// once. A galley that knows only 1 refuses a 2 as newer, by the rule above.
+const handoffLeaseVersion = 2
 
 // handoffLease is the window made durable. It is written on every transition
 // so a restart mid-response reopens the window instead of cutting the agent's
@@ -66,6 +72,20 @@ type handoffLease struct {
 	// imported.
 	LastImported    string `json:"lastImported,omitempty"`
 	ApproveOnAnswer bool   `json:"approveOnAnswer,omitempty"`
+	// State, Line, Held and Report are the window's message (reviseMessage),
+	// so a restart mid-window resumes where the Revise stood.
+	State  msgstate.State `json:"state,omitempty"`
+	Line   string         `json:"line,omitempty"`
+	Held   bool           `json:"held,omitempty"`
+	Report string         `json:"report,omitempty"`
+}
+
+// withMessage copies m into the lease's message fields.
+func (l *handoffLease) withMessage(m *reviseMessage) {
+	if m == nil {
+		return
+	}
+	l.State, l.Line, l.Held, l.Report = m.state, m.line, m.held, m.token
 }
 
 // leasePath lives beside the round manifest: the lease is round state.
@@ -83,10 +103,15 @@ func (s *EditServer) openHandoff(round int, fp string, approveOnAnswer bool) {
 		Round: round, Baseline: baseline, Fingerprint: fp,
 		OpenedAt: time.Now().UTC(), ApproveOnAnswer: approveOnAnswer,
 	}
+	s.lockLease()
 	s.reviseMu.Lock()
+	l.withMessage(s.msg)
 	s.handoffLease = l
+	snap := *l
 	s.reviseMu.Unlock()
-	if err := writeLease(s.leasePath(), l); err != nil && s.Log != nil {
+	err := writeLease(s.leasePath(), &snap)
+	s.leaseMu.Unlock()
+	if err != nil && s.Log != nil {
 		// The ledger's rule: a lease that could not be written may not fail the
 		// round. The window still works for this process's lifetime; only
 		// restart recovery is lost, and the log says so.
@@ -105,12 +130,48 @@ func (s *EditServer) openHandoff(round int, fp string, approveOnAnswer bool) {
 func (s *EditServer) closeHandoff() {
 	s.handoffLive.Store(false)
 	_ = s.stopWatcher()
+	s.lockLease()
 	s.reviseMu.Lock()
 	s.handoffLease = nil
 	s.reviseMu.Unlock()
-	if err := clearLease(s.leasePath()); err != nil && s.Log != nil {
+	err := clearLease(s.leasePath())
+	s.leaseMu.Unlock()
+	if err != nil && s.Log != nil {
 		s.Log(fmt.Sprintf("could not clear the handoff lease: %v", err))
 	}
+}
+
+// lockLease takes leaseMu. Call it with neither mu nor reviseMu held.
+func (s *EditServer) lockLease() {
+	if s.leaseMu.TryLock() {
+		return
+	}
+	if s.testLeaseWait != nil {
+		s.testLeaseWait()
+	}
+	s.leaseMu.Lock()
+}
+
+// saveLease applies update to the open lease and writes it, under leaseMu from
+// the snapshot to the write. With no window open it writes nothing: a closed
+// window's lease is never recreated. update runs under
+// reviseMu. Call it with neither mu nor reviseMu held.
+func (s *EditServer) saveLease(update func(l *handoffLease)) error {
+	s.lockLease()
+	defer s.leaseMu.Unlock()
+	s.reviseMu.Lock()
+	if s.handoffLease == nil {
+		s.reviseMu.Unlock()
+		return nil
+	}
+	update(s.handoffLease)
+	snap := *s.handoffLease
+	hook := s.testLeaseWrite
+	s.reviseMu.Unlock()
+	if hook != nil {
+		hook()
+	}
+	return writeLease(s.leasePath(), &snap)
 }
 
 // resumeHandoff reopens a window a previous run left open — a restart mid
@@ -118,11 +179,29 @@ func (s *EditServer) closeHandoff() {
 // live document like any startup, so the resume only restores the window's
 // state and attribution, never the content.
 func (s *EditServer) resumeHandoff(l *handoffLease) {
+	s.lockLease()
 	s.reviseMu.Lock()
 	s.watch = &reviseWatch{at: l.OpenedAt, fingerprint: l.Fingerprint, round: l.Round}
 	s.approveOnAnswer = l.ApproveOnAnswer
+	// A lease from before the message (generation 1 or none) was written for
+	// a window a reader had already taken: the message is with the agent, and
+	// the rewrite below records it as generation 2.
+	rewrite := l.V < 2 || l.State == ""
+	if rewrite {
+		l.State = msgstate.WithAgent
+	}
+	s.msg = &reviseMessage{state: l.State, line: l.Line, held: l.Held, token: l.Report}
 	s.handoffLease = l
+	snap := *l
 	s.reviseMu.Unlock()
+	var err error
+	if rewrite {
+		err = writeLease(s.leasePath(), &snap)
+	}
+	s.leaseMu.Unlock()
+	if err != nil && s.Log != nil {
+		s.Log(fmt.Sprintf("could not rewrite the handoff lease: %v", err))
+	}
 	if l.LastImported != "" {
 		// Imports already happened in the previous run; who moved the document
 		// must survive the restart, or the resumed round loses its author.
@@ -180,9 +259,12 @@ func (s *EditServer) handleHandoffCancel(w http.ResponseWriter, r *http.Request)
 			}
 		}
 	}
+	// The message goes with the window, as a direct Approve clears it: the
+	// document is the reviewer's again, so nothing is with the agent.
 	s.reviseMu.Lock()
 	s.watch = nil
 	s.approveOnAnswer = false
+	s.msg = nil
 	s.reviseMu.Unlock()
 	s.closeHandoff()
 	s.setDraftError("")
@@ -356,18 +438,9 @@ func (s *EditServer) importDraft() (bool, error) {
 	// pointer read at the top of the function, so a lease closed underneath
 	// this call still had its stale copy written back — recreating, after
 	// closeHandoff had deleted it, a lease file for a window nobody is in.
-	var snap handoffLease
-	marked := false
-	s.reviseMu.Lock()
-	if s.handoffLease != nil {
-		s.handoffLease.LastImported = digest
-		snap, marked = *s.handoffLease, true
-	}
-	s.reviseMu.Unlock()
-	if marked {
-		if err := writeLease(s.leasePath(), &snap); err != nil && s.Log != nil {
-			s.Log(fmt.Sprintf("could not persist the import mark: %v", err))
-		}
+	// saveLease holds leaseMu to the write, so the close waits for it.
+	if err := s.saveLease(func(l *handoffLease) { l.LastImported = digest }); err != nil && s.Log != nil {
+		s.Log(fmt.Sprintf("could not persist the import mark: %v", err))
 	}
 	if s.Log != nil {
 		s.Log("imported the agent's save")
@@ -409,6 +482,16 @@ func (s *EditServer) loadDraft(l handoffLease) (string, bool, error) {
 	}
 	s.setBaseline(live, raw)
 	return digest, true, nil
+}
+
+// persistMessage writes the window's message into the lease, so a restart
+// mid-window resumes it. With no window open there is no lease to write: a
+// settled message lives in memory only, and the round it closed is the record.
+// Callers hold no lock.
+func (s *EditServer) persistMessage() {
+	if err := s.saveLease(func(l *handoffLease) { l.withMessage(s.msg) }); err != nil && s.Log != nil {
+		s.Log(fmt.Sprintf("could not persist the revision's state: %v", err))
+	}
 }
 
 // setDraftError and draftError carry the one sentence the readout needs when

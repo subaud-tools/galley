@@ -2,6 +2,16 @@
 
 Newest first. Notes for releases up to 0.10.2 are on the GitHub releases page: https://github.com/subaud-tools/galley/releases
 
+## 0.16.0
+
+- The page shows where each Revise stands, in a pill beside the button: sent, with the agent, working (with the agent's line), answered, declined, failed or no reply. The harness reports when a Revise lands in the agent's session and when the agent's turn ends: under Claude Code the plugin runs the new `galley report`, under pi the channel takes them from channels.tools.
+- `galley cannot` shows as failed, with the agent's reason as the line.
+- `galley_ack` and `galley ack` no longer take `received`; they take working, answered, declined or failed. An ack the Revise's state does not allow (answered after declined) is refused with the reason.
+- A restart mid-revision keeps where the Revise stood: the handoff lease is now version 2. An older galley that meets one keeps it as `handoff.json.unreadable` and starts without resuming.
+- Cancelling a handoff clears the pill, as Approve does.
+- The built-in `galley login` and `logout` come with tools-common v0.26.0.
+- galley now uses tools-common v0.27.0.
+
 ## 0.15.6
 
 - Enter in a comment box comes from tools-common v0.25.0's page kit (`enter.js`, copied into the bundle like the Share menu): Enter files, Shift-Enter breaks the line, as before. The Share menu is unchanged.

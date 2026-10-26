@@ -48,7 +48,8 @@ import { runFor } from './runs.ts';
 import { arrivalMessage, queueArrivals, holdLabel } from './arrivals.ts';
 import { BACK_TO_DRAFT } from './versions.ts';
 import type { AppShell, ArrivalItem } from './appshell.ts';
-import type { ReviseStateView } from './wire';
+import type { ReviseStateView, MessageView } from './wire';
+import { messagePill } from './kit/dom.js';
 import type { SuggestionLike } from './suggestions.ts';
 
 // The full shape of what GET /_galley/revise answers.
@@ -108,6 +109,17 @@ export interface ReviseWatchView extends ReviseStateView {
  * and this label does not change, which is the point of naming the act rather
  * than one branch of it. */
 export const REVISE_IDLE = 'Revise ▾';
+
+/** The line under a held Revise's pill: the harness is holding the wake
+ * because the agent is mid-turn. */
+export const MESSAGE_HELD_LINE =
+  'the agent is mid-turn; it reads this when the turn ends';
+
+/** The line under a Revise's pill: the agent's note, or the mid-turn line
+ * while the harness holds it. */
+function messageLine(m: MessageView): string {
+  return m.held ? MESSAGE_HELD_LINE : m.line;
+}
 const REVISE_BUSY_PREFIX = 'revising · ';
 const REVISE_BUSY_SUFFIX = 's';
 
@@ -372,6 +384,14 @@ export const verdictMethods = {
     back.className = 'gly-revise-label gly-reserved';
     back.textContent = BACK_TO_DRAFT;
     el.append(idle, busy, approve, back);
+    // WHERE THE LAST REVISE STANDS, in its own cell beside the button rather
+    // than in it: the button's width is reserved for its four labels, and the
+    // pill changes on the agent's and the harness's word, not the reviewer's
+    // click. See paintMessage.
+    const msg = document.createElement('span');
+    msg.className = 'gly-msg';
+    el.before(msg);
+    this.reviseMsg = msg;
     this.reviseIdle = idle;
     this.reviseBusy = busy;
     this.reviseSecs = secs;
@@ -665,12 +685,36 @@ export const verdictMethods = {
         // so the seconds keep climbing between polls without this page having
         // to trust its own clock against the server's.
         this.reviseStartedAt = Date.now() - (d.sinceMs || 0);
+        this.reviseMessage = d.message ?? null;
         this.paintRevise();
         this.readArrival(d);
         this.readSeal(d);
         this.readHandoff(d);
+        // Again once the seal is read: a sealed page shows no pill.
+        this.paintMessage();
       })
       .catch(() => {});
+  },
+
+  // paintMessage fills the cell beside Revise with the kit's pill for the last
+  // Revise and the line under it, laid out in a row (editor.css) so the bar
+  // stays one line, with the whole line as the cell's title. Empty with no
+  // message, on a sealed page, and while History owns the primary.
+  paintMessage(this: AppShell) {
+    const cell = this.reviseMsg;
+    if (!cell) {
+      return;
+    }
+    const m = this.reviseMessage;
+    const history = !!(this.versionsPanel && this.versionsPanel.open);
+    cell.textContent = '';
+    cell.title = '';
+    if (!m || this.sealed || history) {
+      return;
+    }
+    const line = messageLine(m);
+    cell.append(messagePill(m.state, line));
+    cell.title = line;
   },
 
   paintRevise(this: AppShell) {
@@ -722,6 +766,7 @@ export const verdictMethods = {
       this.reviseBack.classList.toggle('gly-reserved', !history);
     }
     revise.classList.toggle('gly-history-out', history);
+    this.paintMessage();
     revise.disabled = disabled;
     revise.classList.toggle('gly-on', this.reviseWaiting);
     revise.title = title;

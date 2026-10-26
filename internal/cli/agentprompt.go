@@ -112,8 +112,11 @@ acknowledgement:
   galley ack <doc> --state answered --note "one sentence for the reviewer"
 
 That acknowledgement commits your round — exactly once, for the whole revision,
-never per save. Use state "working" first when the revision will take more than
-a moment.
+never per save. On a round that takes more than a moment, your first move is
+state "working" with a one line --note saying what you are doing; the reviewer
+reads it under the round's pill. "declined" (you will not do it) and "failed"
+(you tried and could not) settle the round instead of "answered", with why in
+the note.
 
 SAY WHICH CHANGE ANSWERED WHICH INSTRUCTION
 
@@ -174,8 +177,9 @@ If you genuinely cannot carry out an instruction, report the obstacle:
 
   galley cannot <doc> --why "what stopped you"
 
-This records a round with the document unchanged. It is a report the reviewer
-can answer with a different instruction, never an argument or a retry.
+This records a round with the document unchanged and shows the round as failed
+with your reason. It is a report the reviewer can answer with a different
+instruction, never an argument or a retry.
 
 When the round is committed, stop. The reviewer reads the computed diff and
 will send a different instruction if another revision is needed.

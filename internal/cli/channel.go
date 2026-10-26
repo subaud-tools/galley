@@ -72,7 +72,7 @@ To review a file, call galley_open with its path: it starts this session's edito
 // "settle" event — see reasonGuidance below.
 const reviseGuidance = `The rules for answering this round. Revise the document by editing the .md file directly with your normal file tools — while you hold the round, galley watches the file and streams every save into the reviewer's browser, so save as often as you like. MAKE TARGETED EDITS AND NEVER REWRITE THE WHOLE FILE: the reviewer is editing that same file at the same time, so your copy is stale from the moment you read it, and one whole-file write silently destroys everything they typed since — including passages they deliberately deleted, which reappear because they are still in your copy. This has happened, and it cost a reviewer a section. A write your tools reject with "file has been modified since read" is that guard firing correctly; re-reading one line to satisfy it and writing the whole file anyway defeats the guard rather than answering it. Ordinary Markdown expresses everything: formatting, links, headings, lists, tables. Do not use raw HTML, footnotes, reference-style links, autolinks, definition lists, ::: directives, or [!NOTE] callouts; galley refuses those dialects and holds a save that will not parse until your next save fixes it.
 When the whole revision is in the file, call galley_ack once with state "answered" and a one-sentence note; that commits your round — exactly once, for the whole revision, never per save. Pass "changes" with that call: one entry per change you made, each quoting a few words of what you WROTE so galley can find it, and naming in "answers" which instruction it answers by the key the round handed you. Every instruction in the round is printed with its key — the quoted words followed by [key cm-0fe4404...], or the key alone on its line for a whole-document instruction — and that key is what "answers" takes; without it the reviewer sees a change card with no ask beside it. Galley owns the list of what changed and computes it from the two documents; your entries only annotate it, so a quote it cannot place in exactly one changed passage is ignored, and so is a key it never sent you — the change still reaches the reviewer with no sentence beside it and nobody is shown an error. Quote text you actually wrote; omit "answers" when a change answers no instruction in particular. An instruction is the reviewer's guidance, not text to paste. Work out what they are asking for and write the change in the document's own voice. Do not copy their words into the prose, unless the instruction is itself the replacement wording (for example "declared not pinned"). A reviewer who wanted their exact words in the document would have typed them there. The revision itself is the answer: not a reply, and not a proposal the reviewer must accept.
-If the work will take more than a moment, acknowledge "working" first. If you genuinely cannot do an instruction, run galley cannot <doc> --why "what stopped you". That records an unchanged exception round for the reviewer; it is a report, not an argument or retry.`
+On a round that takes more than a moment, your first move is galley_ack with state "working" and a one line note saying what you are doing; the reviewer reads it under the round's pill. "declined" (you will not do it) and "failed" (you tried and could not) settle the round instead of "answered", with why in the note. If you genuinely cannot do an instruction, run galley cannot <doc> --why "what stopped you". That records an unchanged exception round for the reviewer and shows the round as failed with your reason; it is a report, not an argument or retry.`
 
 // reasonGuidance is the rule set that governs answering THIS event, and it
 // travels with the event rather than living in the handshake.
@@ -128,7 +128,7 @@ var ackSchema = json.RawMessage(`{
   "type": "object",
   "properties": {
     "doc":   {"type": "string", "description": "path to the document under review"},
-    "state": {"type": "string", "enum": ["received", "working", "answered", "declined", "failed"]},
+    "state": {"type": "string", "enum": ["working", "answered", "declined", "failed"], "description": "working (with a one-line note, first on a round that takes more than a moment), or how the round settled: answered, declined or failed (with why in the note)"},
     "note":  {"type": "string", "description": "one sentence for the reviewer (optional)"},
     "changes": {
       "type": "array",
@@ -215,8 +215,12 @@ type channel struct {
 	// `galley watch`, which takes the rounds, so this process serves the
 	// tools and never attaches. Two takers would split a session's rounds.
 	serveOnly bool
-	mu        sync.Mutex
-	attached  map[string]bool
+	// reports is pi's harness reports, waiting for postReports to deliver
+	// them to this session's editors in the order sent. The read loop only
+	// hands them over, so a slow editor never holds up a tool call.
+	reports  chan harnessReport
+	mu       sync.Mutex
+	attached map[string]bool
 	// The diagnostic's state — the answer to "why am I not attached?", which
 	// until now no surface in this process could give. Rebuilt on every scan,
 	// except `gone`, which is a short history: an advert that was reaped or an
@@ -269,6 +273,7 @@ func newChannel(scope, self string) *channel {
 		unattached:   map[string]string{},
 		stopped:      map[string]bool{},
 		announced:    map[string]bool{},
+		reports:      make(chan harnessReport, 64),
 	}
 	// os.Executable can fail only in exotic setups; an empty exe makes
 	// galley_open report "cannot locate the galley binary" rather than spawn
@@ -303,9 +308,46 @@ func newChannel(scope, self string) *channel {
 			InputSchema: approveSchema,
 		}},
 		Call: c.callTool,
+		// pi's channels.tools reports here; a serve-only channel (Claude
+		// Code) never receives one, since `galley report` carries those.
+		OnReport: c.queueReport,
 	})
 	c.push = c.srv
 	return c
+}
+
+// harnessReport is one report from the harness, waiting to be delivered.
+type harnessReport struct {
+	event channelmcp.ReportEvent
+	token string
+}
+
+// queueReport hands a report to postReports and returns at once: it runs on
+// the MCP read loop, and delivering waits on the network.
+func (c *channel) queueReport(event channelmcp.ReportEvent, token string) {
+	if c.serveOnly || c.self == "" {
+		return
+	}
+	select {
+	case c.reports <- harnessReport{event, token}:
+	default:
+		fmt.Fprintf(os.Stderr, "[galley channel] dropped report %s %s: too many waiting\n", event, token)
+	}
+}
+
+// postReports delivers each queued report to this session's editors, in the
+// order sent, until ctx ends. A failed post is logged, not retried.
+func (c *channel) postReports(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case r := <-c.reports:
+			if err := deliverReport(c.self, r.event, r.token); err != nil && ctx.Err() == nil {
+				fmt.Fprintf(os.Stderr, "[galley channel] %v\n", err)
+			}
+		}
+	}
 }
 
 // channelFromEnv is the channel `galley channel` runs: this session's id, and
@@ -516,6 +558,9 @@ func (c *channel) run(r io.Reader, w io.Writer) error {
 	}
 	if !c.serveOnly {
 		go c.watch(ctx)
+		if c.self != "" {
+			go c.postReports(ctx)
+		}
 	}
 	return c.srv.Run(r, w)
 }
@@ -736,6 +781,9 @@ type waitWire struct {
 	// on one side for a phase with every gate green. It cost us the
 	// instruction key once already.
 	Pending pendingPayload `json:"pending"`
+	// Report is the revise or settle wake's report token, which emit sets as
+	// channelmcp.MetaReport for the harness to name in its reports.
+	Report string `json:"report,omitempty"`
 }
 
 // attach holds one editor's long-poll until the editor goes away — AND SAYS SO
@@ -819,7 +867,7 @@ func (c *channel) attach(ctx context.Context, e registry.Entry) {
 			// never widens the unregistered window.
 			since = reply.Fingerprint
 			go c.emit(e, reply.Reason, reply.Fingerprint, reply.Note,
-				reply.Pending, len(reply.Pending.Instructions))
+				reply.Pending, len(reply.Pending.Instructions), reply.Report)
 			// THE TWO TERMINAL ENDINGS DETACH; THE REOPEN DOES NOT. Approve and
 			// discard both end the review and both withdraw the registry entry
 			// server-side, so there is nothing left to poll and this attach
@@ -878,7 +926,7 @@ func (c *channel) emitGone(e registry.Entry, why string) {
 	c.mu.Unlock()
 	c.remember(fmt.Sprintf("%s — %s (no verdict was given)", e.Page, why))
 	c.say(e.Room, "gone", fmt.Sprintf("%s: %s — the review ended without a verdict", e.Page, why))
-	c.emit(e, reasonClosed, "", why, pendingPayload{}, countUnknown)
+	c.emit(e, reasonClosed, "", why, pendingPayload{}, countUnknown, "")
 }
 
 // reapStaleAdvert handles the advert that answered nothing on its very first
@@ -927,8 +975,9 @@ func countMeta(n int) string {
 // emit renders one wake as a channel notification. `note` is the reopen's
 // reason and is empty on every other wake — a single parameter rather than two
 // entry points, because a wrapper nothing called was dead code the linter
-// caught immediately.
-func (c *channel) emit(e registry.Entry, reason, fp, note string, pending pendingPayload, instructions int) {
+// caught immediately. `report` is the wake's report token, set as
+// channelmcp.MetaReport when there is one.
+func (c *channel) emit(e registry.Entry, reason, fp, note string, pending pendingPayload, instructions int, report string) {
 	// THE FOUR ENDINGS COME FROM wake.go, which is the ONE place either
 	// carrier turns a wake into a meaning. This switch used to hold them, and
 	// `galley wait` held its own four — which is how the pull carrier came to
@@ -967,6 +1016,9 @@ func (c *channel) emit(e registry.Entry, reason, fp, note string, pending pendin
 	// advertise a field that means nothing on four of the five.
 	if note != "" {
 		meta["note"] = note
+	}
+	if report != "" {
+		meta[channelmcp.MetaReport] = report
 	}
 	// THE NOTIFICATION AS SENT, and it is recorded HERE — after `content` is
 	// composed and before it goes out — because the whole point is the rendered

@@ -39,13 +39,13 @@ Between rounds, galley loads your edits to an open document. If you and the revi
 
 A round arrives as an event. In Claude Code it is a turn whose first line reads galley event doc=… reason=… fingerprint=… instructions=…, with the round below it; in pi it is `<channel source="galley" doc="…" reason="…">`. The reason is `revise`, `settle`, `changed`, `approve` or `closed`. The event carries the instructions and their quoted anchors. **Use that captured round.** Do not re-read `galley pending` for it — a sent round is no longer pending, and `pending` will show you only newer unsent work.
 
-1. If the work will take more than a moment, ack `working` first so the reviewer is not staring at silence.
+1. On a round that takes more than a moment, your first move is `galley_ack` with `state: "working"` and a one line note saying what you are doing. The reviewer reads it under the round's pill beside Revise.
 2. **Edit the `.md` file directly with your normal file tools.** While you hold the round, galley watches the file and streams every save into the reviewer's browser — so save as often as you like. They are watching it happen.
 
    **Make targeted edits. Never rewrite the whole file.** The reviewer is editing that same file at the same time, so your copy is stale the moment you read it. One whole-file write silently destroys everything they typed since — including passages they deliberately deleted, which come back because they are still in your copy.
 
    This has happened and it cost a reviewer a section: a 21-instruction round answered with a single write of the entire document, and a paragraph cut in the previous round reappeared inside an 8k expansion. If a write is rejected with *"file has been modified since read"*, that guard is firing correctly — the reviewer changed the document under you. Re-reading one line to satisfy the tool and writing the whole file anyway defeats the guard rather than answering it.
-3. When the whole revision is in the file, call `galley_ack` **once**, `state: "answered"`, with a one-sentence note. Once for the whole revision, never per save.
+3. When the whole revision is in the file, call `galley_ack` **once**, `state: "answered"`, with a one-sentence note. Once for the whole revision, never per save. If you will not do the round, ack `declined` instead; if you tried and could not, ack `failed`. Either way, say why in the note.
 
 Pass `changes` with that ack: one entry per change, each quoting **a few words you actually wrote** so galley can locate it, and naming in `answers` which instruction it discharges, by the key the round handed you. A key is printed beside the instruction it belongs to, and that printed form is what you copy:
 
@@ -74,7 +74,7 @@ It prints the same instructions with the same keys you were given. **Do not reac
 galley cannot path/to/doc.md --why "what stopped you"
 ```
 
-That records an unchanged exception round. It is a **report, not an argument** — do not use it to push back on an instruction you simply disagree with, and do not retry into it. Answering seven of eight instructions and stating the eighth as an open question in the document is usually better than refusing the round.
+That records an unchanged exception round, and the reviewer sees the round as failed with your reason. It is a **report, not an argument** — do not use it to push back on an instruction you simply disagree with, and do not retry into it. Answering seven of eight instructions and stating the eighth as an open question in the document is usually better than refusing the round.
 
 ### Answering an instruction
 
