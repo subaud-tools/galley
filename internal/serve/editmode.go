@@ -284,6 +284,15 @@ type EditServer struct {
 	// only: a field, not a package variable, so no other server sees it.
 	testImportTick func()
 	draftErr       string
+	// leaseMu serializes the lease on disk: every write holds it from the
+	// snapshot to the write, and closeHandoff holds it across the delete, so a
+	// write never lands after the window closed and two writes land in the
+	// order they were taken. Taken BEFORE reviseMu, never while holding it.
+	leaseMu sync.Mutex
+	// testLeaseWrite runs between a lease write's snapshot and its write, and
+	// testLeaseWait when a lease taker finds leaseMu held. Tests only.
+	testLeaseWrite func()
+	testLeaseWait  func()
 
 	// msg is the last Revise as a message, shown by writeReviseState. Guarded
 	// by reviseMu with the watch because the two are one story: the window

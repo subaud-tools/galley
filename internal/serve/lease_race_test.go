@@ -1,7 +1,10 @@
 package serve
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
+	"net/http"
 	"os"
 	"sync"
 	"testing"
@@ -40,4 +43,58 @@ func TestTheLeaseIsReadUnderMu(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
+}
+
+// A LEASE WRITE NEVER OUTLIVES THE WINDOW. The hook holds a message write
+// between its snapshot and its write while the window closes: the close must
+// wait for the write, not the write land after the close, or a restart reopens
+// a revision that already finished.
+func TestALeaseWriteRacingACloseLeavesNoLease(t *testing.T) {
+	s, _ := messageDoc(t)
+	s.openResponseWindow(1, "fp", false)
+	closed, waiting := make(chan struct{}), make(chan struct{})
+	s.testLeaseWait = func() { close(waiting) }
+	s.testLeaseWrite = func() {
+		s.testLeaseWrite = nil
+		go func() { s.closeHandoff(); close(closed) }()
+		select {
+		case <-closed:
+		case <-waiting:
+		}
+	}
+	if rec := postAckRec(t, s, "working", "reading"); rec.Code != http.StatusNoContent {
+		t.Fatalf("working ack: %d %s", rec.Code, rec.Body.String())
+	}
+	<-closed
+	if _, err := os.Stat(s.leasePath()); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("lease after the close: %v, want none on disk", err)
+	}
+}
+
+// AND TWO WRITES LAND IN THE ORDER THEY WERE TAKEN. The first write is held
+// after its snapshot while a second ack moves the message on: the disk must end
+// on the second, never on the first written over it.
+func TestTwoLeaseWritesLeaveTheNewerState(t *testing.T) {
+	s, _ := messageDoc(t)
+	s.openResponseWindow(1, "fp", false)
+	second, waiting := make(chan struct{}), make(chan struct{})
+	s.testLeaseWait = func() { close(waiting) }
+	s.testLeaseWrite = func() {
+		s.testLeaseWrite = nil
+		go func() {
+			_ = postAckRec(t, s, "working", "second")
+			close(second)
+		}()
+		select {
+		case <-second:
+		case <-waiting:
+		}
+	}
+	if rec := postAckRec(t, s, "working", "first"); rec.Code != http.StatusNoContent {
+		t.Fatalf("first ack: %d %s", rec.Code, rec.Body.String())
+	}
+	<-second
+	if got, _ := leaseOnDisk(t, s)["line"].(string); got != "second" {
+		t.Fatalf("lease line %q, want the newer %q", got, "second")
+	}
 }
