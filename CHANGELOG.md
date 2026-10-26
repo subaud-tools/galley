@@ -2,6 +2,10 @@
 
 Newest first. Notes for releases up to 0.10.2 are on the GitHub releases page: https://github.com/subaud-tools/galley/releases
 
+## Unreleased
+
+- Pressing Revise again after a Revise got no reply sends its instructions again. Before, the agent was woken with no instructions. With new instructions on the page, Revise sends those as before.
+
 ## 0.16.0
 
 - The page shows where each Revise stands, in a pill beside the button: sent, with the agent, working (with the agent's line), answered, declined, failed or no reply. The harness reports when a Revise lands in the agent's session and when the agent's turn ends: under Claude Code the plugin runs the new `galley report`, under pi the channel takes them from channels.tools.

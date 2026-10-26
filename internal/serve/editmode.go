@@ -2154,10 +2154,18 @@ type reviewerRound struct {
 // instructions, not authored prose, so they belong in neither the version nor
 // its diff. The instruction text has already been copied into the round record
 // and ledger before those affordances are removed.
-func (s *EditServer) sendReviewerRound(reason string) (reviewerRound, int, error) {
+//
+// resend is the unanswered round's asks (see unansweredAsks): sent again only
+// when the page has no instruction of its own to send.
+func (s *EditServer) sendReviewerRound(reason string, resend []versions.Ask) (reviewerRound, int, error) {
 	handoff, err := s.pending()
 	if err != nil {
 		return reviewerRound{}, statusFor(err), err
+	}
+	if len(handoff.Instructions) == 0 {
+		for _, a := range resend {
+			handoff.Instructions = append(handoff.Instructions, InstructionView{Key: a.Key, Text: a.Text, Quote: a.Quote})
+		}
 	}
 	inRound := make(map[string]bool, len(handoff.Instructions))
 	for _, instruction := range handoff.Instructions {
@@ -2321,6 +2329,27 @@ func (s *EditServer) openResponseWindow(round int, fp string, approveOnAnswer bo
 	return token
 }
 
+// unansweredAsks is what the open window's round asked, while its message is
+// unsettled: a press after no reply sends it again, since the send that carried
+// those instructions deleted them from the page. A settled message, or none,
+// re-sends nothing.
+func (s *EditServer) unansweredAsks() []versions.Ask {
+	s.reviseMu.Lock()
+	round := 0
+	if s.watch != nil && s.msg != nil && !msgstate.Final(s.msg.state) {
+		round = s.watch.round
+	}
+	s.reviseMu.Unlock()
+	if round <= 0 {
+		return nil
+	}
+	r, ok, err := s.Versions().Get(round)
+	if err != nil || !ok {
+		return nil
+	}
+	return r.Asks
+}
+
 // handleRevise starts the configured command and returns immediately. See
 // EditServer.OnRevise for why it is neither debounced nor awaited.
 //
@@ -2441,7 +2470,7 @@ func (s *EditServer) handleRevise(w http.ResponseWriter, r *http.Request) {
 	// The button chooses WHEN to send. Everything after that choice is the same
 	// handoff live mode performs: capture, clean, cut, and open one response
 	// window pointing at the round the agent is answering.
-	sent, code, err := s.sendReviewerRound(versions.ReasonRevise)
+	sent, code, err := s.sendReviewerRound(versions.ReasonRevise, s.unansweredAsks())
 	if err != nil {
 		writeMutationError(w, code, err)
 		return
@@ -3239,7 +3268,7 @@ func (s *EditServer) wakeSettle(fp string) {
 	// Live chooses WHEN to send; it does not define a second kind of handoff.
 	// Capture and clean through the same path as Revise, open the same response
 	// window, and carry the same immutable work order to blocked readers.
-	sent, _, err := s.sendReviewerRound(versions.ReasonSettled)
+	sent, _, err := s.sendReviewerRound(versions.ReasonSettled, nil)
 	if err != nil {
 		if s.Log != nil {
 			s.Log("could not send the settled reviewer round: " + err.Error())
