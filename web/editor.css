@@ -1,8 +1,11 @@
 /* Share's menu is tools-common's (web/kit/, refreshed from the module go.mod
    pins by `just assets`), bundled in here so galley serves nothing new and
    loads none of kit.css. Its --share-* properties are set to galley's own
-   tokens beside the verdict menu below. An @import must come first. */
+   tokens beside the verdict menu below. An @import must come first. So does
+   the kit's message pill (kit/msgpill.css, cut out of kit.css by the same
+   copy); its --kit-* properties are set on `.gly-msg` below. */
 @import "./kit/share.css";
+@import "./kit/msgpill.css";
 
 /* galley edit mode — the editing surface, its suggestion marks, the bubble
    that decides them, and the notes rail beside them.
@@ -2512,6 +2515,46 @@ html.gly-panel-door {
   --share-lift: var(--gly-lift);
   --share-hover: transparent;
   --share-font: var(--gly-sans);
+}
+
+/* Where the last Revise stands (web/verdict.ts paintMessage): the kit's pill
+   and the agent's line, in one row beside the button so the bar stays one
+   line. The line ellipsizes; the cell's title carries it whole. The kit's
+   colours are galley's: waiting is the live amber, the agent's two states the
+   instruction's indigo, answered the inserted cyan, failed the removed red.
+
+   SIZED LIKE THE STATUS, AND FOR THE STATUS'S REASON (see `.gly-bar
+   .gly-status`): a flex basis of 0 keeps the pill out of the wrapping bar's
+   line-breaking, so a long line can never push Revise onto a second row; the
+   grow factor serves it before the spacer, up to its own width. */
+.gly-bar .gly-msg {
+  --kit-mono: var(--gly-mono);
+  --kit-sans: var(--gly-sans);
+  --kit-wait: var(--gly-live-fg);
+  --kit-agent: var(--gly-hl);
+  --kit-agent-soft: var(--gly-hl-bg);
+  --kit-ok: var(--gly-ins);
+  --kit-danger: var(--gly-del);
+  --kit-muted: var(--gly-muted);
+  flex: 100 1 0;
+  min-width: 0;
+  max-width: max-content;
+  overflow: hidden;
+}
+.gly-bar .gly-msg:empty { display: none; }
+.gly-bar .gly-msg .kit-msg {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+}
+.gly-bar .gly-msg .kit-pill { white-space: nowrap; }
+.gly-bar .gly-msg .kit-msg-line {
+  min-width: 0;
+  max-width: 18rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* --- Share: the approved document's way to a reader (web/share.ts) ---

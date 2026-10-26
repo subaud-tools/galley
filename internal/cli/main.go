@@ -300,6 +300,7 @@ func newApp() *tools.App {
 		NewFlags: func() *flag.FlagSet { fs, _ := newScopeFlags("watch"); return fs },
 		Run:      runWatch,
 	})
+	app.Register(reportCommand())
 	// ledger dispatches its own sub-verbs; declaring them as Subcommands lets
 	// `galley ledger -h` show this help while `galley ledger sync -h` reaches
 	// the sub-verb's own flag set.

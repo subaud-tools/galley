@@ -53,6 +53,7 @@ import (
 	"github.com/subaud-tools/galley/internal/review"
 	"github.com/subaud-tools/galley/internal/suggest"
 	"github.com/subaud-tools/galley/internal/versions"
+	"github.com/subaud-tools/tools-common/msgstate"
 )
 
 // cutIntent is a send waiting for the next projection to write it down.
@@ -232,6 +233,11 @@ func (s *EditServer) cutApplied() int {
 func (s *EditServer) recordCannot(why string) {
 	s.reviseMu.Lock()
 	s.cannotWhy, s.cannotAt = why, time.Now()
+	// The agent tried and couldn't: the message is failed, with the reason
+	// under its pill.
+	if m := s.msg; m != nil && msgstate.Acknowledge(m.state, msgstate.Failed) {
+		m.state, m.line, m.held = msgstate.Failed, why, false
+	}
 	s.watch = nil
 	s.approveOnAnswer = false
 	s.reviseMu.Unlock()

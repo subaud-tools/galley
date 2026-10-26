@@ -106,6 +106,9 @@ func TestChannelForwardsARevisePress(t *testing.T) {
 			if meta["doc"] == "" {
 				t.Errorf("%s: meta.doc missing: %v", when, meta)
 			}
+			if tok, _ := meta[channelmcp.MetaReport].(string); !reportToken.MatchString(tok) {
+				t.Errorf("%s: meta.report = %q, want the window's 16-hex token", when, tok)
+			}
 			for _, want := range []string{"Hello.", instruction} {
 				if !strings.Contains(content, want) {
 					t.Errorf("%s: captured instruction lost %q:\n%s", when, want, content)

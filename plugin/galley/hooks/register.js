@@ -7,6 +7,7 @@
 //   {"stop": ...}   log the reason; watch exits and is not restarted
 // and reports back by running the binary, passing a line's "report" token
 // unchanged:
+//   BIN report held <token>     the line's prompt is waiting: the agent is mid-turn
 //   BIN report landed <token>   the line's prompt started a turn
 //   BIN report turn-ended       a turn completed after one of its lines landed
 
@@ -24,6 +25,10 @@ const RETRY = [
 // once watch prints an event.
 const FIRST_DELAY = 2000
 const MAX_DELAY = 60000
+
+// A submit still pending this long after it was made is waiting for the
+// running turn to complete: the line is held.
+const HELD_AFTER = 1000
 
 let pending = []
 let generation = 0
@@ -61,6 +66,14 @@ async function report($, args) {
 
 // submitPrompt resolves when the prompt's turn starts, or with a drop.
 async function submitPrompt($, ev) {
+  const token = typeof ev.report === 'string' && ev.report ? ev.report : ''
+  let settled = false
+  if (token) {
+    // Queued before this line's landed, so held runs first on the chain.
+    $.clock.after(HELD_AFTER, () => {
+      if (!settled) queueReport($, ['held', token])
+    })
+  }
   let reason
   try {
     const result = await $.prompt.submit({ text: ev.text })
@@ -68,11 +81,12 @@ async function submitPrompt($, ev) {
   } catch (error) {
     reason = String(error?.message ?? error)
   }
+  settled = true
   if (RETRY.some(s => reason.includes(s))) pending.push(ev)
   else if (reason) $.ui.log(NAME + ' event not delivered: ' + reason)
-  else if (typeof ev.report === 'string' && ev.report) {
+  else if (token) {
     landed = true
-    queueReport($, ['landed', ev.report])
+    queueReport($, ['landed', token])
   }
 }
 

@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +14,9 @@ import (
 	"github.com/subaud-tools/galley/internal/registry"
 	"github.com/subaud-tools/tools-common/channelmcp"
 )
+
+// reportToken is a window's report token: 16 hex characters.
+var reportToken = regexp.MustCompile(`^[0-9a-f]{16}$`)
 
 // `galley watch` is the channel's scan and attach loop with a JSON line on
 // stdout for each wake, which is what the Claude Code plugin's mod reads. A
@@ -52,12 +56,17 @@ func TestWatchPrintsARevisePressAsOneLine(t *testing.T) {
 	var ev struct {
 		Content string            `json:"content"`
 		Meta    map[string]string `json:"meta"`
+		Report  string            `json:"report"`
 	}
 	if err := json.Unmarshal([]byte(line), &ev); err != nil {
 		t.Fatalf("not one JSON line: %q (%v)", line, err)
 	}
 	if ev.Meta["reason"] != reasonRevise || ev.Meta["doc"] != doc {
 		t.Fatalf("meta = %v", ev.Meta)
+	}
+	// The plugin passes the line's report token back as `galley report landed`.
+	if !reportToken.MatchString(ev.Report) {
+		t.Fatalf("report = %q, want the window's 16-hex token", ev.Report)
 	}
 	if !strings.Contains(ev.Content, "Revision requested on "+doc) {
 		t.Fatalf("content = %q", ev.Content)

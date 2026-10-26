@@ -1,0 +1,18 @@
+.kit-pill { font: 11px var(--kit-mono); border-radius: 6px; padding: 1px 7px; }
+.kit-pill.wait { color: var(--kit-wait); background: color-mix(in srgb, var(--kit-wait) 10%, transparent); }
+.kit-pill.ok { color: var(--kit-ok); background: color-mix(in srgb, var(--kit-ok) 10%, transparent); }
+
+/* a message's state (tools-common/msgstate; messagePill). Waiting is the wait
+   colour, the agent's two states the agent's, settled-well ok, settled-badly
+   danger; a quiet ending (declined, no reply) is muted, no reply dashed so it
+   reads as unfinished. The line under the pill is muted prose. */
+.kit-msg { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.kit-msg-line { font: 12.5px/1.5 var(--kit-sans); color: var(--kit-muted); }
+.kit-pill[data-state] { border: 1px solid transparent; }
+.kit-pill[data-state="sent"] { color: var(--kit-wait); background: color-mix(in srgb, var(--kit-wait) 10%, transparent); }
+.kit-pill[data-state="with_agent"] { color: var(--kit-agent); border-color: var(--kit-agent); }
+.kit-pill[data-state="working"] { color: var(--kit-agent); background: var(--kit-agent-soft); }
+.kit-pill[data-state="answered"] { color: var(--kit-ok); background: color-mix(in srgb, var(--kit-ok) 10%, transparent); }
+.kit-pill[data-state="declined"] { color: var(--kit-muted); background: color-mix(in srgb, var(--kit-muted) 12%, transparent); }
+.kit-pill[data-state="failed"] { color: var(--kit-danger); background: color-mix(in srgb, var(--kit-danger) 10%, transparent); }
+.kit-pill[data-state="no_reply"] { color: var(--kit-muted); border-color: var(--kit-muted); border-style: dashed; }

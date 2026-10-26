@@ -47,7 +47,9 @@ import (
 	"github.com/subaud-tools/galley/internal/unsent"
 	"github.com/subaud-tools/galley/internal/versions"
 	"github.com/subaud-tools/galley/internal/ydoc"
+	"github.com/subaud-tools/tools-common/channelmcp"
 	"github.com/subaud-tools/tools-common/localweb"
+	"github.com/subaud-tools/tools-common/msgstate"
 )
 
 // EditServer serves one markdown document, live as a ygo XML fragment, and
@@ -282,13 +284,23 @@ type EditServer struct {
 	// only: a field, not a package variable, so no other server sees it.
 	testImportTick func()
 	draftErr       string
+	// leaseMu serializes the lease on disk: every write holds it from the
+	// snapshot to the write, and closeHandoff holds it across the delete, so a
+	// write never lands after the window closed and two writes land in the
+	// order they were taken. Taken BEFORE reviseMu, never while holding it.
+	leaseMu sync.Mutex
+	// testLeaseWrite runs between a lease write's snapshot and its write, and
+	// testLeaseWait when a lease taker finds leaseMu held. Tests only.
+	testLeaseWrite func()
+	testLeaseWait  func()
 
-	// The agent's last acknowledgment, shown by writeReviseState. Guarded by
-	// reviseMu with the watch because the two are one story: the window opens
-	// on a press, the ack narrates it, and a terminal ack closes it.
-	ackState string
-	ackNote  string
-	ackAt    time.Time
+	// msg is the last Revise as a message, shown by writeReviseState. Guarded
+	// by reviseMu with the watch because the two are one story: the window
+	// opens on a press and starts it, the harness's reports and the agent's
+	// acks move it, and a terminal ack closes the window. It outlives the
+	// window: a settled message stays until the next one starts or a direct
+	// Approve clears it.
+	msg *reviseMessage
 
 	// instrSaid is every word of the reviewer's this session has already
 	// recorded on a round — see reviewerInstruction, which is the only reader
@@ -1343,6 +1355,7 @@ func (s *EditServer) Handler() http.Handler {
 	mux.HandleFunc("/_galley/revise", s.handleRevise)
 	mux.HandleFunc("/_galley/stop", s.handleStop)
 	mux.HandleFunc("/_galley/ack", s.handleAck)
+	mux.HandleFunc("/_galley/report", s.handleReport)
 	// The reviewer taking the document back mid-window — see handoff.go.
 	mux.HandleFunc("/_galley/handoff/cancel", s.handleHandoffCancel)
 	mux.HandleFunc("/_galley/wait", s.handleWait)
@@ -2266,19 +2279,46 @@ func (s *EditServer) sendReviewerRound(reason string) (reviewerRound, int, error
 	return reviewerRound{pending: handoff, round: round, fingerprint: fp}, http.StatusOK, nil
 }
 
+// reviseMessage is one opening of the response window as a message Court
+// sent: where it stands (msgstate), the line under its pill, whether the
+// harness is holding it while the agent is mid-turn, and the report token the
+// harness names it by.
+type reviseMessage struct {
+	state msgstate.State
+	line  string
+	held  bool
+	token string
+}
+
+// newReportToken is a message's report token: 16 random hex characters, which
+// the Claude Code plugin passes as an argument, so alphanumeric.
+func newReportToken() string {
+	b := make([]byte, 8)
+	_, _ = rand.Read(b) // crypto/rand.Read never fails
+	return hex.EncodeToString(b)
+}
+
 // openResponseWindow says which reviewer round the next agent return answers.
 // A Revise press and a live settle both send work, so both open this same
 // window. approveOnAnswer is the one intentional trigger-level difference:
 // only the explicit Revise & Approve choice can set it.
-func (s *EditServer) openResponseWindow(round int, fp string, approveOnAnswer bool) {
+//
+// Each opening is a new message in sent with a fresh token. A second press
+// mid-window replaces the first message: it is a new message, so it asks
+// msgstate nothing.
+//
+// It answers the message's report token, which the wake carries to the harness.
+func (s *EditServer) openResponseWindow(round int, fp string, approveOnAnswer bool) string {
+	token := newReportToken()
 	s.reviseMu.Lock()
 	s.watch = &reviseWatch{at: time.Now(), fingerprint: fp, round: round}
 	s.approveOnAnswer = approveOnAnswer
-	s.ackState, s.ackNote = "", ""
+	s.msg = &reviseMessage{state: msgstate.Sent, token: token}
 	s.reviseMu.Unlock()
 	// The window IS the handoff: from here until the agent's return the .md
 	// file is the agent's editing surface. See handoff.go.
 	s.openHandoff(round, fp, approveOnAnswer)
+	return token
 }
 
 // handleRevise starts the configured command and returns immediately. See
@@ -2447,7 +2487,7 @@ func (s *EditServer) handleRevise(w http.ResponseWriter, r *http.Request) {
 	// revision landing. See reviseWatch. One opener for the press and the live
 	// settle alike — it resets the ack (a fresh ask must not wear the last
 	// review's answer) and opens the file handoff with the window.
-	s.openResponseWindow(sent.round, sent.fingerprint, req.ApproveOnAnswer)
+	token := s.openResponseWindow(sent.round, sent.fingerprint, req.ApproveOnAnswer)
 
 	// THE VERDICT THAT DOES NOT END THE REVIEW, and the count that says how
 	// many rounds a document took. The trail is deliberately NOT swept up here:
@@ -2459,7 +2499,7 @@ func (s *EditServer) handleRevise(w http.ResponseWriter, r *http.Request) {
 	// nothing here needs the two held together; taking them in one order here
 	// and another anywhere else is how this file would acquire its first
 	// deadlock.
-	s.wakeWaiters(waitRevise, sent.fingerprint, &sent.pending)
+	s.wakeRound(waitRevise, sent.fingerprint, &sent.pending, token)
 
 	if cmd != "" {
 		go func() {
@@ -2486,7 +2526,7 @@ func (s *EditServer) approveReview(clearAck bool) {
 	s.watch = nil
 	s.approveOnAnswer = false
 	if clearAck {
-		s.ackState, s.ackNote = "", ""
+		s.msg = nil
 	}
 	s.reviseMu.Unlock()
 	// A verdict mid-window ends the window: the file is the reviewer's again,
@@ -2528,13 +2568,12 @@ func (s *EditServer) writeReviseState(w http.ResponseWriter) {
 	// given on the fields themselves — so it is read here rather than through
 	// a second exported accessor nobody else needs.
 	s.reviseMu.Lock()
-	ack, ackNote, ackAt := s.ackState, s.ackNote, s.ackAt
+	var msg *MessageView
+	if m := s.msg; m != nil {
+		msg = &MessageView{State: m.state, Line: m.line, Held: m.held}
+	}
 	cannot, cannotAt := s.cannotWhy, s.cannotAt
 	s.reviseMu.Unlock()
-	var ackAgo int64
-	if ack != "" {
-		ackAgo = time.Since(ackAt).Milliseconds()
-	}
 	var cannotAgo int64
 	if cannot != "" {
 		cannotAgo = time.Since(cannotAt).Milliseconds()
@@ -2549,12 +2588,10 @@ func (s *EditServer) writeReviseState(w http.ResponseWriter) {
 		verdictAt = st.VerdictAt.UnixMilli()
 	}
 	writeJSON(w, ReviseStateView{
-		Running:  running,
-		Waiting:  waiting,
-		SinceMs:  since,
-		Ack:      ack,
-		AckNote:  ackNote,
-		AckAgoMs: ackAgo,
+		Running: running,
+		Waiting: waiting,
+		SinceMs: since,
+		Message: msg,
 		// THE ROUND THAT ARRIVED, and it rides here rather than on the pending
 		// view because the pending view is the WORK and phase 2's answer is not
 		// work — it is already in the document. A number, so the page can tell
@@ -2597,12 +2634,14 @@ func (s *EditServer) writeReviseState(w http.ResponseWriter) {
 // say WHY each thing rides this state rather than the pending view, and that
 // reasoning is the same whether the payload is a map or a type.
 type ReviseStateView struct {
-	Running  bool   `json:"running"`
-	Waiting  bool   `json:"waiting"`
-	SinceMs  int64  `json:"sinceMs"`
-	Ack      string `json:"ack"`
-	AckNote  string `json:"ackNote"`
-	AckAgoMs int64  `json:"ackAgoMs"`
+	Running bool  `json:"running"`
+	Waiting bool  `json:"waiting"`
+	SinceMs int64 `json:"sinceMs"`
+	// Message is where the last Revise stands: each opening of the response
+	// window is one message, and the agent's acknowledgements and the
+	// harness's reports move it. Absent when no window has opened since the
+	// editor started or since a direct Approve.
+	Message *MessageView `json:"message,omitempty"`
 	// Landed is THE ROUND THAT ARRIVED, and it rides here rather than on the
 	// pending view because the pending view is the WORK and the agent's answer
 	// is not work — it is already in the document. A number, so the page can
@@ -2630,14 +2669,21 @@ type ReviseStateView struct {
 	VerdictAt int64  `json:"verdictAt"`
 }
 
-// ackStates is the five things an agent can say about a review, and the only
-// two questions they answer: did anyone hear, and is it still worth waiting.
-// received and working keep the window open; answered, declined and failed
-// close it with a stated outcome — the half of Gap 1 a status path can close.
-// The timeout for "no ack ever came" is deliberately NOT here; see the
-// design spec.
+// MessageView is a Revise's message as the page shows it: the kit's pill for
+// state, and the line under it (the agent's note). Held is a sent message the
+// harness is holding because the agent is mid-turn.
+type MessageView struct {
+	State msgstate.State `json:"state"`
+	Line  string         `json:"line"`
+	Held  bool           `json:"held"`
+}
+
+// ackStates is the four things an agent can say about a review: msgstate's
+// acknowledgements. working keeps the window open; answered, declined and
+// failed close it with a stated outcome. That a press reached the agent is the
+// harness's to report (see handleReport), not the agent's.
 var ackStates = map[string]bool{
-	"received": true, "working": true, "answered": true, "declined": true, "failed": true,
+	"working": true, "answered": true, "declined": true, "failed": true,
 }
 
 // handleAck is the status return path: an agent's answer to a revision
@@ -2663,13 +2709,22 @@ func (s *EditServer) handleAck(w http.ResponseWriter, r *http.Request) {
 	// lives in a transcript belonging to another project. See debug.go.
 	s.debugAck(s.watchRound(), req.State, req.Note, req.Changes)
 	if !ackStates[req.State] {
-		http.Error(w, "state must be one of received, working, answered, declined, failed; got "+strconv.Quote(req.State),
+		http.Error(w, "state must be one of working, answered, declined, failed; got "+strconv.Quote(req.State),
 			http.StatusBadRequest)
 		return
 	}
+	// THE MESSAGE'S LIFECYCLE COMES FIRST. A settled Revise stays settled, so
+	// an answer after a decline is refused here, whatever the rules below
+	// would have said about it.
+	st := msgstate.State(req.State)
+	if from, ok := s.messageState(); ok && !ackMoves(from, st) {
+		http.Error(w, fmt.Sprintf("this revision is %s and cannot be marked %s", from.Label(), st.Label()),
+			http.StatusConflict)
+		return
+	}
 	// AN ACK IS A CLAIM ABOUT A QUESTION, AND HERE THERE IS NONE. Every state
-	// this endpoint takes answers something: `working` and `received` say a
-	// press was heard, `answered`, `declined` and `failed` say how it came out.
+	// this endpoint takes answers something: `working` says a press is being
+	// worked on, `answered`, `declined` and `failed` say how it came out.
 	// With no revision window open and no verdict rendered, nothing has been
 	// asked of anybody — so the ack is not a status, it is a sentence about a
 	// conversation that never started, and it used to be 204 with the
@@ -2776,13 +2831,18 @@ func (s *EditServer) handleAck(w http.ResponseWriter, r *http.Request) {
 		s.setAppliedChanges(s.ackManifest(req.Changes))
 	}
 	s.reviseMu.Lock()
-	s.ackState, s.ackNote, s.ackAt = req.State, req.Note, time.Now()
+	if m := s.msg; m != nil && ackMoves(m.state, st) && (m.state != st || !msgstate.Final(st)) {
+		m.state, m.line, m.held = st, req.Note, false
+	}
 	autoApprove := terminal && req.State == "answered" && s.approveOnAnswer
 	if terminal {
 		s.watch = nil
 		s.approveOnAnswer = false
 	}
 	s.reviseMu.Unlock()
+	if !terminal {
+		s.persistMessage()
+	}
 	// AND A TERMINAL ACK IS THE AGENT'S SEND. Phase 2's revision lands in the
 	// document over several edits, so there is no single write that is "the
 	// answer arriving" the way one proposal was — the answer arrives when the
@@ -2811,6 +2871,79 @@ func (s *EditServer) handleAck(w http.ResponseWriter, r *http.Request) {
 		s.Log("ack: " + req.State + noteSuffix(req.Note))
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleReport is the harness saying where the window's message stands: held
+// (the agent is mid-turn, so the event waits), landed (it is in the agent's
+// session) or turn_ended (the agent's turn ended). held and landed name the
+// message by its report token; a report for another token, or with no window
+// open, changes nothing. Every move asks msgstate.Allowed and a refused one is
+// skipped, so a late landed report leaves a working message working. Each
+// change is written to the lease; the window itself is never touched, so a
+// late answer still lands after turn_ended.
+func (s *EditServer) handleReport(w http.ResponseWriter, r *http.Request) {
+	if !guard(w, r) {
+		return
+	}
+	var req struct {
+		Event channelmcp.ReportEvent `json:"event"`
+		Token string                 `json:"token"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	switch req.Event {
+	case channelmcp.ReportHeld, channelmcp.ReportLanded, channelmcp.ReportTurnEnded:
+	default:
+		http.Error(w, fmt.Sprintf("event %q: want held, landed or turn_ended", req.Event), http.StatusBadRequest)
+		return
+	}
+	s.reviseMu.Lock()
+	changed := false
+	if m := s.msg; m != nil && s.handoffLease != nil {
+		ours := req.Token != "" && req.Token == m.token
+		switch {
+		case req.Event == channelmcp.ReportLanded && ours:
+			if msgstate.Allowed(m.state, msgstate.WithAgent) {
+				m.state = msgstate.WithAgent
+				changed = true
+			}
+			if m.held {
+				m.held, changed = false, true
+			}
+		case req.Event == channelmcp.ReportHeld && ours:
+			if m.state == msgstate.Sent && !m.held {
+				m.held, changed = true, true
+			}
+		case req.Event == channelmcp.ReportTurnEnded:
+			if msgstate.Allowed(m.state, msgstate.NoReply) {
+				m.state, changed = msgstate.NoReply, true
+			}
+		}
+	}
+	s.reviseMu.Unlock()
+	if changed {
+		s.persistMessage()
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ackMoves reports whether the agent's ack may move a message in from to st:
+// msgstate.Acknowledge, plus the two moves that change nothing it draws, which
+// diazo allows too: working again only replaces the line, and a settled state
+// repeated leaves the message as it is.
+func ackMoves(from, st msgstate.State) bool {
+	return from == st || msgstate.Acknowledge(from, st)
+}
+
+// messageState is the current message's state, and whether there is one.
+func (s *EditServer) messageState() (msgstate.State, bool) {
+	s.reviseMu.Lock()
+	defer s.reviseMu.Unlock()
+	if s.msg == nil {
+		return "", false
+	}
+	return s.msg.state, true
 }
 
 // answeredGrace is how long a zero-change `answered` ack waits for the
@@ -2901,13 +3034,18 @@ type waitEvent struct {
 	reason  string
 	fp      string
 	pending *PendingView
+	report  string
 }
 
-// waitReply is GET /_galley/wait's JSON body.
+// waitReply is GET /_galley/wait's JSON body. Report is the message's report
+// token on a revise or settle wake: the channel sets it as
+// channelmcp.MetaReport, and the harness names it when it reports the wake
+// held or landed (POST /_galley/report).
 type waitReply struct {
 	Reason      string       `json:"reason"`
 	Fingerprint string       `json:"fingerprint"`
 	Pending     *PendingView `json:"pending"`
+	Report      string       `json:"report,omitempty"`
 }
 
 // How long ONE poll is held open. The caller names its own bound with
@@ -3056,11 +3194,17 @@ func (s *EditServer) awaitReArm() bool {
 // carries the captured round because clearing the browser's pending state is
 // part of the same handoff; re-reading would erase the message being sent.
 func (s *EditServer) wakeWaiters(reason, fp string, pending *PendingView) {
+	s.wakeRound(reason, fp, pending, "")
+}
+
+// wakeRound is wakeWaiters for a wake that opened a message: the readers are
+// handed its report token with the round.
+func (s *EditServer) wakeRound(reason, fp string, pending *PendingView, report string) {
 	s.waitMu.Lock()
 	defer s.waitMu.Unlock()
 	for ch := range s.waiters {
 		select {
-		case ch <- waitEvent{reason: reason, fp: fp, pending: pending}:
+		case ch <- waitEvent{reason: reason, fp: fp, pending: pending, report: report}:
 		default:
 		}
 	}
@@ -3102,11 +3246,11 @@ func (s *EditServer) wakeSettle(fp string) {
 		}
 		return
 	}
-	s.openResponseWindow(sent.round, sent.fingerprint, false)
+	token := s.openResponseWindow(sent.round, sent.fingerprint, false)
 	// The cursor is the fingerprint that CAUSED this wake. Cleanup deliberately
 	// moved the current pending set again; returning that post-clean value can
 	// equal the caller's old cursor and make a real wake look like nothing moved.
-	s.wakeWaiters(waitSettle, fp, &sent.pending)
+	s.wakeRound(waitSettle, fp, &sent.pending, token)
 }
 
 // ReleaseWaiters ends every blocked GET /_galley/wait and refuses new ones, so
@@ -3298,7 +3442,7 @@ func (s *EditServer) handleWait(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		writeJSON(w, waitReply{Reason: ev.reason, Fingerprint: fp, Pending: &view})
+		writeJSON(w, waitReply{Reason: ev.reason, Fingerprint: fp, Pending: &view, Report: ev.report})
 	case <-timer.C:
 		s.unregisterWaiter(ch)
 		fp, view, err := s.waitFingerprint()

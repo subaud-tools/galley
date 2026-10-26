@@ -19,6 +19,10 @@ paintChanges from CC19/Cog25 to CC13/Cog18.
 
 If coverage instrumentation ever lands, CRAP becomes meaningful and this should
 be revisited.
+
+web/kit/ is not counted: it is tools-common's code, copied from the module
+go.mod pins by `just assets`, and no galley branch can simplify it (the kit's
+h() builder is over both thresholds).
 """
 import json
 import sys
@@ -26,7 +30,8 @@ import sys
 BOUND = 13
 
 data = json.load(sys.stdin)
-real = [f for f in data["findings"] if f["exceeded"] != "crap"]
+real = [f for f in data["findings"]
+        if f["exceeded"] != "crap" and not f["path"].startswith("kit/")]
 print(f"complexity: {len(real)} over a cognitive/cyclomatic threshold — bound {BOUND}")
 if len(real) > BOUND:
     for f in sorted(real, key=lambda f: -(f["cyclomatic"] + f["cognitive"])):

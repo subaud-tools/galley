@@ -5,7 +5,8 @@
 // (internal/serve/editmode.go), roundView, diffView and changeView
 // (internal/serve/versions.go), plus every struct they reach — including
 // across a package boundary, which is how suggest.BlockRef and review.Region
-// get here.
+// get here. A named string type with a Values() method is an enum, declared
+// as a union of its values: tools-common's msgstate.State is MessageState.
 //
 // Regenerate with `just wire`. A drift between this file and the Go
 // structs fails `just verify`, which is Go-only and therefore runs on every
@@ -49,9 +50,7 @@ export interface ReviseStateView {
   running: boolean;
   waiting: boolean;
   sinceMs: number;
-  ack: string;
-  ackNote: string;
-  ackAgoMs: number;
+  message?: MessageView;
   landed: number;
   cannot: string;
   cannotAgoMs: number;
@@ -119,3 +118,18 @@ export interface Region {
   w: number;
   h: number;
 }
+
+export interface MessageView {
+  state: MessageState;
+  line: string;
+  held: boolean;
+}
+
+export type MessageState =
+  | 'sent'
+  | 'with_agent'
+  | 'working'
+  | 'answered'
+  | 'declined'
+  | 'failed'
+  | 'no_reply';

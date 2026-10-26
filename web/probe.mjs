@@ -131,7 +131,9 @@ import {
   clockTime,
   VERDICT_ENTRUSTED,
   VERDICT_DISCARDED,
+  MESSAGE_HELD_LINE,
 } from './verdict.ts';
+import { MESSAGE_STATES } from './kit/msgstate.js';
 import {
   VIEWS,
   DEFAULT_VIEW,
@@ -280,11 +282,36 @@ function paintedRevise({ pendingCount = 0, waitedMs = null }) {
       this.text = String(v);
     }
     addEventListener() {}
+    before() {}
   }
   class FakeButton extends FakeEl {}
+  return onFakeRevise(
+    FakeEl,
+    FakeButton,
+    {
+      reviseWaiting: waitedMs !== null,
+      reviseStartedAt: Date.now() - (waitedMs ?? 0),
+      pendingCount,
+      paintMessage: verdictMethods.paintMessage,
+    },
+    (shell, button) => {
+      verdictMethods.paintRevise.call(shell);
+      return button.nodes
+        .filter((n) => !n.classList.contains('gly-reserved'))
+        .map((n) => n.textContent)
+        .join('|');
+    },
+  );
+}
+
+// onFakeRevise puts a fake document whose elements are FakeEl in place,
+// builds the primary on a shell of the fields makeRevise and paintRevise read
+// (plus `over`), and hands both to read. The globals are restored after.
+function onFakeRevise(FakeEl, FakeButton, over, read) {
   const had = {
     document: globalThis.document,
     HTMLButtonElement: globalThis.HTMLButtonElement,
+    Node: globalThis.Node,
   };
   const button = new FakeButton('button');
   globalThis.document = {
@@ -292,26 +319,90 @@ function paintedRevise({ pendingCount = 0, waitedMs = null }) {
     createElement: (tag) => new FakeEl(tag),
   };
   globalThis.HTMLButtonElement = FakeButton;
+  // The kit's h() asks `instanceof Node` of each child.
+  globalThis.Node = Object.getPrototypeOf(FakeEl);
   try {
     const shell = {
-      reviseWaiting: waitedMs !== null,
-      reviseStartedAt: Date.now() - (waitedMs ?? 0),
+      reviseWaiting: false,
+      reviseStartedAt: Date.now(),
       reviseRunning: false,
       approved: false,
       approveNotBefore: 0,
       verdict: REVISE_IDLE,
-      pendingCount,
+      pendingCount: 0,
+      ...over,
     };
     shell.revise = verdictMethods.makeRevise.call(shell);
-    verdictMethods.paintRevise.call(shell);
-    return button.nodes
-      .filter((n) => !n.classList.contains('gly-reserved'))
-      .map((n) => n.textContent)
-      .join('|');
+    return read(shell, button);
   } finally {
     globalThis.document = had.document;
     globalThis.HTMLButtonElement = had.HTMLButtonElement;
+    globalThis.Node = had.Node;
   }
+}
+
+// paintedMessage is the cell beside Revise as PRODUCTION paints it: makeRevise
+// builds the cell over a fake DOM and paintMessage fills it with the kit's
+// messagePill from the revise state's message. The fake carries only what
+// those two and the kit's h() touch.
+function paintedMessage({ message, sealed = false, history = false }) {
+  class FakeNode {}
+  class FakeEl extends FakeNode {
+    constructor(tag) {
+      super();
+      this.tagName = tag;
+      this.className = '';
+      this.dataset = {};
+      this.nodes = [];
+      this.title = '';
+    }
+    get classList() {
+      return { add: () => {}, toggle: () => {}, contains: () => false };
+    }
+    append(...nodes) {
+      this.nodes.push(...nodes);
+    }
+    get textContent() {
+      return this.nodes
+        .map((n) => (typeof n === 'string' ? n : n.textContent))
+        .join('');
+    }
+    set textContent(v) {
+      this.nodes = v ? [String(v)] : [];
+    }
+    addEventListener() {}
+    toggleAttribute() {}
+    setAttribute() {}
+  }
+  let cell = null;
+  class FakeButton extends FakeEl {
+    before(n) {
+      cell = n;
+    }
+  }
+  return onFakeRevise(
+    FakeEl,
+    FakeButton,
+    { sealed, versionsPanel: { open: history }, reviseMessage: message },
+    (shell) => {
+      verdictMethods.paintMessage.call(shell);
+      if (!cell) {
+        return null;
+      }
+      const msg = cell.nodes[0];
+      const pill = msg && msg.nodes[0];
+      const line = msg && msg.nodes[1];
+      return {
+        title: cell.title,
+        empty: cell.nodes.length === 0,
+        msg: msg ? msg.className : '',
+        pill: pill ? pill.className : '',
+        state: pill ? pill.dataset.state : '',
+        label: pill ? pill.textContent : '',
+        line: line ? line.textContent : '',
+      };
+    },
+  );
 }
 
 // --- the schema the editor actually builds ---
@@ -7948,6 +8039,48 @@ function bindsContentField(src) {
       !css.includes('.gly-share-menu') &&
       !bundle.includes('/_kit/'),
   );
+}
+
+// --- where a Revise stands: the kit's pill beside the button ---
+{
+  for (const { state, label } of MESSAGE_STATES) {
+    const got = paintedMessage({
+      message: { state, line: 'reading the thread', held: false },
+    });
+    check(
+      `a ${state} Revise shows the kit's pill, labelled "${label}", with its line`,
+      !!got &&
+        got.msg === 'kit-msg' &&
+        got.pill === 'kit-pill' &&
+        got.state === state &&
+        got.label === label &&
+        got.line === 'reading the thread' &&
+        got.title === 'reading the thread',
+      got,
+    );
+  }
+  const held = paintedMessage({
+    message: { state: 'sent', line: '', held: true },
+  });
+  check(
+    'a held Revise says the agent is mid-turn',
+    !!held &&
+      held.state === 'sent' &&
+      held.line === MESSAGE_HELD_LINE &&
+      held.title === MESSAGE_HELD_LINE,
+    held,
+  );
+  const working = { state: 'working', line: 'on it', held: false };
+  for (const [what, got] of [
+    ['with no message', paintedMessage({ message: null })],
+    ['on a sealed page', paintedMessage({ message: working, sealed: true })],
+    [
+      'while History is open',
+      paintedMessage({ message: working, history: true }),
+    ],
+  ]) {
+    check(`no pill ${what}`, !!got && got.empty && got.title === '', got);
+  }
 }
 
 process.exit(failures === 0 ? 0 : 1);
