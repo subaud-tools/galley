@@ -201,3 +201,17 @@ func TestALeaseFromANewerGalleyIsKeptAsUnreadable(t *testing.T) {
 		t.Fatalf("the v3 lease was not kept as unreadable: %v", err)
 	}
 }
+
+// A cancel is the reviewer taking the document back, so the message goes the
+// way a direct Approve takes it: no pill left saying the agent still has it.
+func TestACancelClearsTheMessage(t *testing.T) {
+	s, _ := messageDoc(t)
+	s.openResponseWindow(1, "fp", false)
+	if rec := postAckRec(t, s, "working", "reading the thread"); rec.Code != http.StatusNoContent {
+		t.Fatalf("working ack: %d %s", rec.Code, rec.Body.String())
+	}
+	cancelHandoff(t, s)
+	if v := reviseState(t, s); v.Message != nil {
+		t.Fatalf("message after a cancel = %+v, want none", v.Message)
+	}
+}

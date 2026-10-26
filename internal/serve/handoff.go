@@ -259,9 +259,12 @@ func (s *EditServer) handleHandoffCancel(w http.ResponseWriter, r *http.Request)
 			}
 		}
 	}
+	// The message goes with the window, as a direct Approve clears it: the
+	// document is the reviewer's again, so nothing is with the agent.
 	s.reviseMu.Lock()
 	s.watch = nil
 	s.approveOnAnswer = false
+	s.msg = nil
 	s.reviseMu.Unlock()
 	s.closeHandoff()
 	s.setDraftError("")
