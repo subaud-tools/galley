@@ -2330,13 +2330,15 @@ func (s *EditServer) openResponseWindow(round int, fp string, approveOnAnswer bo
 }
 
 // unansweredAsks is what the open window's round asked, while its message is
-// unsettled: a press after no reply sends it again, since the send that carried
-// those instructions deleted them from the page. A settled message, or none,
-// re-sends nothing.
+// at no reply: a press then sends it again, since the send that carried those
+// instructions deleted them from the page. In any other state it re-sends
+// nothing: settled, the round is done; sent, with the agent or working, the
+// first wake is still queued or in hand, and a second would have the agent
+// apply the same instructions twice.
 func (s *EditServer) unansweredAsks() []versions.Ask {
 	s.reviseMu.Lock()
 	round := 0
-	if s.watch != nil && s.msg != nil && !msgstate.Final(s.msg.state) {
+	if s.watch != nil && s.msg != nil && s.msg.state == msgstate.NoReply {
 		round = s.watch.round
 	}
 	s.reviseMu.Unlock()

@@ -105,3 +105,34 @@ func TestAPressAfterAnAnswerSendsNothingAgain(t *testing.T) {
 
 	heard(t, pressAndHear(t, s))
 }
+
+// A press while the agent is working on the round re-sends nothing: the first
+// wake is still with the agent, and a second carrying the same instruction
+// would have it applied twice.
+func TestAPressWhileTheAgentIsWorkingSendsNothingAgain(t *testing.T) {
+	s, _ := messageDoc(t)
+	instructDocument(t, s, "Add a sentence: Water is wet.")
+	heard(t, pressAndHear(t, s), "Add a sentence: Water is wet.")
+	if rec := postAckRec(t, s, "working", "adding it"); rec.Code != http.StatusNoContent {
+		t.Fatalf("working: %d %s", rec.Code, rec.Body.String())
+	}
+
+	heard(t, pressAndHear(t, s))
+}
+
+// A Revise the agent declined or failed is settled too, and a later press
+// re-sends nothing.
+func TestAPressAfterADeclineOrFailureSendsNothingAgain(t *testing.T) {
+	for _, state := range []string{"declined", "failed"} {
+		t.Run(state, func(t *testing.T) {
+			s, _ := messageDoc(t)
+			instructDocument(t, s, "Add a sentence: Water is wet.")
+			heard(t, pressAndHear(t, s), "Add a sentence: Water is wet.")
+			if rec := postAckRec(t, s, state, "not this one"); rec.Code != http.StatusNoContent {
+				t.Fatalf("%s: %d %s", state, rec.Code, rec.Body.String())
+			}
+
+			heard(t, pressAndHear(t, s))
+		})
+	}
+}
