@@ -215,8 +215,12 @@ type channel struct {
 	// `galley watch`, which takes the rounds, so this process serves the
 	// tools and never attaches. Two takers would split a session's rounds.
 	serveOnly bool
-	mu        sync.Mutex
-	attached  map[string]bool
+	// reports is pi's harness reports, waiting for postReports to deliver
+	// them to this session's editors in the order sent. The read loop only
+	// hands them over, so a slow editor never holds up a tool call.
+	reports  chan harnessReport
+	mu       sync.Mutex
+	attached map[string]bool
 	// The diagnostic's state — the answer to "why am I not attached?", which
 	// until now no surface in this process could give. Rebuilt on every scan,
 	// except `gone`, which is a short history: an advert that was reaped or an
@@ -269,6 +273,7 @@ func newChannel(scope, self string) *channel {
 		unattached:   map[string]string{},
 		stopped:      map[string]bool{},
 		announced:    map[string]bool{},
+		reports:      make(chan harnessReport, 64),
 	}
 	// os.Executable can fail only in exotic setups; an empty exe makes
 	// galley_open report "cannot locate the galley binary" rather than spawn
@@ -303,9 +308,46 @@ func newChannel(scope, self string) *channel {
 			InputSchema: approveSchema,
 		}},
 		Call: c.callTool,
+		// pi's channels.tools reports here; a serve-only channel (Claude
+		// Code) never receives one, since `galley report` carries those.
+		OnReport: c.queueReport,
 	})
 	c.push = c.srv
 	return c
+}
+
+// harnessReport is one report from the harness, waiting to be delivered.
+type harnessReport struct {
+	event channelmcp.ReportEvent
+	token string
+}
+
+// queueReport hands a report to postReports and returns at once: it runs on
+// the MCP read loop, and delivering waits on the network.
+func (c *channel) queueReport(event channelmcp.ReportEvent, token string) {
+	if c.serveOnly || c.self == "" {
+		return
+	}
+	select {
+	case c.reports <- harnessReport{event, token}:
+	default:
+		fmt.Fprintf(os.Stderr, "[galley channel] dropped report %s %s: too many waiting\n", event, token)
+	}
+}
+
+// postReports delivers each queued report to this session's editors, in the
+// order sent, until ctx ends. A failed post is logged, not retried.
+func (c *channel) postReports(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case r := <-c.reports:
+			if err := deliverReport(c.self, r.event, r.token); err != nil && ctx.Err() == nil {
+				fmt.Fprintf(os.Stderr, "[galley channel] %v\n", err)
+			}
+		}
+	}
 }
 
 // channelFromEnv is the channel `galley channel` runs: this session's id, and
@@ -516,6 +558,9 @@ func (c *channel) run(r io.Reader, w io.Writer) error {
 	}
 	if !c.serveOnly {
 		go c.watch(ctx)
+		if c.self != "" {
+			go c.postReports(ctx)
+		}
 	}
 	return c.srv.Run(r, w)
 }
