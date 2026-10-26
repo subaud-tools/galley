@@ -2,7 +2,7 @@
 
 Newest first. Notes for releases up to 0.10.2 are on the GitHub releases page: https://github.com/subaud-tools/galley/releases
 
-## Unreleased
+## 0.16.1
 
 - Pressing Revise again after a Revise got "no reply" sends its instructions again. Before, the agent was woken with no instructions. With new instructions on the page, Revise sends those as before. A press while the agent still has the Revise sends nothing again.
 - Revise & Approve pressed after a Revise got "no reply" now sends its instructions again and approves once the agent answers. Before, it approved at once.
