@@ -388,7 +388,7 @@ const pageState = () =>
     const face = revise
       ? [...revise.querySelectorAll('.gly-revise-label')]
           .filter((l) => !l.classList.contains('gly-reserved'))
-          .map((l) => l.textContent)
+          .map((l) => l.innerText)
           .join('')
       : null;
     return {
@@ -609,27 +609,24 @@ try {
   check('`galley report turn-ended` exited 0', ended.code === 0, ended);
   await expect('no reply: the turn ended with the Revise unanswered', {
     server: { state: 'no_reply', handoff: true },
-    page: { pill: 'no_reply', disabled: false },
+    page: { pill: 'no_reply', disabled: false, face: 'Revise' },
   });
 
   // --- Revise again: the same instruction is sent again ---------------------
   //
-  // FROM `galley revise`, NOT THE PAGE, AND THAT IS A KNOWN DEFECT. With
-  // nothing pending the page's verdict is Approve, so pressing the button here
-  // (its face reads `revising · Ns`) approves the review instead of sending
-  // the Revise again (askRevise in verdict.ts). The server's resend is the
-  // same either way; when the page's press resends, this step moves to it.
-  await until('the agent to be blocked on the wait', 20000, readerAttached);
-  const resend = await tell({ do: 'revise' });
-  check('`galley revise` after no reply exited 0', resend.code === 0, resend);
+  // FROM THE PAGE. With nothing pending the verdict is Approve, and the press
+  // once approved the review here under a `revising · Ns` face. The button
+  // says Revise and its press sends the round again (resendsOnPress in
+  // verdict.ts, unansweredAsks on the server).
+  await pressRevise();
   const wake3 = await revised(3, 'the resend to wake the agent');
   check(
     'Revise after no reply sent the same instruction again',
     wake3.instructions.length === 1 && wake3.instructions[0] === ASK_2,
     wake3,
   );
-  await expect('the resent Revise is sent', {
-    server: { state: 'sent', handoff: true },
+  await expect('the resent Revise is sent, and the review is not sealed', {
+    server: { state: 'sent', handoff: true, sealed: false },
     page: { pill: 'sent', disabled: true },
   });
   await tell({ do: 'report', event: 'landed', wake: 3 });

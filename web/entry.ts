@@ -839,6 +839,7 @@ class App implements AppState {
   // --- Revise (web/verdict.ts) ---
   revise: HTMLButtonElement | null;
   reviseCount?: HTMLElement;
+  reviseCaret?: HTMLElement;
   reviseIdle?: HTMLElement;
   reviseBusy?: HTMLElement;
   reviseSecs?: HTMLElement;
