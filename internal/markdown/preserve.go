@@ -1,6 +1,7 @@
 package markdown
 
 import (
+	"reflect"
 	"strings"
 
 	"github.com/subaud-tools/galley/internal/docmodel"
@@ -48,6 +49,15 @@ import (
 //
 // A chunk is consumed when it is used, so two identical paragraphs take two
 // different chunks, in order, and never the same one twice.
+//
+// WHAT LIES BETWEEN TWO BLOCKS IS KEPT TOO, and so are chunks that are several
+// blocks (galley#52). Both are where the per-chunk rule above cannot vouch for
+// the bytes on its own: a paragraph's one newline before a fence, and a line the
+// parse splits into a note and a paragraph ("{>>n<<}{>>m<<}\" then "word"),
+// mean what they mean only next to their neighbours. So that richer output is
+// taken only when the whole of it parses to exactly what the plain one does;
+// otherwise the plain one, which joins one-block chunks with a blank line, is
+// written as before.
 func SerializeOnto(d docmodel.Doc, prev []byte) []byte {
 	blocks := d.Blocks
 	head := ""
@@ -63,19 +73,17 @@ func SerializeOnto(d docmodel.Doc, prev []byte) []byte {
 	for i, r := range rendered {
 		texts[i] = r.text
 	}
-	for key, chunks := range candidates(prev) {
-		for i := range texts {
-			if len(chunks) == 0 {
-				break
-			}
-			if texts[i] == key {
-				texts[i] = chunks[0]
-				chunks = chunks[1:]
-			}
-		}
+	plain := finish(head, onto(texts, candidates(prev, false), false))
+	rich := finish(head, onto(texts, candidates(prev, true), true))
+	if string(rich) == string(plain) || !sameParse(rich, plain) {
+		return plain
 	}
-	out := strings.Join(texts, "\n\n")
+	return rich
+}
 
+// finish puts the front matter and the final newline on a body, as Serialize
+// does.
+func finish(head, out string) []byte {
 	if out == "" {
 		if head != "" {
 			return []byte(head)
@@ -88,38 +96,122 @@ func SerializeOnto(d docmodel.Doc, prev []byte) []byte {
 	return []byte(frontMatterHazard(out) + "\n")
 }
 
-// candidates maps a rendering to the ORIGINAL SOURCE of every top-level block
-// in prev that renders that way, in document order.
+// onto lays prev's chunks over the rendered blocks: a chunk is used, in
+// document order, at the first place whose blocks render as its reparse does.
+// Plain uses one-block chunks only and joins everything with a blank line;
+// rich also uses chunks of several blocks and joins two chunks that were
+// neighbours in prev with what was between them there.
+func onto(texts []string, chunks []chunk, rich bool) string {
+	type piece struct {
+		text  string
+		chunk int // index into chunks, or -1 for the serializer's own
+	}
+	from := make([]int, len(texts)) // the chunk covering each block, or -1
+	for i := range from {
+		from[i] = -1
+	}
+	for c, ch := range chunks {
+		n := len(ch.keys)
+		if n == 0 || (n > 1 && !rich) {
+			continue
+		}
+	place:
+		for i := 0; i+n <= len(texts); i++ {
+			for k := 0; k < n; k++ {
+				if from[i+k] != -1 || texts[i+k] != ch.keys[k] {
+					continue place
+				}
+			}
+			for k := 0; k < n; k++ {
+				from[i+k] = c
+			}
+			break
+		}
+	}
+	var pieces []piece
+	for i := 0; i < len(texts); {
+		c := from[i]
+		if c == -1 {
+			pieces = append(pieces, piece{texts[i], -1})
+			i++
+			continue
+		}
+		pieces = append(pieces, piece{chunks[c].body, c})
+		i += len(chunks[c].keys)
+	}
+	var b strings.Builder
+	for i, p := range pieces {
+		if i > 0 {
+			q := pieces[i-1]
+			if rich && q.chunk != -1 && p.chunk == q.chunk+1 {
+				b.WriteString(chunks[q.chunk].sep)
+			} else {
+				b.WriteString("\n\n")
+			}
+		}
+		b.WriteString(p.text)
+	}
+	return b.String()
+}
+
+// sameParse reports whether a and b parse to the same document and lift the
+// same comments out of it.
+func sameParse(a, b []byte) bool {
+	da, ca, err := Parse(a)
+	if err != nil {
+		return false
+	}
+	db, cb, err := Parse(b)
+	if err != nil {
+		return false
+	}
+	return docmodel.Equal(da, db) && reflect.DeepEqual(ca, cb)
+}
+
+// chunk is the source of one top-level block of prev (or of a few, when the
+// parse splits it): body is its bytes without their trailing newlines, sep is
+// those newlines, and keys are the renderings of its reparse, which is what a
+// run of the document's blocks must render as for body to stand in for them.
+// keys is empty for a chunk that cannot be a candidate.
+type chunk struct {
+	body, sep string
+	keys      []string
+}
+
+// candidates cuts prev into its chunks, with the rendering of each chunk's
+// own reparse as its keys, in document order. fences is chunkStarts' own, and
+// only the rich output asks for it.
 //
 // The key is the rendering of the chunk's own reparse, so a lookup answers
 // exactly one question: "is there a piece of the old file that means the same
-// thing as this block". Everything a chunk carries beyond that meaning — the
+// thing as these blocks". Everything a chunk carries beyond that meaning — the
 // author's wrapping, their bullet character, their emphasis marker, a
 // {>>note<<} the parse lifts out — is what SerializeOnto is putting back.
 //
-// A chunk whose reparse is not exactly one block is dropped rather than
-// repaired: it is a chunk whose boundaries this function got wrong (see
+// A chunk whose reparse is not exactly one block is only a candidate for the
+// rich output, which is checked whole: it is either a line the parse splits
+// (note lines) or a chunk whose boundaries this function got wrong (see
 // chunkStarts on the nodes it cannot place), and a wrong boundary must cost a
 // re-render and never a wrong write.
-func candidates(prev []byte) map[string][]string {
-	out := map[string][]string{}
+func candidates(prev []byte, fences bool) []chunk {
 	_, rest := splitFrontMatter(prev)
-	for _, chunk := range chunkStarts(rest) {
-		doc, comments, err := Parse([]byte(chunk))
-		if err != nil || len(comments) > 0 {
-			// A refusal cannot be a candidate, and neither can a chunk whose
-			// parse LIFTS something out of it: the whole document's parse
-			// lifted the same note out of the model, and writing the chunk
-			// back verbatim would put the marker back in the file. A lifted
-			// note is not imported as a comment, so it leaves the file at the
-			// next save; that is decided by the parse, not here.
-			continue
+	var out []chunk
+	for _, src := range chunkStarts(rest, fences) {
+		body := strings.TrimRight(src, "\n")
+		c := chunk{body: body, sep: src[len(body):]}
+		doc, comments, err := Parse([]byte(src))
+		// A refusal cannot be a candidate, and neither can a chunk whose
+		// parse LIFTS something out of it: the whole document's parse lifted
+		// the same note out of the model, and writing the chunk back verbatim
+		// would put the marker back in the file. A lifted note is not
+		// imported as a comment, so it leaves the file at the next save; that
+		// is decided by the parse, not here.
+		if err == nil && len(comments) == 0 {
+			for _, r := range renderedBlocks(doc.Blocks) {
+				c.keys = append(c.keys, r.text)
+			}
 		}
-		r := renderedBlocks(doc.Blocks)
-		if len(r) != 1 {
-			continue
-		}
-		out[r[0].text] = append(out[r[0].text], strings.TrimRight(chunk, "\n"))
+		out = append(out, c)
 	}
 	return out
 }
@@ -139,11 +231,16 @@ func candidates(prev []byte) map[string][]string {
 // merged chunk then reparses to two blocks, fails candidates' one-block test,
 // and both blocks are written the serializer's way. The feature degrades to
 // "these two blocks are not preserved" instead of to a wrong boundary.
-func chunkStarts(src []byte) []string {
+//
+// fences starts a fenced code block at its opening line (see firstSegment).
+// Only the rich output asks for it, because only the rich output is checked
+// whole: an unclosed fence's chunk means what it means only at the end of the
+// file, and a plain output could put a new block after it (galley#52).
+func chunkStarts(src []byte, fences bool) []string {
 	root := parseTree(src)
 	var starts []int
 	for n := root.FirstChild(); n != nil; n = n.NextSibling() {
-		pos, ok := firstSegment(n)
+		pos, ok := firstSegment(src, n, fences)
 		if !ok {
 			continue // merged into the previous chunk; see the doc comment.
 		}
@@ -165,7 +262,7 @@ func chunkStarts(src []byte) []string {
 
 // firstSegment reports the offset of the first source byte under n, which is
 // the leftmost start over every segment any descendant reports.
-func firstSegment(n ast.Node) (int, bool) {
+func firstSegment(src []byte, n ast.Node, fences bool) (int, bool) {
 	best, ok := 0, false
 	var walk func(ast.Node)
 	walk = func(x ast.Node) {
@@ -175,6 +272,27 @@ func firstSegment(n ast.Node) (int, bool) {
 		// first content byte.
 		if x.Type() != ast.TypeBlock {
 			return
+		}
+		// A FENCE STARTS AT ITS OPENING LINE, which none of its segments are
+		// on: Lines() is the code inside, which starts on the line after it.
+		// Started at the code, the opening fence went to the chunk before
+		// and neither chunk reparsed to its block, so an edit anywhere
+		// respelled the fence (galley#52). The info string, when there is
+		// one, is on the opening line; otherwise the opening line is the one
+		// before the first line of code. A fence with neither has nothing to
+		// place it by, and is merged into the chunk before, as below.
+		if f, isFence := x.(*ast.FencedCodeBlock); isFence && fences {
+			if f.Info != nil {
+				if s := f.Info.Segment.Start; !ok || s < best {
+					best, ok = s, true
+				}
+			} else if l := f.Lines(); l.Len() > 0 {
+				if at := lineStart(src, l.At(0).Start); at > 0 {
+					if s := lineStart(src, at-1); !ok || s < best {
+						best, ok = s, true
+					}
+				}
+			}
 		}
 		if l := x.Lines(); l != nil {
 			for i := 0; i < l.Len(); i++ {

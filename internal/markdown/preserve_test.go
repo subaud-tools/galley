@@ -175,3 +175,31 @@ func TestAChangedCommentIDIsRewritten(t *testing.T) {
 		t.Errorf("SerializeOnto = %q, want %q", got, want)
 	}
 }
+
+// TestAnEditLeavesEveryOtherBlocksBytes is galley#52: one edit to the heading,
+// and every shape below used to come back respelled around it. A fence right
+// after a paragraph gained a blank line on each side, an unclosed fence gained
+// a closing fence, and a paragraph the parse splits into several blocks (a
+// suggestion across lines, notes on a hard-broken line) came back as that many
+// paragraphs with blank lines between them. Each is the shape PLAN5 reproduced
+// through the editor (repro/r52).
+func TestAnEditLeavesEveryOtherBlocksBytes(t *testing.T) {
+	for name, src := range map[string]string{
+		"fence right after a paragraph": "# T\n\nSome text.\n```\ncode\n```\nAfter.\n\n## End\n\nLast.\n",
+		"unclosed fence":                "# T\n\nText.\n\n```\nunclosed\n",
+		"suggestion across lines":       "# T\n\nText\n\n{++a\n{>>n<<}\nb++}\n\nmore\n",
+		"notes on a hard break":         "# T\n\n{>>n<<}{>>m<<}\\\nword\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			doc, _, err := Parse([]byte(src))
+			if err != nil {
+				t.Fatalf("parsing: %v", err)
+			}
+			doc.Blocks[0].Inlines[0].Text = "T edited"
+			want := strings.Replace(src, "# T\n", "# T edited\n", 1)
+			if got := string(SerializeOnto(doc, []byte(src))); got != want {
+				t.Errorf("an edit to the heading respelled other blocks.\n--- want ---\n%s\n--- got ---\n%s", want, got)
+			}
+		})
+	}
+}
