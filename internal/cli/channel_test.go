@@ -139,8 +139,8 @@ func TestChannelForwardsARevisePress(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	// The first press opened the agent's handoff window and nobody answered
-	// it, so the document is read-only to the reviewer. Taking it back is the
-	// new workflow's own gesture before a fresh instruction.
+	// it, so the document is read-only to the reviewer. Taking it back files
+	// the round's instruction again, and the second press sends it.
 	resp, err := http.Post(ts.URL+"/_galley/handoff/cancel", "application/json", strings.NewReader("{}"))
 	if err != nil {
 		t.Fatalf("cancel handoff before the second instruction: %v", err)
@@ -149,9 +149,8 @@ func TestChannelForwardsARevisePress(t *testing.T) {
 	if resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("cancel handoff before the second instruction: resp=%v", resp)
 	}
-	instructAs(t, ts.URL, "Hello.", "Make the greeting shorter.")
 	press()
-	notification("second press", "Make the greeting shorter.")
+	notification("second press", "Make the greeting warmer.")
 }
 
 // THE WHOLE SEAL CYCLE, THROUGH THE CHANNEL: approve → the channel DETACHES →

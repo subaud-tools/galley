@@ -37,6 +37,18 @@ func pressAndHear(t *testing.T, s *EditServer) []string {
 	return texts
 }
 
+// cancelAndClear takes the window back and deletes the instructions the
+// cancel filed again, leaving the page with nothing on it.
+func cancelAndClear(t *testing.T, s *EditServer) {
+	t.Helper()
+	cancelHandoff(t, s)
+	for _, in := range pendingView(t, s).Instructions {
+		if rec := postRec(t, s, "/_galley/instruction/delete", map[string]any{"key": in.Key}); rec.Code >= 300 {
+			t.Fatalf("delete %s: %d %s", in.Key, rec.Code, rec.Body.String())
+		}
+	}
+}
+
 func instructDocument(t *testing.T, s *EditServer, text string) {
 	t.Helper()
 	if rec := post(t, s.Handler(), "/_galley/instruct", map[string]any{
@@ -81,10 +93,9 @@ func TestAPressWithANewInstructionSendsOnlyTheNewOne(t *testing.T) {
 	first := s.watch.round
 	s.reviseMu.Unlock()
 	// The page is locked while the window is open, so the new instruction is
-	// filed with the window closed and the unanswered window put back.
-	if rec := postRec(t, s, "/_galley/handoff/cancel", map[string]any{}); rec.Code != http.StatusNoContent {
-		t.Fatalf("cancel: %d %s", rec.Code, rec.Body.String())
-	}
+	// filed with the window closed (the cancel's refiled ones deleted) and the
+	// unanswered window put back.
+	cancelAndClear(t, s)
 	instructDocument(t, s, "Name the colour.")
 	s.openResponseWindow(first, "fp", false)
 	report(t, s, "landed", windowToken(t, s))
@@ -162,10 +173,9 @@ func TestAPressWithANewInstructionWhileTheAgentIsWorkingSendsIt(t *testing.T) {
 	first := s.watch.round
 	s.reviseMu.Unlock()
 	// The page is locked while the window is open, so the new instruction is
-	// filed with the window closed and the window put back.
-	if rec := postRec(t, s, "/_galley/handoff/cancel", map[string]any{}); rec.Code != http.StatusNoContent {
-		t.Fatalf("cancel: %d %s", rec.Code, rec.Body.String())
-	}
+	// filed with the window closed (the cancel's refiled ones deleted) and the
+	// window put back.
+	cancelAndClear(t, s)
 	instructDocument(t, s, "Name the colour.")
 	s.openResponseWindow(first, "fp", false)
 	if rec := postAckRec(t, s, "working", "adding it"); rec.Code != http.StatusNoContent {

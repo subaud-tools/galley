@@ -19,7 +19,9 @@
 //   press with nothing new while the agent has it sends nothing (#119) → the
 //   agent answers (answered) → a second Revise, landed, and the turn ends with
 //   no reply → Revise again sends the same instruction again → answered → a
-//   third Revise is cancelled from the page → the review closes.
+//   third Revise is cancelled from the page, and its instruction is back on
+//   the page → Revise & Approve sends it again, and the answer closes the
+//   review.
 //
 // HOW THE AGENT IS PLAYED. This file re-invoked with --agent, as page.mjs and
 // livestructure.mjs do. It is two things, as a real session under galley's
@@ -72,6 +74,7 @@ const FIRST_NEW = 'The first paragraph changed because the reviewer asked.';
 const SECOND = 'The second paragraph waits for an answer that never comes.';
 const SECOND_NEW = 'The second paragraph got its answer on the second try.';
 const THIRD = 'The third paragraph is asked about and then taken back.';
+const THIRD_NEW = 'The third paragraph was taken back and then sent again.';
 const FIXTURE = `# Revise lifecycle\n\n${FIRST}\n\n${SECOND}\n\n${THIRD}\n`;
 
 const ASK_1 = 'say that it changed because the reviewer asked';
@@ -80,6 +83,7 @@ const ASK_3 = 'rewrite this one too';
 const WORKING = 'rewording the first paragraph';
 const ANSWERED_1 = 'reworded the first paragraph';
 const ANSWERED_2 = 'reworded the second paragraph';
+const ANSWERED_3 = 'reworded the third paragraph';
 
 // The process environment with the harness's session ids taken out, so the
 // session a child reports for is this run's and never the one running it.
@@ -650,10 +654,50 @@ try {
     ).catch(() => false),
   );
 
+  // The cancel took the round back, and its instruction with it: the send
+  // had deleted it from the page, and the cancel files it again.
+  const card = await until(
+    'the cancelled instruction to be back on the page',
+    20000,
+    async () => {
+      const cards = await page.evaluate(() =>
+        [...document.querySelectorAll('.gly-rail-band .gly-thread')].map(
+          (c) => c.textContent,
+        ),
+      );
+      return (await pendingTexts()).includes(ASK_3) &&
+        cards.some((c) => c.includes(ASK_3))
+        ? cards
+        : null;
+    },
+  ).catch(async () => ({
+    pending: await pendingTexts(),
+    cards: await page.evaluate(
+      () => document.querySelectorAll('.gly-rail-band .gly-thread').length,
+    ),
+  }));
+  check(
+    "the cancelled round's instruction is back: pending on the server and a card on the page",
+    Array.isArray(card),
+    card,
+  );
+
   // --- the review closes ----------------------------------------------------
-  await pressRevise(null);
-  await expect('approved: the review is sealed and Revise is done', {
-    server: { state: null, sealed: true, handoff: false },
+  //
+  // Revise & Approve: the instruction the cancel filed again is what it sends,
+  // and the agent's answer approves the review.
+  await pressRevise('trust');
+  const wake5 = await revised(5, 'Revise & Approve to wake the agent');
+  check(
+    'Revise & Approve sent the instruction the cancel filed again',
+    wake5.instructions.length === 1 && wake5.instructions[0] === ASK_3,
+    wake5,
+  );
+  await tell({ do: 'report', event: 'landed', wake: 5 });
+  await tell({ do: 'edit', from: THIRD, to: THIRD_NEW });
+  await tell({ do: 'ack', state: 'answered', note: ANSWERED_3 });
+  await expect('approved: the answer sealed the review and Revise is done', {
+    server: { sealed: true, handoff: false },
     page: { pill: null, disabled: true },
   });
   await until('the agent to hear the approve', 20000, () =>
