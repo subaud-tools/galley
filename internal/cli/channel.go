@@ -297,7 +297,7 @@ func newChannel(scope, self string) *channel {
 			Name: "galley_open",
 			Description: "Put a document under review: start its editor for THIS session and open the page in the reviewer's browser. " +
 				"Returns the URL too, to give the reviewer if they closed the tab. " +
-				"A document this session already has open returns the same URL and opens its page again; " +
+				"A document this session already has open returns the same URL, and opens its page again only when no tab shows it; " +
 				"calling it on a document whose review has ended (approved or discarded) starts a fresh review. " +
 				"This is the only way to open a document; do not run `galley edit` from a shell.",
 			InputSchema: openSchema,
@@ -1086,6 +1086,8 @@ func runChannel(args []string, out, errw io.Writer) error {
 	// The three measurements from the design spec, answered on every start and
 	// visible in the harness debug log (~/.claude/debug/<session>.txt).
 	fmt.Fprintf(os.Stderr, "[galley channel] cwd=%s session_id_present=%t scope=%s\n", cwd, self != "", *scope)
+
+	refreshSkill(errw)
 
 	c := channelFromEnv(*scope)
 	if c.serveOnly {

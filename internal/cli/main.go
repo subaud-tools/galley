@@ -300,6 +300,23 @@ func newApp() *tools.App {
 		NewFlags: func() *flag.FlagSet { fs, _ := newScopeFlags("watch"); return fs },
 		Run:      runWatch,
 	})
+	app.Register(tools.Command{
+		Name:        "skills",
+		Group:       "agent",
+		Summary:     "install galley's agent skill for each harness",
+		Synopsis:    "skills install [--agent NAME]…",
+		Subcommands: []string{"install"},
+		Help: "Installs the reviewing-a-document skill this binary was built with, as\n" +
+			"<skills dir>/reviewing-a-document/SKILL.md, for each agent harness found\n" +
+			"(Claude Code ~/.claude, Codex ~/.codex, pi ~/.pi/agent: by their home\n" +
+			"directories), or for each --agent named (claude-code, codex, pi). An existing\n" +
+			"SKILL.md there is replaced only when it is galley's own\n" +
+			"(name: reviewing-a-document). galley channel rewrites an installed copy that\n" +
+			"differs from its own each time it starts, so install once per harness.\n" +
+			"Claude Code also gets the skill from the galley plugin.",
+		NewFlags: newSkillsFlags,
+		Run:      runSkills,
+	})
 	app.Register(reportCommand())
 	// ledger dispatches its own sub-verbs; declaring them as Subcommands lets
 	// `galley ledger -h` show this help while `galley ledger sync -h` reaches

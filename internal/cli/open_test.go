@@ -83,10 +83,52 @@ func TestOpenReturnsTheEditorThisSessionAlreadyOwns(t *testing.T) {
 	if r.URL != e.URL || r.Room != e.Room || r.Page != doc {
 		t.Fatalf("got %+v, want the existing advert %+v", r, e)
 	}
-	// THE PAGE IS OPENED EVERY TIME: a second galley_open on a review still
-	// running brings its page back, rather than leaving only a link.
+	// NO PAGE HOLDS THE ROOM (this stand-in has no /_galley/pages, as an
+	// editor from before it), so galley_open opens one: the review comes back
+	// in front of the reviewer rather than leaving only a link.
 	if got := *opened; len(got) != 1 || got[0] != e.URL {
 		t.Fatalf("browser opened %v, want exactly [%s]", got, e.URL)
+	}
+}
+
+// A SECOND galley_open ON A DOCUMENT ALREADY IN FRONT OF THE REVIEWER OPENS
+// NO SECOND TAB: the reuse path asks the editor how many pages hold its room
+// and opens the browser only when none does.
+func TestOpenReuseOpensThePageOnlyWhenNoneIsConnected(t *testing.T) {
+	for _, tc := range []struct {
+		pages int
+		opens bool
+	}{{0, true}, {1, false}} {
+		t.Run(fmt.Sprintf("pages=%d", tc.pages), func(t *testing.T) {
+			t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
+			dir := t.TempDir()
+			doc := writeDoc(t, dir, "doc.md", "# T\n")
+			ed := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/_galley/revise":
+					_, _ = w.Write([]byte(`{"sealed":false}`))
+				case "/_galley/pages":
+					_, _ = fmt.Fprintf(w, `{"pages":%d}`, tc.pages)
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			t.Cleanup(ed.Close)
+			e := plantAdvertAt(t, doc, "session-me", ed.URL, os.Getpid())
+
+			c := newChannel(dir, "session-me")
+			opened := recordOpens(c)
+			r, err := openDoc(t, c, doc)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if r.URL != e.URL {
+				t.Fatalf("got %+v, want the existing advert %+v", r, e)
+			}
+			if got := len(*opened) == 1; got != tc.opens {
+				t.Fatalf("with %d page(s) connected the browser opened %v; want opened=%t", tc.pages, *opened, tc.opens)
+			}
+		})
 	}
 }
 
