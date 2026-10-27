@@ -47,15 +47,18 @@ editor this session opens — and any unowned one under its root — and deliver
 each Revise, settle and Approve into the session as an event. No listener to
 remember. In Claude Code it comes from galley's plugin; install it once, then
 start claude as usual:
-  claude plugin marketplace add subaud-tools/galley
-  claude plugin install galley@galley
+  claude plugin marketplace add subaud-tools/plugins
+  claude plugin install galley@subaud-tools
 
-Turn on auto-update for the galley marketplace so the plugin stays current:
-in Claude Code, run /plugin, open the Marketplaces tab, select galley and
-choose Enable auto-update.
+Turn on auto-update for the subaud-tools marketplace so the plugin stays
+current: in Claude Code, run /plugin, open the Marketplaces tab, select
+subaud-tools and choose Enable auto-update.
+
+The skill that teaches the loop comes from the binary, not the plugin:
+  galley skills install
 
 In pi, the channels.tools extension runs 'galley channel'. See
-plugin/README.md.
+plugins/galley/README.md in subaud-tools/plugins.
 
 'galley render doc.md' writes the document's branded HTML page without an
 editor, the same page Share HTML writes.
@@ -312,8 +315,7 @@ func newApp() *tools.App {
 			"directories), or for each --agent named (claude-code, codex, pi). An existing\n" +
 			"SKILL.md there is replaced only when it is galley's own\n" +
 			"(name: reviewing-a-document). galley channel rewrites an installed copy that\n" +
-			"differs from its own each time it starts, so install once per harness.\n" +
-			"Claude Code also gets the skill from the galley plugin.",
+			"differs from its own each time it starts, so install once per harness.",
 		NewFlags: newSkillsFlags,
 		Run:      runSkills,
 	})

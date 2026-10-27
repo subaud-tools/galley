@@ -2,7 +2,7 @@
 
 This is the reviewer's side of galley: what the browser page is, what each control does, and what happens to your words after you press **Revise**.
 
-It assumes galley is installed and that an agent session is attached to the document. The agent half — the plugin, `galley channel`, `galley wait` — is in [plugin/README.md](../plugin/README.md).
+It assumes galley is installed and that an agent session is attached to the document. The agent half — the plugin, `galley channel`, `galley wait` — is in [plugins/galley/README.md](https://github.com/subaud-tools/plugins/blob/main/plugins/galley/README.md) in subaud-tools/plugins.
 
 ## The page
 

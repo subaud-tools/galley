@@ -1,7 +1,7 @@
 // Package skills embeds the agent skill galley ships, so a binary installs
 // and refreshes the skill it was built with (galley skills install, galley
-// channel). The file is the plugin's own: Claude Code reads it from the
-// plugin, every other harness from the copy the binary writes.
+// channel). Every harness, Claude Code included, reads the copy the binary
+// writes: the plugin in subaud-tools/plugins carries no skill.
 package skills
 
 import "embed"

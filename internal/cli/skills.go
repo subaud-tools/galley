@@ -6,7 +6,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/subaud-tools/galley/plugin/galley/skills"
+	"github.com/subaud-tools/galley/skills"
 	tools "github.com/subaud-tools/tools-common"
 	commonskills "github.com/subaud-tools/tools-common/skills"
 )
