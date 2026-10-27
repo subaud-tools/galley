@@ -13,6 +13,29 @@ import (
 // Extract splits an HTML page. It fails loudly, in the author's spelling,
 // when the page cannot be split honestly (spec: "Refusals and safety").
 func Extract(src []byte) (*Extraction, error) {
+	sp, err := split(src)
+	if err != nil {
+		return nil, err
+	}
+	return sp.ex, nil
+}
+
+// splitPage is an extraction together with the content nodes each slot came
+// out of, which Keep needs to find those blocks in the page's own bytes.
+type splitPage struct {
+	ex    *Extraction
+	slots [][]contentNode
+}
+
+// contentNode is one content block's element and what extraction made of it:
+// its key says everything Render reads back from the block (kind, tag,
+// attributes and markdown), so two blocks with the same key say the same thing.
+type contentNode struct {
+	node *html.Node
+	key  string
+}
+
+func split(src []byte) (*splitPage, error) {
 	root, err := html.Parse(bytes.NewReader(src))
 	if err != nil {
 		return nil, fmt.Errorf("htmlpage: cannot read this page as HTML (%w)", err)
@@ -24,21 +47,24 @@ func Extract(src []byte) (*Extraction, error) {
 	}
 
 	body := findElement(root, atom.Body)
-	segs, blocks, slots := splitBody(body)
-	if slots == 0 {
+	s := splitBody(body)
+	if s.slots == 0 {
 		return nil, fmt.Errorf(
 			"htmlpage: nothing on this page is reviewable prose — every element needs more than markdown can say")
 	}
 
-	md := []byte(strings.Join(blocks, "\n\n") + "\n")
+	md := []byte(strings.Join(s.blocks, "\n\n") + "\n")
 	if _, _, err := markdown.Parse(md); err != nil {
 		return nil, fmt.Errorf(
 			"htmlpage: extractor produced markdown galley refuses (%w) — this is a galley bug, report it", err)
 	}
 
-	return &Extraction{
-		Markdown: md,
-		Template: Template{Head: head, Segments: segs, Tail: "</body></html>"},
+	return &splitPage{
+		ex: &Extraction{
+			Markdown: md,
+			Template: Template{Head: head, Segments: s.segs, Tail: "</body></html>"},
+		},
+		slots: s.nodes,
 	}, nil
 }
 
@@ -58,12 +84,12 @@ func standIn(i int) string {
 // block level"). Whitespace between two content blocks is dropped; whitespace
 // beside shell rides along with it, and trailing whitespace after the last real
 // node at body level is discarded.
-func splitBody(body *html.Node) (segs []Segment, blocks []string, slots int) {
+func splitBody(body *html.Node) *bodySplitter {
 	s := &bodySplitter{}
 	s.walk(body)
 	s.flushContent()
 	s.flushShell()
-	return s.segs, s.blocks, s.slots
+	return s
 }
 
 // bodySplitter carries the running split state across the recursive descent:
@@ -73,6 +99,7 @@ type bodySplitter struct {
 	segs        []Segment
 	blocks      []string
 	slots       int
+	nodes       [][]contentNode // per slot, the elements its blocks came out of
 	shellCount  int
 	shell       strings.Builder     // the shell run under construction
 	shellReal   bool                // shell run holds a non-whitespace node
@@ -97,13 +124,16 @@ func (s *bodySplitter) flushContent() {
 		return
 	}
 	slot := &Slot{Index: s.slots}
+	var nodes []contentNode
 	for _, n := range s.run {
 		kind, _ := contentBlock(n)
-		slot.Wrappers = append(slot.Wrappers, Wrapper{
-			Kind: kind, Tag: n.Data, Attrs: attrString(n), Text: normalizeWords(nodeText(n)),
-		})
-		s.blocks = append(s.blocks, blockToMarkdown(n, kind))
+		w := Wrapper{Kind: kind, Tag: n.Data, Attrs: attrString(n), Text: normalizeWords(nodeText(n))}
+		slot.Wrappers = append(slot.Wrappers, w)
+		md := blockToMarkdown(n, kind)
+		s.blocks = append(s.blocks, md)
+		nodes = append(nodes, contentNode{node: n, key: w.Kind + "\x00" + w.Tag + w.Attrs + "\x00" + md})
 	}
+	s.nodes = append(s.nodes, nodes)
 	s.segs = append(s.segs, Segment{Slot: slot})
 	s.slots++
 	s.run = nil

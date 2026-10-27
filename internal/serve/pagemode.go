@@ -435,12 +435,12 @@ func (r *pageRenderer) render(md []byte) {
 		r.mu.Unlock()
 		return
 	}
-	werr := r.writePage(out, func(cur []byte) bool {
+	written, werr := r.writePage(out, func(cur []byte) bool {
 		h := sha256.Sum256(cur)
 		return h == r.lastWritten || h == r.originalHash
 	})
 	if werr == nil {
-		r.lastWritten = sha256.Sum256(out)
+		r.lastWritten = sha256.Sum256(written)
 	}
 	r.mu.Unlock()
 	if errors.Is(werr, errPageMoved) {
@@ -633,7 +633,7 @@ func (r *pageRenderer) merge(src []byte, ex *htmlpage.Extraction, projected []by
 	if !passed {
 		// Only over the page this merge read; anything newer is the next
 		// projection's drift.
-		werr = r.writePage(out, func(cur []byte) bool { return bytes.Equal(cur, src) })
+		_, werr = r.writePage(out, func(cur []byte) bool { return bytes.Equal(cur, src) })
 	}
 	r.mu.Unlock()
 	if passed || errors.Is(werr, errPageMoved) || errors.Is(werr, errPageMissing) {
@@ -973,36 +973,45 @@ var errPageMoved = errors.New("page.html changed during the write; nothing was w
 
 // writePage replaces page.html with out if the page is there and still
 // holds bytes known says may be written over, and otherwise writes nothing.
-// Called with r.mu held.
+// It reports the bytes it wrote. Called with r.mu held.
+//
+// WHAT IS WRITTEN IS out SPLICED ONTO THE PAGE IT REPLACES (htmlpage.Keep,
+// galley#49): every block the round did not change keeps the page's own bytes,
+// and with them the classes, <span>s and head galley never extracted. The
+// splice reads back exactly as out does, so nothing downstream can tell.
 //
 // A MISSING PAGE IS NEVER WRITTEN (galley#44): it was moved or deleted, and
 // recreating it is the bug. It says so through the disk notice, as a missing
 // .md does. The write is prepared first and the page checked after that, as
 // the .md's is (see EditServer.writeIfStill).
-func (r *pageRenderer) writePage(out []byte, known func(cur []byte) bool) error {
+func (r *pageRenderer) writePage(out []byte, known func(cur []byte) bool) ([]byte, error) {
 	name := filepath.Base(r.pagePath)
 	cur, err := os.ReadFile(r.pagePath)
 	if errors.Is(err, fs.ErrNotExist) {
 		r.es.setNotice(noticePageMissing, name+" is no longer at this path. Nothing is being saved.",
 			fmt.Sprintf("%s is no longer in %s; galley is writing nothing there", name, filepath.Dir(r.pagePath)))
-		return errPageMissing
+		return nil, errPageMissing
 	}
 	if err != nil {
-		return err
+		return nil, err
 	}
 	r.es.clearNoticeKind(noticePageMissing)
 	if !known(cur) {
-		return errPageMoved
+		return nil, errPageMoved
+	}
+	out, kept := htmlpage.Keep(cur, out)
+	if !kept && r.es.Log != nil {
+		r.es.Log(name + ": the write could not keep the page's own bytes; it is written as galley renders it")
 	}
 	w, err := prepareFileAtomic(r.pagePath, out)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if !w.stillTargets(r.pagePath) || !holds(w.target, cur) {
 		w.discard()
-		return errPageMoved
+		return nil, errPageMoved
 	}
-	return w.commit()
+	return out, w.commit()
 }
 
 // errPageMissing is a page write that found no page.html. The disk notice
