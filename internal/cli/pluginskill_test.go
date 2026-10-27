@@ -15,7 +15,7 @@ import (
 // than any other: a rule corrected in one carrier goes on being wrong in the
 // other for as long as nothing drives it.
 //
-// `plugin/galley/skills/reviewing-a-document/SKILL.md` is a third, and it was
+// `skills/reviewing-a-document/SKILL.md` is a third, and it was
 // bound by nothing. That is not a symmetry argument. Court: *"we never
 // actually use the cli. we want to use this through claude code."* The two Go
 // carriers are strings in this binary and are exercised by every test in this
@@ -23,10 +23,10 @@ import (
 // and it is the copy a paired session loads before it does anything. The
 // carrier nobody checks is the carrier everybody uses.
 //
-// It now reaches every harness from that one file: the Claude Code plugin
-// carries it, and the binary embeds the same file (plugin/galley/skills) and
-// writes it for Codex and pi (`galley skills install`, refreshed each time
-// `galley channel` starts). There is no second copy in the tree to drift, and
+// It reaches every harness from that one file: the binary embeds it (skills/)
+// and writes it for Claude Code, Codex and pi (`galley skills install`,
+// refreshed each time `galley channel` starts). The Claude Code plugin in
+// subaud-tools/plugins carries no copy, so there is none to drift, and
 // TestSkillsInstallWritesThePluginSkill holds the installed copy to the file
 // byte for byte.
 //
@@ -34,8 +34,7 @@ import (
 // own — a third list is a third thing to drift.
 func pluginSkill(t *testing.T) string {
 	t.Helper()
-	path := filepath.Join("..", "..", "plugin", "galley", "skills",
-		"reviewing-a-document", "SKILL.md")
+	path := filepath.Join("..", "..", "skills", "reviewing-a-document", "SKILL.md")
 	b, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("the plugin skill is a carrier of this protocol and must be readable: %v", err)
@@ -116,8 +115,8 @@ func skillHome(t *testing.T) string {
 	return home
 }
 
-// `galley skills install --agent pi` writes the plugin's own file, byte for
-// byte: the binary embeds that file, not a copy of it.
+// `galley skills install --agent pi` writes skills/reviewing-a-document/SKILL.md
+// byte for byte: the binary embeds that file, not a copy of it.
 func TestSkillsInstallWritesThePluginSkill(t *testing.T) {
 	home := skillHome(t)
 	stdout, stderr, code := galleyCLI(t, "skills", "install", "--agent", "pi")
@@ -129,7 +128,7 @@ func TestSkillsInstallWritesThePluginSkill(t *testing.T) {
 		t.Fatalf("the skill was not installed for pi: %v", err)
 	}
 	if string(got) != pluginSkill(t) {
-		t.Errorf("the installed skill differs from the plugin's file:\n%s", got)
+		t.Errorf("the installed skill differs from skills/reviewing-a-document/SKILL.md:\n%s", got)
 	}
 }
 
@@ -155,5 +154,25 @@ func TestChannelStartRefreshesAStaleSkill(t *testing.T) {
 	}
 	if !strings.Contains(errw.String(), dest) {
 		t.Errorf("the refresh did not name the path it rewrote on stderr: %q", errw.String())
+	}
+}
+
+// The help names where the plugin lives now and how the skill is installed:
+// the subaud-tools marketplace, galley@subaud-tools, and `galley skills
+// install`, since the plugin no longer carries the skill.
+func TestHelpNamesTheSubaudToolsPlugin(t *testing.T) {
+	for _, want := range []string{
+		"claude plugin marketplace add subaud-tools/plugins",
+		"claude plugin install galley@subaud-tools",
+		"galley skills install",
+	} {
+		if !strings.Contains(about, want) {
+			t.Errorf("galley's help does not say %q", want)
+		}
+	}
+	for _, stale := range []string{"subaud-tools/galley", "galley@galley", "plugin/README.md"} {
+		if strings.Contains(about, stale) {
+			t.Errorf("galley's help still says %q", stale)
+		}
 	}
 }

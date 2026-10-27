@@ -44,16 +44,10 @@ hooks:
 # `verify` and ci.yml's gate job both run it.
 prepare:
 
-# Tool-specific checks beyond the gate (CI runs this too): the TypeScript gate,
-# the committed editor bundle matching web/, and the Claude Code plugin.
-verify-extra: verify-web bundle-fresh plugin-valid
-
-# The Claude Code plugin passes Claude Code's own validator. Pinned, and run
-# through npx, so CI's runner needs nothing installed and no login. Not
-# --strict: the manifest carries no version on purpose (Claude Code then
-# versions the plugin by commit), and the validator warns about that.
-plugin-valid:
-    npx -y @anthropic-ai/claude-code@2.1.309 plugin validate plugin/galley
+# Tool-specific checks beyond the gate (CI runs this too): the TypeScript gate
+# and the committed editor bundle matching web/. The Claude Code plugin is
+# validated in subaud-tools/plugins.
+verify-extra: verify-web bundle-fresh
 
 # The editor bundle is COMMITTED, so nothing else notices
 # when web/ changes and the bundle does not: the Go tests pass, the binary

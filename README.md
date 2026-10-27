@@ -18,7 +18,15 @@ curl -fsSL https://galley.tools/install.sh | sh
 
 ## Connect Claude Code
 
-Install the plugin in [plugin/](plugin/README.md). Your session then receives each Revise as you press it, and the plugin teaches Claude how a review works, so asking it to open a draft is enough.
+Install the galley plugin from the subaud-tools marketplace, then install galley's skill:
+
+```sh
+claude plugin marketplace add subaud-tools/plugins
+claude plugin install galley@subaud-tools
+galley skills install
+```
+
+Your session then receives each Revise as you press it, and the skill teaches Claude how a review works, so asking it to open a draft is enough. `galley skills install` writes the skill for each agent harness it finds (Claude Code, Codex, pi), and `galley channel` keeps it current each time it starts. The plugin is described in [plugins/galley/README.md](https://github.com/subaud-tools/plugins/blob/main/plugins/galley/README.md).
 
 ## Licensing
 
