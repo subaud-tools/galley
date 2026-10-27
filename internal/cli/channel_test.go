@@ -434,3 +434,19 @@ func TestTheHandshakeCoreTeachesGalleyOpen(t *testing.T) {
 		t.Error("the plugin skill still says the channel cannot open a document")
 	}
 }
+
+// An ack or approve with no document path says the path is missing, rather
+// than that no editor is running for the empty string.
+func TestAckAndApproveWithoutADocSayTheyNeedThePath(t *testing.T) {
+	t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
+	ch := newChannel(t.TempDir(), "")
+	for _, tool := range []string{"galley_ack", "galley_approve"} {
+		for _, args := range []string{`{"state":"working","note":"on it"}`, `{"doc":""}`} {
+			_, err := ch.callTool(tool, json.RawMessage(args))
+			want := tool + " needs the document path (doc)"
+			if err == nil || err.Error() != want {
+				t.Errorf("%s %s: err = %v, want %q", tool, args, err, want)
+			}
+		}
+	}
+}
