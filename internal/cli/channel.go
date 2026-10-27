@@ -1087,6 +1087,8 @@ func runChannel(args []string, out, errw io.Writer) error {
 	// visible in the harness debug log (~/.claude/debug/<session>.txt).
 	fmt.Fprintf(os.Stderr, "[galley channel] cwd=%s session_id_present=%t scope=%s\n", cwd, self != "", *scope)
 
+	refreshSkill(errw)
+
 	c := channelFromEnv(*scope)
 	if c.serveOnly {
 		fmt.Fprintln(os.Stderr, "[galley channel] Claude Code session: serving tools only; the galley plugin's `galley watch` delivers the rounds")
