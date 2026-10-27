@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -623,5 +624,56 @@ func TestACancelAfterAnAnswerFilesNothing(t *testing.T) {
 	}
 	if got := pendingView(t, s).Instructions; len(got) != 0 {
 		t.Fatalf("the cancel filed %d instructions after the answer", len(got))
+	}
+}
+
+// TestADraftWithoutACommentsMarkerKeepsTheComment is galley#57: an unsent
+// comment that survives a send, in a draft the agent saved without its
+// marker, was dropped by the import. The outside-load path already keeps it,
+// unplaced (keepCommentsAcrossLocked); the draft import is a load too.
+func TestADraftWithoutACommentsMarkerKeepsTheComment(t *testing.T) {
+	dir := t.TempDir()
+	md := filepath.Join(dir, "d.md")
+	if err := os.WriteFile(md, []byte("# T\n\nCognito mints every token on request.\n\nSecond paragraph stays.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := NewEdit(md)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if rec := postRec(t, s, "/_galley/instruct", map[string]any{
+		"op": "comment", "target": "Cognito mints every token on request.", "text": "too punchy",
+	}); rec.Code >= 300 {
+		t.Fatalf("instruct: %d %s", rec.Code, rec.Body.String())
+	}
+	if err := s.Project(); err != nil {
+		t.Fatal(err)
+	}
+	before := keysOf(t, s)
+	if len(before) != 1 {
+		t.Fatalf("want one pending comment before the draft, got %v", before)
+	}
+	got, err := os.ReadFile(md)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.openHandoff(1, "fp", false)
+	// The agent's draft: its own rewrite, with the comment's marker gone.
+	draft := regexp.MustCompile(`\{==|==\}\{>>@comment [^<]*<<\}`).ReplaceAllString(string(got), "")
+	if draft == string(got) {
+		t.Fatalf("the fixture's marker was not found in %q", got)
+	}
+	if err := os.WriteFile(md, []byte(draft), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if imported, err := s.importDraft(); err != nil || !imported {
+		t.Fatalf("import: %v %v", imported, err)
+	}
+	if err := s.Project(); err != nil {
+		t.Fatal(err)
+	}
+	if after := keysOf(t, s); len(after) != len(before) {
+		t.Errorf("the draft import dropped the comment: before %v, after %v", before, after)
 	}
 }

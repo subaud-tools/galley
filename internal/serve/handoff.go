@@ -571,8 +571,20 @@ func (s *EditServer) loadDraft(l handoffLease) (string, bool, error) {
 	if err != nil {
 		return "", false, err
 	}
+	// A DRAFT IS A DOCUMENT FROM OUTSIDE, and it keeps the reviewer's comments
+	// the way the outside-load path does: one whose marker the draft lacks
+	// stays, unplaced, and one the reviewer took back stays taken back
+	// (keepCommentsAcrossLocked). Without it the next projection read the
+	// missing marker as the reviewer deleting the words and dropped an unsent
+	// comment from pending.json (galley#57).
+	current, err := s.readLive()
+	if err != nil {
+		return "", false, err
+	}
+	before := s.keepCommentsAcrossLocked(current, model)
 	live, err := s.loadLocked(model)
 	if err != nil {
+		s.restoreAnchors(before)
 		return "", false, err
 	}
 	s.setBaseline(live, raw)
