@@ -23,8 +23,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/subaud-tools/galley/internal/registry"
 	"github.com/subaud-tools/galley/internal/serve"
+	tools "github.com/subaud-tools/tools-common"
+	"github.com/subaud-tools/tools-common/pageserve"
 )
 
 // openResult is what galley_open returns, as JSON text: enough for the agent
@@ -165,7 +166,7 @@ func (c *channel) settle(page, url string, pid int) (bool, error) {
 // waitGone polls until pid has exited, for at most shutdownWait.
 func (c *channel) waitGone(pid int) bool {
 	deadline := time.Now().Add(c.shutdownWait)
-	for registry.Alive(pid) {
+	for tools.PIDAlive(pid) {
 		if time.Now().After(deadline) {
 			return false
 		}
@@ -241,7 +242,7 @@ func postStop(baseURL string) error {
 // the editor's, for waiting it out.
 // It takes the ADVERTISED path (see open), never the path the tool was given.
 func (c *channel) findOpen(adv string) (openResult, int, bool, error) {
-	entries, _, err := registry.Inspect()
+	entries, _, err := live().Inspect()
 	if err != nil {
 		return openResult{}, 0, false, fmt.Errorf("cannot read the live registry: %w", err)
 	}
@@ -259,7 +260,7 @@ func (c *channel) findOpen(adv string) (openResult, int, bool, error) {
 			if c.self == "" {
 				return r, e.PID, true, nil
 			}
-			claimed, err := registry.Claim(e.Room, c.self)
+			claimed, err := live().Claim(e.Room, c.self)
 			if err != nil {
 				return openResult{}, 0, false, fmt.Errorf("cannot claim %s: %w", e.Page, err)
 			}
@@ -267,7 +268,7 @@ func (c *channel) findOpen(adv string) (openResult, int, bool, error) {
 				return openResult{}, 0, false, fmt.Errorf("%s is open, but another live session claimed it first; its wakes go there", e.Page)
 			}
 			return r, e.PID, true, nil
-		case registry.SessionLive(e.Owner):
+		case live().SessionLive(e.Owner):
 			return openResult{}, 0, false, fmt.Errorf("open in session %s; its wakes go there", e.Owner)
 		default:
 			return openResult{}, 0, false, fmt.Errorf("opened by session %s, which has stopped; "+
@@ -299,11 +300,11 @@ func (c *channel) spawnEditor(abs, adv string) (openResult, error) {
 	if c.exe == "" {
 		return openResult{}, fmt.Errorf("cannot locate the galley binary to start an editor with")
 	}
-	logDir, err := registry.LogDir()
+	logDir, err := live().LogDir()
 	if err != nil {
 		return openResult{}, fmt.Errorf("cannot create the editor log directory: %w", err)
 	}
-	logPath := filepath.Join(logDir, registry.Token(abs)+".log")
+	logPath := filepath.Join(logDir, pageserve.Token(abs)+".log")
 	logf, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		return openResult{}, fmt.Errorf("cannot open the editor log %s: %w", logPath, err)
@@ -353,7 +354,7 @@ func (c *channel) spawnEditor(abs, adv string) (openResult, error) {
 // channel with no session id spawned an unowned editor and looks for an
 // unowned advert.
 func (c *channel) ownAdvert(adv string) (openResult, bool) {
-	entries, _, err := registry.Inspect()
+	entries, _, err := live().Inspect()
 	if err != nil {
 		return openResult{}, false
 	}

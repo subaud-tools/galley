@@ -2,6 +2,10 @@
 
 Newest first. Notes for releases up to 0.10.2 are on the GitHub releases page: https://github.com/subaud-tools/galley/releases
 
+## Unreleased
+
+- galley finds its running editors through the family's shared server code (tools-common 0.31.1), the same code cull, sift and diazo use. Nothing you see changes: the files under `~/.galley/live` keep their names and contents, so an editor or channel from 0.20.0 and one from this release still find and wake each other. A message about a damaged or newer entry in that folder now says "pageserve: … entry" where it said "registry: … advert".
+
 ## 0.20.0
 
 - galley no longer writes a markdown file it then refuses to open: a line that would read back as a `$$` math fence, a `:::` directive, a `: ` definition or a `[!NOTE]` callout is written escaped, and a `:::` inside a table cell is accepted (#48, #61).

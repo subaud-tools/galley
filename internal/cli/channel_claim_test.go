@@ -6,13 +6,13 @@ import (
 	"os"
 	"testing"
 
-	"github.com/subaud-tools/galley/internal/registry"
 	"github.com/subaud-tools/galley/internal/serve"
+	"github.com/subaud-tools/tools-common/pageserve"
 )
 
 func advertOwner(t *testing.T, room string) string {
 	t.Helper()
-	got, err := registry.List()
+	got, err := live().List()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +46,7 @@ func TestClaimOnAttachGivesOneListener(t *testing.T) {
 
 	// UNOWNED advert under both channels' root (they share `dir` here; in
 	// production it is a parent and a child directory — the nested-scope case).
-	if err := registry.Write(registry.Entry{
+	if err := live().Write(pageserve.Entry{
 		URL: ts.URL, Room: srv.Room, Page: doc, PID: os.Getpid(),
 	}); err != nil {
 		t.Fatal(err)
@@ -56,7 +56,7 @@ func TestClaimOnAttachGivesOneListener(t *testing.T) {
 	defer cancel() // stop the attach long-poll scanOnce launches
 
 	// First channel is present (announces its session) and scans: it claims.
-	if err := registry.AnnounceSession("session-me"); err != nil {
+	if err := live().AnnounceSession("session-me"); err != nil {
 		t.Fatal(err)
 	}
 	a := newChannel(dir, "session-me")
@@ -107,8 +107,8 @@ func TestChannelKeepsALiveOwnersDocumentOffStderr(t *testing.T) {
 		t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
 		dir := t.TempDir()
 		doc := writeDoc(t, dir, "doc.md", "# T\n\nHi.\n")
-		srv, _, _ := liveEditor(t, doc, registry.Entry{Owner: "other-session"})
-		if err := registry.AnnounceSession("other-session"); err != nil {
+		srv, _, _ := liveEditor(t, doc, pageserve.Entry{Owner: "other-session"})
+		if err := live().AnnounceSession("other-session"); err != nil {
 			t.Fatal(err)
 		}
 		c := newChannel(dir, "me")
@@ -128,7 +128,7 @@ func TestChannelKeepsALiveOwnersDocumentOffStderr(t *testing.T) {
 		t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
 		dir := t.TempDir()
 		doc := writeDoc(t, dir, "doc.md", "# T\n\nHi.\n")
-		srv, _, _ := liveEditor(t, doc, registry.Entry{Owner: "gone-session"})
+		srv, _, _ := liveEditor(t, doc, pageserve.Entry{Owner: "gone-session"})
 		c := newChannel(dir, "me")
 		c.scanOnce(context.Background())
 		if !announced(c, srv.Room) {
