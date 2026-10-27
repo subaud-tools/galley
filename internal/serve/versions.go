@@ -546,7 +546,13 @@ func (s *EditServer) reviewerInstruction(sending map[string]bool) (string, []led
 			s.instrSaid[t] = true
 		}
 	}
-	return clip(strings.Join(said, " · "), instructionLimit), records, mark
+	return saidLine(said), records, mark
+}
+
+// saidLine is the reviewer's words as one round records them: joined, and
+// bounded by instructionLimit.
+func saidLine(said []string) string {
+	return clip(strings.Join(said, " · "), instructionLimit)
 }
 
 // instructionLimit bounds what one round records of the reviewer's words. It is

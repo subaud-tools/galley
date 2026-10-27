@@ -237,3 +237,21 @@ func TestReviseAndApproveWithNothingNewWhileTheAgentIsWorkingApprovesOnTheAnswer
 		t.Fatal("the agent answered and the review was not approved")
 	}
 }
+
+// A round sent again after no reply records the instructions it resends as
+// its reviewer instruction, so History shows what the resent round asked. The
+// page had nothing on it, so read off the page the round had no words at all.
+func TestAResendRecordsItsInstructionsForHistory(t *testing.T) {
+	s, _ := messageDoc(t)
+	instructDocument(t, s, "Add a sentence: Water is wet.")
+	heard(t, pressAndHear(t, s), "Add a sentence: Water is wet.")
+	report(t, s, "landed", windowToken(t, s))
+	report(t, s, "turn_ended", "")
+
+	heard(t, pressAndHear(t, s), "Add a sentence: Water is wet.")
+	rs := rounds(t, s)
+	resent := rs[len(rs)-1]
+	if resent.Instruction != "Add a sentence: Water is wet." {
+		t.Fatalf("the resent round %d recorded instruction %q, want the resent ask", resent.N, resent.Instruction)
+	}
+}
