@@ -1,0 +1,2 @@
+go test fuzz v1
+string("$$\nfoo *x*\n\n# h\n")
