@@ -297,7 +297,7 @@ func newChannel(scope, self string) *channel {
 			Name: "galley_open",
 			Description: "Put a document under review: start its editor for THIS session and open the page in the reviewer's browser. " +
 				"Returns the URL too, to give the reviewer if they closed the tab. " +
-				"A document this session already has open returns the same URL and opens its page again; " +
+				"A document this session already has open returns the same URL, and opens its page again only when no tab shows it; " +
 				"calling it on a document whose review has ended (approved or discarded) starts a fresh review. " +
 				"This is the only way to open a document; do not run `galley edit` from a shell.",
 			InputSchema: openSchema,
