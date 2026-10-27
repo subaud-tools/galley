@@ -16,8 +16,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/reearth/ygo/crdt"
+	"github.com/subaud-tools/galley/internal/docmodel"
 	"github.com/subaud-tools/galley/internal/markdown"
 	"github.com/subaud-tools/galley/internal/ondisk"
+	"github.com/subaud-tools/galley/internal/review"
+	"github.com/subaud-tools/galley/internal/suggest"
+	"github.com/subaud-tools/galley/internal/unsent"
+	"github.com/subaud-tools/galley/internal/versions"
 	"github.com/subaud-tools/tools-common/msgstate"
 )
 
@@ -235,7 +241,8 @@ func (s *EditServer) refuseHandoff(w http.ResponseWriter) bool {
 // handleHandoffCancel is the reviewer taking the document back. A parseable
 // draft is imported first — partial work is still work — and an unparseable
 // one is preserved under .galley/recovery/ before the projection resumes and
-// restores the canonical document over it.
+// restores the canonical document over it. The instructions the cancelled
+// round sent are filed again (see refileAsks), so the next Revise sends them.
 func (s *EditServer) handleHandoffCancel(w http.ResponseWriter, r *http.Request) {
 	if !guard(w, r) {
 		return
@@ -262,6 +269,10 @@ func (s *EditServer) handleHandoffCancel(w http.ResponseWriter, r *http.Request)
 	// The message goes with the window, as a direct Approve clears it: the
 	// document is the reviewer's again, so nothing is with the agent.
 	s.reviseMu.Lock()
+	round := 0
+	if s.watch != nil {
+		round = s.watch.round
+	}
 	s.watch = nil
 	s.approveOnAnswer = false
 	s.msg = nil
@@ -278,10 +289,94 @@ func (s *EditServer) handleHandoffCancel(w http.ResponseWriter, r *http.Request)
 	if err != nil && s.Log != nil {
 		s.Log("could not restore the canonical document after the cancel: " + err.Error())
 	}
+	s.refileAsks(round)
 	if s.Log != nil {
 		s.Log("handoff cancelled — the document is the reviewer's again")
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// refileAsks files the asks of the cancelled round again as unsent
+// instructions. The send deleted their threads (sendReviewerRound), so the
+// round's record is the only place their words still are. An ask whose quote
+// is still in the document, once, comes back on it; any other comes back on
+// the whole document. New keys, since the old ones name the cancelled round.
+// The refile is not news to the notifier: the reviewer took the round back,
+// and a live settle sending it at once would undo the cancel. Call it with no
+// lock held.
+func (s *EditServer) refileAsks(round int) {
+	if round <= 0 {
+		return
+	}
+	r, ok, err := s.Versions().Get(round)
+	if err != nil {
+		// The send deleted these words from the page; say so rather than
+		// lose them quietly.
+		if s.Log != nil {
+			s.Log(fmt.Sprintf("the cancelled round %d's instructions could not be filed again: %v", round, err))
+		}
+		return
+	}
+	if !ok || len(r.Asks) == 0 {
+		return
+	}
+	at := time.Now().UTC()
+	_, err = s.mutateUnsent(byReviewer, func(model docmodel.Doc) (docmodel.Doc, func(*crdt.Doc, review.Tx), error) {
+		model, refiled := refiledAsks(model, r.Asks, at)
+		return model, func(doc *crdt.Doc, tx review.Tx) {
+			session := review.Bind(doc, tx)
+			for _, f := range refiled {
+				if f.about == nil {
+					session.Append(f.key, f.heading, review.AuthorCourt, f.text, at)
+					continue
+				}
+				session.AppendAbout(f.key, f.heading, review.AuthorCourt, f.text, at, *f.about)
+			}
+		}, nil
+	})
+	if err != nil {
+		if s.Log != nil {
+			s.Log("could not file the cancelled round's instructions again: " + err.Error())
+		}
+		return
+	}
+	s.SeedNotify()
+}
+
+// refiledAsk is one ask of a cancelled round, ready to be filed again: about
+// is nil for an instruction on its quote, and the document's anchor otherwise.
+type refiledAsk struct {
+	key, heading, text string
+	about              *review.About
+}
+
+// refiledAsks marks each ask's quote in model where it is found once, and
+// answers the model and the threads to file.
+func refiledAsks(model docmodel.Doc, asks []versions.Ask, at time.Time) (docmodel.Doc, []refiledAsk) {
+	out := make([]refiledAsk, 0, len(asks))
+	for _, a := range asks {
+		if strings.TrimSpace(a.Text) == "" {
+			continue
+		}
+		if a.Quote != "" {
+			key := unsent.NewID(unsent.KindText)
+			if next, err := suggest.CommentOn(model, a.Quote, key, review.AuthorCourt, at); err == nil {
+				model = next
+				heading := a.Quote
+				if anchored, ok := suggest.CommentText(next, key); ok {
+					heading = anchored
+				}
+				out = append(out, refiledAsk{key: key, heading: heading, text: a.Text})
+				continue
+			}
+		}
+		anchor := suggest.Anchor{Kind: suggest.AnchorDocument}
+		out = append(out, refiledAsk{
+			key: unsent.NewID(unsent.KindDocument), heading: headingForAnchor(model, anchor), text: a.Text,
+			about: &review.About{Anchor: string(anchor.Kind), BlockKind: suggest.BlockKindFor(model, anchor)},
+		})
+	}
+	return model, out
 }
 
 // rescueDraft keeps the file as it is now and returns where, and the digest

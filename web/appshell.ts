@@ -359,6 +359,7 @@ export interface AppState {
   // five are set together or none of them are; verdict.ts narrows each one
   // with a real check rather than asserting the correlation away.
   reviseCount?: HTMLElement;
+  reviseCaret?: HTMLElement;
   reviseIdle?: HTMLElement;
   reviseBusy?: HTMLElement;
   reviseSecs?: HTMLElement;

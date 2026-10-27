@@ -229,79 +229,82 @@ function check(name, ok, detail) {
   );
 }
 
+// ReviseEl is the fake element paintedRevise and pressedRevise build the
+// primary over: only what makeRevise, paintRevise and askRevise touch.
+class ReviseNode {}
+class ReviseEl extends ReviseNode {
+  constructor(tag) {
+    super();
+    this.tagName = tag;
+    this.className = '';
+    this.nodes = [];
+    this.text = '';
+    this.disabled = false;
+    this.title = '';
+    this.dataset = {};
+  }
+  get classList() {
+    const names = () => this.className.split(/\s+/).filter(Boolean);
+    return {
+      contains: (c) => names().includes(c),
+      add: (c) => {
+        if (!names().includes(c)) this.className = [...names(), c].join(' ');
+      },
+      remove: (c) => {
+        this.className = names()
+          .filter((n) => n !== c)
+          .join(' ');
+      },
+      toggle: (c, on) => {
+        if (on ?? !names().includes(c)) {
+          if (!names().includes(c)) this.className = [...names(), c].join(' ');
+        } else {
+          this.className = names()
+            .filter((n) => n !== c)
+            .join(' ');
+        }
+      },
+    };
+  }
+  append(...nodes) {
+    this.nodes.push(...nodes);
+  }
+  get textContent() {
+    return this.nodes.length
+      ? this.nodes
+          .map((n) => (typeof n === 'string' ? n : n.textContent))
+          .join('')
+      : this.text;
+  }
+  set textContent(v) {
+    this.nodes = [];
+    this.text = String(v);
+  }
+  addEventListener() {}
+  before() {}
+}
+class ReviseButton extends ReviseEl {}
+
 // paintedRevise is the primary's label as PRODUCTION paints it: makeRevise
 // builds the button over a fake DOM, paintRevise writes the digits and the
 // count and picks the face, and this reads back the one label left
-// unreserved, or with `disabled` whether the button is. The fake carries only
-// what those two methods touch.
+// unreserved, or with `disabled` whether the button is.
 function paintedRevise({
   pendingCount = 0,
   waitedMs = null,
   message = null,
   disabled = false,
+  verdict = REVISE_IDLE,
 }) {
-  class FakeNode {}
-  class FakeEl extends FakeNode {
-    constructor(tag) {
-      super();
-      this.tagName = tag;
-      this.className = '';
-      this.nodes = [];
-      this.text = '';
-      this.disabled = false;
-      this.title = '';
-      this.dataset = {};
-    }
-    get classList() {
-      const names = () => this.className.split(/\s+/).filter(Boolean);
-      return {
-        contains: (c) => names().includes(c),
-        add: (c) => {
-          if (!names().includes(c)) this.className = [...names(), c].join(' ');
-        },
-        remove: (c) => {
-          this.className = names()
-            .filter((n) => n !== c)
-            .join(' ');
-        },
-        toggle: (c, on) => {
-          if (on ?? !names().includes(c)) {
-            if (!names().includes(c))
-              this.className = [...names(), c].join(' ');
-          } else {
-            this.className = names()
-              .filter((n) => n !== c)
-              .join(' ');
-          }
-        },
-      };
-    }
-    append(...nodes) {
-      this.nodes.push(...nodes);
-    }
-    get textContent() {
-      return this.nodes.length
-        ? this.nodes
-            .map((n) => (typeof n === 'string' ? n : n.textContent))
-            .join('')
-        : this.text;
-    }
-    set textContent(v) {
-      this.nodes = [];
-      this.text = String(v);
-    }
-    addEventListener() {}
-    before() {}
-  }
-  class FakeButton extends FakeEl {}
   return onFakeRevise(
-    FakeEl,
-    FakeButton,
+    ReviseEl,
+    ReviseButton,
     {
       reviseWaiting: waitedMs !== null,
       reviseStartedAt: Date.now() - (waitedMs ?? 0),
       pendingCount,
       reviseMessage: message,
+      verdict,
       paintMessage: verdictMethods.paintMessage,
     },
     (shell, button) => {
@@ -311,10 +314,59 @@ function paintedRevise({
       }
       return button.nodes
         .filter((n) => !n.classList.contains('gly-reserved'))
-        .map((n) => n.textContent)
+        .map(visibleText)
         .join('|');
     },
   );
+}
+
+// visibleText is what a painted node reads as on screen: its text without the
+// parts a `.gly-reserved` hides, at any depth.
+function visibleText(n) {
+  if (typeof n === 'string') {
+    return n;
+  }
+  if (n.classList.contains('gly-reserved')) {
+    return '';
+  }
+  return n.nodes.length ? n.nodes.map(visibleText).join('') : n.text;
+}
+
+// pressedRevise is the primary's PRESS as production makes it: makeRevise
+// builds the button over paintedRevise's fake DOM, paintRevise sets its face,
+// and askRevise runs with postVerdict and the menu recorded instead of sent.
+// It returns the face the press was made on and what the press did.
+function pressedRevise({ pendingCount = 0, waitedMs = null, message = null }) {
+  let did = null;
+  const face = paintedRevise({
+    pendingCount,
+    waitedMs,
+    message,
+    verdict: pendingCount > 0 ? REVISE_IDLE : APPROVE_IDLE,
+  });
+  onFakeRevise(
+    ReviseEl,
+    ReviseButton,
+    {
+      reviseWaiting: waitedMs !== null,
+      reviseStartedAt: Date.now() - (waitedMs ?? 0),
+      pendingCount,
+      reviseMessage: message,
+      verdict: pendingCount > 0 ? REVISE_IDLE : APPROVE_IDLE,
+      paintMessage() {},
+      postVerdict(body) {
+        did = { post: body };
+      },
+      openVerdictMenu() {
+        did = { menu: true };
+      },
+    },
+    (shell) => {
+      verdictMethods.paintRevise.call(shell);
+      verdictMethods.askRevise.call(shell);
+    },
+  );
+  return { face, did };
 }
 
 // onFakeRevise puts a fake document whose elements are FakeEl in place,
@@ -6605,6 +6657,46 @@ function bindsContentField(src) {
         );
       }
       check('Revise re-sends after no reply', pressable('no_reply', 0));
+      // AFTER NO REPLY THE FACE AND THE PRESS AGREE. With nothing on the page
+      // the verdict is Approve, and the press used to post it under a face
+      // that read `revising · Ns`, sealing the review. The press re-sends the
+      // round (the server's unansweredAsks) and the face says Revise.
+      const noReply = { state: 'no_reply', line: '', held: false };
+      const after = pressedRevise({ waitedMs: 1500, message: noReply });
+      check(
+        'a press after no reply with nothing pending posts a revise, not an approve',
+        after.did && after.did.post && after.did.post.verdict === undefined,
+        after,
+      );
+      check(
+        'after no reply with nothing pending the button says Revise',
+        after.face === 'Revise',
+        after,
+      );
+      const waiting = pressedRevise({ waitedMs: 1500 });
+      check(
+        'a press while a Revise is still waiting asks again, not approves',
+        waiting.did &&
+          waiting.did.post &&
+          waiting.did.post.verdict === undefined &&
+          waiting.face === 'revising · 1s',
+        waiting,
+      );
+      const clean = pressedRevise({});
+      check(
+        'with nothing ever asked the press still approves',
+        clean.face === 'Approve' &&
+          clean.did &&
+          clean.did.post &&
+          clean.did.post.verdict === 'approve',
+        clean,
+      );
+      const more = pressedRevise({ pendingCount: 1, message: noReply });
+      check(
+        'after no reply with an instruction pending the press opens the menu',
+        more.face === 'Revise · 1 ▾' && more.did && more.did.menu === true,
+        more,
+      );
     }
 
     {

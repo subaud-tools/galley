@@ -2173,7 +2173,8 @@ func (s *EditServer) sendReviewerRound(reason string, resend []versions.Ask, hol
 	if holdEmpty && len(handoff.Instructions) == 0 {
 		return reviewerRound{}, http.StatusNoContent, errNothingNew
 	}
-	if len(handoff.Instructions) == 0 {
+	resent := len(handoff.Instructions) == 0 && len(resend) > 0
+	if resent {
 		for _, a := range resend {
 			handoff.Instructions = append(handoff.Instructions, InstructionView{Key: a.Key, Text: a.Text, Quote: a.Quote})
 		}
@@ -2183,6 +2184,13 @@ func (s *EditServer) sendReviewerRound(reason string, resend []versions.Ask, hol
 		inRound[instruction.Key] = true
 	}
 	said, instructions, markSaid := s.reviewerInstruction(inRound)
+	if resent {
+		// A RESENT ROUND'S WORDS ARE ITS ASKS. The page they were filed on was
+		// emptied by the send that first carried them, so reading the page
+		// finds nothing, and History would show the round asking nothing. The
+		// ledger already holds them from that first send and is not told twice.
+		said = resentInstruction(resend)
+	}
 	keys := make([]string, 0, len(handoff.Instructions))
 	// THE ROUND IS WHERE THE KEYS SURVIVE. The mutation below DELETES every
 	// thread this send carries — an instruction is discharged by the revision,
@@ -2296,6 +2304,18 @@ func (s *EditServer) sendReviewerRound(reason string, resend []versions.Ask, hol
 		s.Log("could not empty the sent comments out of the unsent round: " + err.Error())
 	}
 	return reviewerRound{pending: handoff, round: round, fingerprint: fp}, http.StatusOK, nil
+}
+
+// resentInstruction is the recorded instruction of a round that sends asks
+// again: their words, as reviewerInstruction records the page's.
+func resentInstruction(asks []versions.Ask) string {
+	said := make([]string, 0, len(asks))
+	for _, a := range asks {
+		if t := strings.TrimSpace(a.Text); t != "" {
+			said = append(said, t)
+		}
+	}
+	return saidLine(said)
 }
 
 // reviseMessage is one opening of the response window as a message Court
