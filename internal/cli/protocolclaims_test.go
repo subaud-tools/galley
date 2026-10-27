@@ -12,7 +12,7 @@ import (
 //
 // This protocol has three carriers — `channelInstructions` (the MCP
 // handshake), `agentPromptText` (the CLI cold start), and the plugin skill at
-// plugin/galley/skills/reviewing-a-document/SKILL.md. Their PROSE differs by
+// skills/reviewing-a-document/SKILL.md. Their PROSE differs by
 // design: three media, three reading moments, and the skill is the one a
 // paired session actually loads. Their CLAIMS must not differ at all.
 //
@@ -156,7 +156,7 @@ func assertRefuses(t *testing.T, carrier, prose string, claims []string) {
 // would agree with the binary right up until somebody adds or removes a
 // verb, which is the one moment this check exists for." A skill file is the
 // equivalent moment for a carrier.
-const pluginSkillGlob = "../../plugin/*/skills/*/SKILL.md"
+const pluginSkillGlob = "../../skills/*/SKILL.md"
 
 // skillCarrierKey derives a carrier key from a discovered SKILL.md path,
 // from the skill's own directory name.
@@ -293,12 +293,11 @@ func TestReviseDeliveryTeachesTheProtocol(t *testing.T) {
 // there is a second file to get wrong) and asserts its discovered carrier
 // returns ITS OWN content, not reviewing-a-document's.
 func TestPluginSkillCarriersReadTheirOwnFile(t *testing.T) {
-	fixtureRoot := filepath.Join("..", "..", "plugin", "_fixturecarrier-f4")
-	fixtureDir := filepath.Join(fixtureRoot, "skills", "fixture-skill")
+	fixtureDir := filepath.Join("..", "..", "skills", "_fixturecarrier-f4")
 	if err := os.MkdirAll(fixtureDir, 0o755); err != nil {
 		t.Fatalf("creating fixture skill dir: %v", err)
 	}
-	t.Cleanup(func() { _ = os.RemoveAll(fixtureRoot) })
+	t.Cleanup(func() { _ = os.RemoveAll(fixtureDir) })
 	fixturePath := filepath.Join(fixtureDir, "SKILL.md")
 	const marker = "FIXTURE-MARKER-F4-CONTENT-LIVES-ONLY-IN-THIS-FILE"
 	if err := os.WriteFile(fixturePath, []byte(marker), 0o644); err != nil {
