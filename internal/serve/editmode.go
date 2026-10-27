@@ -190,6 +190,10 @@ type EditServer struct {
 	serverWrites atomic.Int32
 	// movedByReviewer is that observation, standing until the next cut.
 	movedByReviewer atomic.Bool
+
+	// pages is how many pages hold the room over its websocket; see pages.go.
+	pages atomic.Int32
+
 	// lastCutN is the round cutIfSending last minted, read back by requestCut
 	// under the same mu it was written under. It exists so the press that cut a
 	// version can put its number on the revise window WITHOUT a second lock
@@ -1326,7 +1330,7 @@ func (s *EditServer) handleMode(w http.ResponseWriter, r *http.Request) {
 // even when it points inside the directory.
 func (s *EditServer) Handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.Handle("/yjs/{room}", s.onlyThisRoom(s.yjs))
+	mux.Handle("/yjs/{room}", s.onlyThisRoom(s.countPages(s.yjs)))
 	mux.HandleFunc("/_galley/editor.js", serveAssetHint("assets/editor.js",
 		"application/javascript; charset=utf-8", "`just assets`, which builds the editor bundle"))
 	mux.HandleFunc("/_galley/editor.css", serveAssetHint("assets/editor.css",
@@ -1353,6 +1357,8 @@ func (s *EditServer) Handler() http.Handler {
 	mux.HandleFunc("/_galley/cannot", s.handleCannot)
 	mux.HandleFunc("/_galley/mode", s.handleMode)
 	mux.HandleFunc("/_galley/revise", s.handleRevise)
+	// How many pages hold the room: galley_open opens no second tab. See pages.go.
+	mux.HandleFunc("/_galley/pages", s.handlePages)
 	mux.HandleFunc("/_galley/stop", s.handleStop)
 	mux.HandleFunc("/_galley/ack", s.handleAck)
 	mux.HandleFunc("/_galley/report", s.handleReport)

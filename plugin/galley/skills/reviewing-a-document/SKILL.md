@@ -9,7 +9,7 @@ galley is a document two parties revise in rounds. The reviewer reads a draft in
 
 ## Starting a review
 
-**A review does not exist until an editor is running, and you start one with the `galley_open` tool.** Call it with the document's path. It starts the editor for this session, in the background, and opens the page in the human's browser. From then on their Revise rounds arrive here as events. It returns the URL too: give it to the human if they closed the tab. Calling it again for the same document returns the same URL and opens the page again, unless another session owns it; if that document's review has ended, it stops the old editor and starts a fresh review. To review an approved document again, call `galley_open` again.
+**A review does not exist until an editor is running, and you start one with the `galley_open` tool.** Call it with the document's path. It starts the editor for this session, in the background, and opens the page in the human's browser. From then on their Revise rounds arrive here as events. It returns the URL too: give it to the human if they closed the tab. Calling it again for the same document returns the same URL, unless another session owns it, and opens the page again only when no tab shows it; if that document's review has ended, it stops the old editor and starts a fresh review. To review an approved document again, call `galley_open` again.
 
 `galley_open` accepts HTML files too. For `page.html` it extracts the prose into `.galley/pages/<base>/content.md`, opens the editor on that file, and re-renders the page after every round. The agent edits `content.md` — not `page.html` directly.
 
@@ -175,4 +175,4 @@ It blocks until the reviewer sends a round, prints the captured instructions and
 
 ## Licensing
 
-Every command is free to run; galley never gates a feature and never contacts a server. It is free for any organization under 25 people, and larger organizations buy a one-time license by headcount at https://galley.tools/buy — the purchase receipt is the proof of compliance, and there is nothing to install or activate. If `galley` is not on PATH, the human needs to install the binary; this plugin ships the protocol, not the program.
+Every command is free to run; galley never gates a feature and never contacts a server. It is free for any organization under 25 people, and larger organizations buy a one-time license by headcount at https://galley.tools/buy — the purchase receipt is the proof of compliance, and there is nothing to install or activate. If `galley` is not on PATH, the human needs to install the binary; this plugin ships the protocol, not the program. For a harness the plugin doesn't reach (pi, Codex), `galley skills install --agent pi` writes this skill there once, and `galley channel` keeps that copy current each time it starts.

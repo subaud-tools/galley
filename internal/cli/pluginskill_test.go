@@ -8,8 +8,7 @@ import (
 	"testing"
 )
 
-// THE PLUGIN SKILL IS THE THIRD CARRIER, AND IT IS THE ONE PEOPLE ACTUALLY
-// READ. The protocol already had two declarations of itself — the MCP
+// THE SKILL IS THE THIRD CARRIER, AND IT IS THE ONE PEOPLE ACTUALLY READ. The protocol already had two declarations of itself — the MCP
 // handshake's `channelInstructions` and the cold-start `agentPromptText` —
 // bound together, now by `TestEveryCarrierTeachesTheProtocol` in
 // protocolclaims_test.go, for the reason this repository records more often
@@ -23,6 +22,13 @@ import (
 // package; the skill is a file in another directory that no Go test opened,
 // and it is the copy a paired session loads before it does anything. The
 // carrier nobody checks is the carrier everybody uses.
+//
+// It now reaches every harness from that one file: the Claude Code plugin
+// carries it, and the binary embeds the same file (plugin/galley/skills) and
+// writes it for Codex and pi (`galley skills install`, refreshed each time
+// `galley channel` starts). There is no second copy in the tree to drift, and
+// TestSkillsInstallWritesThePluginSkill holds the installed copy to the file
+// byte for byte.
 //
 // It is held to the SAME claims as the other two rather than to a list of its
 // own — a third list is a third thing to drift.
@@ -96,4 +102,58 @@ func realCommands(t *testing.T) map[string]bool {
 		t.Fatalf("only %d commands in the registry; the index is broken", len(real))
 	}
 	return real
+}
+
+// skillHome points every harness at a fresh HOME, so a test installs and
+// refreshes the skill there and never in the operator's own harnesses.
+func skillHome(t *testing.T) string {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	for _, v := range []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME", "PI_CODING_AGENT_DIR"} {
+		t.Setenv(v, "")
+	}
+	return home
+}
+
+// `galley skills install --agent pi` writes the plugin's own file, byte for
+// byte: the binary embeds that file, not a copy of it.
+func TestSkillsInstallWritesThePluginSkill(t *testing.T) {
+	home := skillHome(t)
+	stdout, stderr, code := galleyCLI(t, "skills", "install", "--agent", "pi")
+	if code != 0 {
+		t.Fatalf("skills install exited %d: %s %s", code, stdout, stderr)
+	}
+	got, err := os.ReadFile(filepath.Join(home, ".pi", "agent", "skills", "reviewing-a-document", "SKILL.md"))
+	if err != nil {
+		t.Fatalf("the skill was not installed for pi: %v", err)
+	}
+	if string(got) != pluginSkill(t) {
+		t.Errorf("the installed skill differs from the plugin's file:\n%s", got)
+	}
+}
+
+// The channel rewrites an installed copy that differs from the binary's, and
+// says so on stderr only: its stdout is the MCP stream.
+func TestChannelStartRefreshesAStaleSkill(t *testing.T) {
+	home := skillHome(t)
+	dir := filepath.Join(home, ".pi", "agent", "skills", "reviewing-a-document")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dest := filepath.Join(dir, "SKILL.md")
+	if err := os.WriteFile(dest, []byte("---\nname: reviewing-a-document\n---\nold\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var errw strings.Builder
+	stdout, _ := captureOutput(t, func() { refreshSkill(&errw) })
+	if stdout != "" {
+		t.Errorf("the refresh wrote to stdout, the MCP stream: %q", stdout)
+	}
+	if got, err := os.ReadFile(dest); err != nil || string(got) != pluginSkill(t) {
+		t.Errorf("the stale skill was not refreshed (%v):\n%s", err, got)
+	}
+	if !strings.Contains(errw.String(), dest) {
+		t.Errorf("the refresh did not name the path it rewrote on stderr: %q", errw.String())
+	}
 }

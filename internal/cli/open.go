@@ -114,10 +114,13 @@ func (c *channel) open(doc string) (string, error) {
 			return "", err
 		}
 		if live {
-			// THE PAGE IS OPENED EVERY TIME, so a second galley_open brings the
-			// review back in front of the reviewer. Only here: on the spawn path
-			// the editor opens its own page, and two tabs would be one too many.
-			c.openPage(r.URL)
+			// THE PAGE IS OPENED ONLY WHEN NO PAGE HOLDS THE REVIEW, so a
+			// galley_open after the reviewer closed the tab brings it back, and
+			// one on a document already in front of them opens no second tab.
+			// Only here: on the spawn path the editor opens its own page.
+			if connectedPages(r.URL) == 0 {
+				c.openPage(r.URL)
+			}
 			return r.withPreview(abs, adv).text()
 		}
 	}
@@ -194,6 +197,24 @@ func probeRevise(baseURL string) (reviseStateView, error) {
 	return st, nil
 }
 
+// connectedPages asks the editor how many pages hold its room
+// (GET /_galley/pages). An editor that does not say, one from before the
+// route or one that does not answer in time, counts as 0: the page is opened,
+// as it always was.
+func connectedPages(baseURL string) int {
+	client := &http.Client{Timeout: probeTimeout}
+	resp, err := client.Get(baseURL + "/_galley/pages")
+	if err != nil {
+		return 0
+	}
+	defer func() { _ = resp.Body.Close() }()
+	var v serve.PagesView
+	if resp.StatusCode != http.StatusOK || json.NewDecoder(resp.Body).Decode(&v) != nil {
+		return 0
+	}
+	return v.Pages
+}
+
 // errNoStopHook is a 501 from /_galley/stop: a server started without a stop
 // hook, which only the terminal that started it can stop.
 var errNoStopHook = errors.New("no stop hook")
@@ -258,7 +279,8 @@ func (c *channel) findOpen(adv string) (openResult, int, bool, error) {
 
 // spawnEditor starts `galley edit <abs> --owner <self>` and waits for its
 // advert. The editor opens the page in the reviewer's browser itself, as
-// `galley edit` does from a terminal; open opens it only on the reuse path.
+// `galley edit` does from a terminal; open opens it only on the reuse path,
+// and there only when no page holds the room.
 //
 // DETACHED, AND ON PURPOSE IN EVERY PARTICULAR. Setsid puts the editor in its
 // own session and process group, so a channel that restarts (the MCP server
