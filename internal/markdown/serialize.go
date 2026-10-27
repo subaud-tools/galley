@@ -396,6 +396,14 @@ func renderBlock(b docmodel.Block, alt bool) (string, bool) {
 // whitespace.
 func renderBlockquote(children []docmodel.Block) string {
 	body := renderBlocksLoose(children)
+	if headsWithParagraph(children) && calloutMarker([]byte(strings.SplitN(body, "\n", 2)[0])) {
+		// A paragraph whose first line is a bare "[!NOTE]" leads the quote,
+		// which is where Parse refuses a GitHub callout: written bare, the
+		// file would not open again (galley#61). "\\[" reads back as "[",
+		// and only a paragraph is asked: an indented code line "    [!NOTE]"
+		// is not a callout and its bytes are not text to escape.
+		body = "\\" + body
+	}
 	lines := strings.Split(body, "\n")
 	for i, line := range lines {
 		if line == "" {
@@ -405,6 +413,17 @@ func renderBlockquote(children []docmodel.Block) string {
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+// headsWithParagraph reports whether the first block that is written is a
+// paragraph: the one Parse reads a callout's marker from.
+func headsWithParagraph(blocks []docmodel.Block) bool {
+	for _, b := range blocks {
+		if !rendersNothing(b) {
+			return b.Kind == docmodel.Paragraph
+		}
+	}
+	return false
 }
 
 // renderList renders a BulletList's or OrderedList's items tight: no blank

@@ -111,9 +111,31 @@ func ReviewerChanges(store *versions.Store) ([]ReviewerChange, int) {
 // collapsing them under-reports the reviewer's own edits to the agent. That is
 // the exact harm this file exists to prevent, reintroduced by a workaround for
 // a misreading of it.
+//
+// ONE CHANGE PER BLOCK, NOT PER REGION. A coalesced region can carry two
+// neighbouring blocks: when the matcher lines the removed block's boundary up
+// with the kept block's below it, the run opens on a sentence and the next
+// block's boundary is the first `coalesceBlocks` meets, so it absorbs the
+// whole of the second block. Reporting the region's head alone told the agent
+// of the first removed paragraph and never the second (galley#56), the very
+// deletion it then writes back. The region stays one for the painted diff,
+// whose counts are pinned; here each further block among its members is
+// reported in its own right.
 func summarise(ops []*diff.Op) ([]ReviewerChange, int) {
 	var out []ReviewerChange
 	var dropped int
+	add := func(c ReviewerChange) {
+		// A boundary unit carries no prose; an empty summary line tells the
+		// agent nothing and costs it attention.
+		if c.Before == "" && c.After == "" {
+			return
+		}
+		if len(out) >= reviewerChangeCap {
+			dropped++
+			return
+		}
+		out = append(out, c)
+	}
 	for _, op := range ops {
 		// THE HEAD A BOUNDARY HANDED ITS PLACE TO. `coalesceBlocks` gives a
 		// block's opening sentinel's place to the first real unit under it and
@@ -139,7 +161,11 @@ func summarise(ops []*diff.Op) ([]ReviewerChange, int) {
 			if op.Old == nil {
 				continue
 			}
-			c = ReviewerChange{Kind: "removed", Before: strings.TrimSpace(op.Old.Text)}
+			add(ReviewerChange{Kind: "removed", Before: strings.TrimSpace(op.Old.Text)})
+			for _, u := range furtherBlocks(op, op.Old.Block, func(m *diff.Op) *diff.Unit { return m.Old }) {
+				add(ReviewerChange{Kind: "removed", Before: strings.TrimSpace(u.Text)})
+			}
+			continue
 		case diff.OpChange:
 			if op.Old == nil || op.New == nil {
 				continue
@@ -153,7 +179,11 @@ func summarise(ops []*diff.Op) ([]ReviewerChange, int) {
 			if op.New == nil {
 				continue
 			}
-			c = ReviewerChange{Kind: "added", After: strings.TrimSpace(op.New.Text)}
+			add(ReviewerChange{Kind: "added", After: strings.TrimSpace(op.New.Text)})
+			for _, u := range furtherBlocks(op, op.New.Block, func(m *diff.Op) *diff.Unit { return m.New }) {
+				add(ReviewerChange{Kind: "added", After: strings.TrimSpace(u.Text)})
+			}
+			continue
 		default:
 			// Equal, and anything this vocabulary does not know. A moved
 			// sentence is deliberately not reported: it is neither removed nor
@@ -162,18 +192,26 @@ func summarise(ops []*diff.Op) ([]ReviewerChange, int) {
 			// to say to something about to decide whether to write it back.
 			continue
 		}
-		// A boundary unit carries no prose; an empty summary line tells the
-		// agent nothing and costs it attention.
-		if c.Before == "" && c.After == "" {
-			continue
-		}
-		if len(out) >= reviewerChangeCap {
-			dropped++
-			continue
-		}
-		out = append(out, c)
+		add(c)
 	}
 	return out, dropped
+}
+
+// furtherBlocks returns the first unit of each block a coalesced region
+// absorbed beyond the head's own, in order. The head speaks for its block by
+// its first unit, so each further block does the same.
+func furtherBlocks(op *diff.Op, headBlock int, side func(*diff.Op) *diff.Unit) []*diff.Unit {
+	var out []*diff.Unit
+	last := headBlock
+	for _, m := range op.Members {
+		u := side(m)
+		if u == nil || isBoundary(u) || u.Block == last {
+			continue
+		}
+		out = append(out, u)
+		last = u.Block
+	}
+	return out
 }
 
 // isBoundary reports whether a unit is a block-opening sentinel rather than

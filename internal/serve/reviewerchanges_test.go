@@ -151,11 +151,11 @@ func TestOneChangeIsReportedOnce(t *testing.T) {
 func TestTwoIdenticalParagraphsAreTwoRemovals(t *testing.T) {
 	s := versions.Open(t.TempDir() + "/doc.md")
 	// SEPARATED BY KEPT PROSE, and that is the fixture doing work. Adjacent
-	// identical paragraphs coalesce into ONE region, so a fixture with the two
-	// side by side reports one removal and cannot tell a correct filter from a
-	// dedupe — it passes either way. Measured: the first cut of this test had
-	// them adjacent and was green against the very dedupe it was written to
-	// forbid.
+	// identical paragraphs coalesced into ONE region and, before galley#56,
+	// reported one removal, so a fixture with the two side by side could not
+	// tell a correct filter from a dedupe. Measured: the first cut of this test
+	// had them adjacent and was green against the very dedupe it was written
+	// to forbid.
 	commit(t, s, "# Draft\n\nCut this line.\n\nKeep me.\n\nCut this line.\n\nKeep me too.\n",
 		versions.Round{N: 1, Reason: versions.ReasonOpened})
 	commit(t, s, "# Draft\n\nKeep me.\n\nKeep me too.\n",
@@ -205,5 +205,38 @@ func TestNoBoundarySentinelReachesTheAgent(t *testing.T) {
 	}
 	if len(got) == 0 {
 		t.Fatalf("no changes at all — the fixture stopped exercising anything")
+	}
+}
+
+// TestTwoNeighbouringBlocksAreBothReported is galley#56: removing (or adding)
+// two neighbouring paragraphs reported only the first, so the agent was never
+// told about the second removal — the deletion it then writes back.
+func TestTwoNeighbouringBlocksAreBothReported(t *testing.T) {
+	for _, tc := range []struct {
+		name, before, after string
+		kind                string
+	}{
+		{"removed", "# Doc\n\nKeep one.\n\nAlpha goes.\n\nBravo goes.\n\nKeep two.\n", "# Doc\n\nKeep one.\n\nKeep two.\n", "removed"},
+		{"added", "# Doc\n\nKeep one.\n\nKeep two.\n", "# Doc\n\nKeep one.\n\nAlpha comes.\n\nBravo comes.\n\nKeep two.\n", "added"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := versions.Open(t.TempDir() + "/doc.md")
+			commit(t, s, tc.before, versions.Round{N: 1, Reason: versions.ReasonOpened})
+			commit(t, s, tc.after, versions.Round{N: 2, Reason: versions.ReasonRevise, Authors: []string{"court"}})
+			got, _ := ReviewerChanges(s)
+			var texts []string
+			for _, c := range got {
+				if c.Kind != tc.kind {
+					t.Errorf("unexpected %s change %+v", c.Kind, c)
+				}
+				texts = append(texts, c.Before+c.After)
+			}
+			joined := strings.Join(texts, " ")
+			for _, w := range []string{"Alpha", "Bravo"} {
+				if !strings.Contains(joined, w) {
+					t.Errorf("%s not reported: %+v", w, got)
+				}
+			}
+		})
 	}
 }

@@ -174,6 +174,25 @@ func TestAnUntouchedDocumentIsNotWritten(t *testing.T) {
 	}
 }
 
+// AN EDIT LEAVES EVERY OTHER BLOCK'S BYTES (galley#52): the reviewer edits the
+// heading, and the shapes PLAN5 saw respelled around such an edit (repro/r52)
+// come back as they were: a fence right after a paragraph, notes on a
+// hard-broken line, a suggestion across lines and an unclosed fence at the end.
+func TestAnEditLeavesUntouchedBlocksBytes(t *testing.T) {
+	const src = "# Head\n\nSome text.\n```\ncode\n```\nAfter.\n\n{>>n<<}{>>m<<}\\\nword\n\n" +
+		"{++a\n{>>x<<}\nb++}\n\nText.\n\n```\nunclosed\n"
+	s := newEditServer(t, t.TempDir(), "d.md", src)
+	defer func() { _ = s.Close() }()
+	reviewerTypes(t, s, "Head", "Head edited")
+	if err := s.Project(); err != nil {
+		t.Fatal(err)
+	}
+	want := strings.Replace(src, "# Head\n", "# Head edited\n", 1)
+	if got := string(mustRead(t, s.MdPath)); got != want {
+		t.Errorf("an edit to the heading respelled other blocks.\n--- want ---\n%s\n--- got ---\n%s", want, got)
+	}
+}
+
 // A CLASH: the reviewer and the file both moved. The reviewer's copy is
 // written, the file as found is kept in .galley/recovery/, and the bar says so.
 func TestAClashKeepsTheReviewersCopyAndRecoversTheFile(t *testing.T) {

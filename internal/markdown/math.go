@@ -53,6 +53,11 @@ var kindMathBlock = ast.NewNodeKind("GalleyMathBlock")
 // disagree about.
 type mathBlockNode struct {
 	ast.BaseBlock
+	// open is the source offset of the opening delimiter's first "$", and
+	// closed is set when Continue meets the closing one. Close reads both:
+	// see there.
+	open   int
+	closed bool
 }
 
 func (n *mathBlockNode) Kind() ast.NodeKind { return kindMathBlock }
@@ -88,8 +93,13 @@ func (mathBlockParser) Open(_ ast.Node, reader text.Reader, pc parser.Context) (
 	if pos < 0 || !mathFence(line[pos:]) {
 		return nil, parser.NoChildren
 	}
-	node := &mathBlockNode{}
-	node.Lines().Append(delimiterSegment(seg, pos))
+	open := delimiterSegment(seg, pos)
+	if refused, _ := pc.Get(mathRefusedKey).(map[int]bool); refused[open.Start] {
+		// An opener a previous pass found unclosed. It is text this time.
+		return nil, parser.NoChildren
+	}
+	node := &mathBlockNode{open: open.Start}
+	node.Lines().Append(open)
 	return node, parser.NoChildren
 }
 
@@ -98,6 +108,7 @@ func (mathBlockParser) Continue(node ast.Node, reader text.Reader, _ parser.Cont
 	w, pos := util.IndentWidth(line, reader.LineOffset())
 	if w < 4 && mathFence(line[pos:]) {
 		node.Lines().Append(delimiterSegment(seg, pos))
+		node.(*mathBlockNode).closed = true
 		reader.AdvanceToEOL()
 		return parser.Close
 	}
@@ -121,30 +132,66 @@ func delimiterSegment(seg text.Segment, pos int) text.Segment {
 	return text.NewSegment(seg.Start+pos-seg.Padding, seg.Stop)
 }
 
-// Close is where an UNTERMINATED block gives itself back.
+// Close is where an UNTERMINATED block is found out.
 //
-// `$$` with no closing delimiter is not display math, it is a paragraph whose
-// first line happens to be two dollars — front matter's own third rule, which
-// refuses a block that never closes so that a leading `---` stays the thematic
-// break it is. A block parser cannot decline after the fact, so this REPLACES
-// the node with the ordinary paragraph goldmark would have built. Block parsing
-// finishes before the inline phase walks the tree, so the paragraph's inlines
-// are parsed exactly as any other paragraph's are, and the document is byte for
-// byte what it is on the tracked build.
-func (mathBlockParser) Close(node ast.Node, _ text.Reader, _ parser.Context) {
-	lines := node.Lines()
-	if lines.Len() >= 2 {
+// `$$` with no closing delimiter is not display math, it is text whose line
+// happens to be two dollars: front matter's own third rule, which refuses a
+// block that never closes so that a leading `---` stays the thematic break it
+// is. Whether a block is closed is only known once its container or the file
+// has ended it, and by then every line after the opener has been taken as TeX.
+// So this records the opener, and parseTree reads the document again with that
+// opener refused: the lines come back exactly as goldmark reads them without
+// this parser.
+//
+// This used to call a block closed once it held two lines, and replace a
+// one-line block with a paragraph here. That kept a bare `$$` at the end of a
+// file, and nothing else: `$$` ended by EOF or by its container two or more
+// lines later kept everything after it as raw TeX, so "$$\nfoo *x*\n\n# h\n"
+// read as one math block and the emphasis and the heading were gone
+// (galley#61). Rebuilding the lines into one paragraph here would be wrong for
+// the same document, which holds a paragraph AND a heading: only a second read
+// knows what the lines are.
+func (mathBlockParser) Close(node ast.Node, _ text.Reader, pc parser.Context) {
+	n := node.(*mathBlockNode)
+	if n.closed {
 		return
 	}
-	parent := node.Parent()
-	if parent == nil {
-		return
+	if unclosed, ok := pc.Get(mathUnclosedKey).(*[]int); ok {
+		*unclosed = append(*unclosed, n.open)
 	}
-	para := ast.NewParagraph()
-	for i := 0; i < lines.Len(); i++ {
-		para.Lines().Append(lines.At(i))
+}
+
+// mathRefusedKey and mathUnclosedKey carry parseTree's two sets through the
+// parser context: the openers this pass reads as text, and the ones it found
+// unclosed.
+var (
+	mathRefusedKey  = parser.NewContextKey()
+	mathUnclosedKey = parser.NewContextKey()
+)
+
+// parseTree is the package's one block parse, used by Parse and by the
+// preserving writer's chunking so the two agree about where blocks are.
+//
+// It reads the document again for as long as a pass finds an unclosed `$$`,
+// each time with every unclosed opener so far refused. Refusing an opener only
+// changes what comes AFTER it, so each pass refuses at least one new opener and
+// the passes end within the number of `$$` lines; a document with none is read
+// once.
+func parseTree(src []byte) ast.Node {
+	refused := map[int]bool{}
+	for {
+		var unclosed []int
+		pc := parser.NewContext()
+		pc.Set(mathRefusedKey, refused)
+		pc.Set(mathUnclosedKey, &unclosed)
+		root := md.Parser().Parse(text.NewReader(src), parser.WithContext(pc))
+		if len(unclosed) == 0 {
+			return root
+		}
+		for _, at := range unclosed {
+			refused[at] = true
+		}
 	}
-	parent.ReplaceChild(parent, node, para)
 }
 
 // A `$$` line ENDS the paragraph above it rather than continuing it. Saying no
