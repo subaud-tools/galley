@@ -2,7 +2,7 @@
 
 Newest first. Notes for releases up to 0.10.2 are on the GitHub releases page: https://github.com/subaud-tools/galley/releases
 
-## Unreleased
+## 0.17.0
 
 - `galley skills install [--agent NAME]` writes the reviewing-a-document skill for pi and Codex, the harnesses the Claude Code plugin doesn't reach. `galley channel` keeps an installed copy current each time it starts.
 - `galley_open` on a document whose page is already open in a tab no longer opens a second tab. With no tab showing it, it opens the page as before.
