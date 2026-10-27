@@ -25,6 +25,22 @@ writeFileSync(
     'Nothing else in the pipeline is told, which is a gap worth closing.\n',
 );
 
+// THE PORT IS THIS RUN'S, OR THE RUN DOES NOT START. The wait below is for
+// `/` answering, and a `galley edit` that could not bind exits while another
+// one goes on answering: another gate, or the last run's server still
+// stopping. The run then drives that server's document, and the first check
+// that reads the fixture's words times out (galley#10).
+const taken = await fetch(`http://127.0.0.1:${PORT}/`).then(
+  () => true,
+  () => false,
+);
+if (taken) {
+  console.log(
+    `port ${PORT} already answers: another galley is serving there (run the gates one at a time, or set PORT)`,
+  );
+  process.exit(1);
+}
+
 const server = spawn(
   GALLEY,
   ['edit', doc, '--no-open', '--port', String(PORT), '--on-revise', 'true'],
@@ -4145,7 +4161,17 @@ try {
   );
 } finally {
   if (browser) await browser.close();
-  server.kill('SIGTERM');
+  // And the port is given back before the run ends, so the next run, or the
+  // next gate, does not find this server still answering on it.
+  await new Promise((done) => {
+    if (server.exitCode !== null || server.signalCode !== null) return done();
+    const cap = setTimeout(() => server.kill('SIGKILL'), 10000);
+    server.once('exit', () => {
+      clearTimeout(cap);
+      done();
+    });
+    server.kill('SIGTERM');
+  });
   try {
     rmSync(dir, { recursive: true, force: true });
   } catch {
