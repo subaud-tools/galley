@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/subaud-tools/galley/internal/registry"
 	"github.com/subaud-tools/galley/internal/serve"
+	"github.com/subaud-tools/tools-common/pageserve"
 )
 
 // buildGalley compiles the real binary once per test that needs it. The
@@ -41,14 +41,14 @@ func script(t *testing.T, body string) string {
 
 func killEditor(t *testing.T, room string) {
 	t.Helper()
-	entries, _ := registry.List()
+	entries, _ := live().List()
 	for _, e := range entries {
 		if e.Room == room {
 			_ = syscall.Kill(e.PID, syscall.SIGTERM)
 		}
 	}
 	until(t, "the editor to withdraw its advert", func() bool {
-		entries, _ := registry.List()
+		entries, _ := live().List()
 		for _, e := range entries {
 			if e.Room == room {
 				return false
@@ -62,7 +62,7 @@ func TestOpenSpawnsAnEditorOwnedByThisSession(t *testing.T) {
 	t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
 	dir := t.TempDir()
 	doc := writeDoc(t, dir, "doc.md", "# T\n\nHello.\n")
-	if err := registry.AnnounceSession("session-me"); err != nil {
+	if err := live().AnnounceSession("session-me"); err != nil {
 		t.Fatal(err)
 	}
 	c := newChannel(dir, "session-me")
@@ -113,8 +113,8 @@ func TestOpenSpawnsAnEditorOwnedByThisSession(t *testing.T) {
 		t.Fatalf("second open opened %v, want exactly [%s]", got, r.URL)
 	}
 
-	logDir, _ := registry.LogDir()
-	if _, err := os.Stat(filepath.Join(logDir, registry.Token(doc)+".log")); err != nil {
+	logDir, _ := live().LogDir()
+	if _, err := os.Stat(filepath.Join(logDir, pageserve.Token(doc)+".log")); err != nil {
 		t.Fatalf("no editor log written: %v", err)
 	}
 }
@@ -125,7 +125,7 @@ func TestOpenStartsAFreshReviewWhenTheLastOneEnded(t *testing.T) {
 	t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
 	dir := t.TempDir()
 	doc := writeDoc(t, dir, "doc.md", "# T\n\nHello.\n")
-	if err := registry.AnnounceSession("session-me"); err != nil {
+	if err := live().AnnounceSession("session-me"); err != nil {
 		t.Fatal(err)
 	}
 	c := newChannel(dir, "session-me")
@@ -163,9 +163,9 @@ func TestOpenStartsAFreshReviewWhenTheLastOneEnded(t *testing.T) {
 	}
 }
 
-func mustList(t *testing.T) []registry.Entry {
+func mustList(t *testing.T) []pageserve.Entry {
 	t.Helper()
-	es, err := registry.List()
+	es, err := live().List()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +197,7 @@ func TestOpenReportsAnEditorThatExitsBeforeAdvertising(t *testing.T) {
 	t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
 	dir := t.TempDir()
 	doc := writeDoc(t, dir, "doc.md", "# T\n")
-	if err := registry.AnnounceSession("session-me"); err != nil {
+	if err := live().AnnounceSession("session-me"); err != nil {
 		t.Fatal(err)
 	}
 	c := newChannel(dir, "session-me")
@@ -227,8 +227,8 @@ func TestOpenReportsAnEditorThatNeverAdvertises(t *testing.T) {
 	if err == nil {
 		t.Fatal("a silent editor was reported as open")
 	}
-	logDir, _ := registry.LogDir()
-	if !strings.Contains(err.Error(), filepath.Join(logDir, registry.Token(doc)+".log")) {
+	logDir, _ := live().LogDir()
+	if !strings.Contains(err.Error(), filepath.Join(logDir, pageserve.Token(doc)+".log")) {
 		t.Fatalf("timeout error does not name the log: %q", err)
 	}
 }
@@ -272,7 +272,7 @@ func TestOpenAnHTMLPageResolvesTheAdvertisedContentFile(t *testing.T) {
 	if err := os.WriteFile(page, []byte(minimalHTML), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := registry.AnnounceSession("session-me"); err != nil {
+	if err := live().AnnounceSession("session-me"); err != nil {
 		t.Fatal(err)
 	}
 	c := newChannel(dir, "session-me")

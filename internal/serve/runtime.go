@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/subaud-tools/galley/internal/registry"
+	tools "github.com/subaud-tools/tools-common"
 )
 
 // The one-editor-per-document advert: <doc>.serve.json beside the document,
@@ -85,7 +85,7 @@ func (e *AlreadyServing) Error() string {
 // A dead PID's advert is NOT a claim: crashes, SIGKILLs and closed laptops all
 // leave one behind, and refusing to open a document because of a corpse would
 // be a worse day-one bug than the one this fixes. readRuntime reaps it (through
-// registry.Alive, the one liveness rule — see that function).
+// tools.PIDAlive, the one liveness rule).
 //
 // ANY live advert is a claim here, including one this process wrote: a process
 // that already advertises a document already has a server for it, so the second
@@ -113,8 +113,8 @@ func FindRuntime(pagePath string) (Runtime, bool) {
 
 // readRuntime is the single reader of a <doc>.serve.json, and it REAPS ON READ:
 // an advert whose process is gone is removed and reported absent, exactly as
-// registry.List does for its own directory, and through the same registry.Alive
-// so there is one answer to "still running" rather than two.
+// pageserve.Live.List does for galley's live directory, and through the same
+// tools.PIDAlive so there is one answer to "still running" rather than two.
 //
 // A DEAD SERVER IS NEVER RETURNED. FindRuntime used to hand a caller the last
 // advert on disk whatever wrote it, so every CLI verb's live path would open a
@@ -134,7 +134,7 @@ func readRuntime(runtimePath string) (Runtime, bool) {
 	if rt.URL == "" {
 		return Runtime{}, false
 	}
-	if !registry.Alive(rt.PID) {
+	if !tools.PIDAlive(rt.PID) {
 		_ = os.Remove(runtimePath)
 		return Runtime{}, false
 	}

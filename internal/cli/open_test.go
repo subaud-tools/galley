@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/subaud-tools/galley/internal/registry"
 	"github.com/subaud-tools/galley/internal/serve"
+	"github.com/subaud-tools/tools-common/pageserve"
 )
 
 // galley_open IS HOW A SESSION PUTS A DOCUMENT UNDER REVIEW. The channel is
@@ -25,7 +25,7 @@ import (
 // plantAdvert writes an advert for page whose URL is a stand-in editor that
 // answers GET /_galley/revise with a review still open, which is all
 // galley_open asks of an editor it already has.
-func plantAdvert(t *testing.T, page, owner string) registry.Entry {
+func plantAdvert(t *testing.T, page, owner string) pageserve.Entry {
 	t.Helper()
 	ed := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/_galley/revise" && r.Method == http.MethodGet {
@@ -38,13 +38,13 @@ func plantAdvert(t *testing.T, page, owner string) registry.Entry {
 	return plantAdvertAt(t, page, owner, ed.URL, os.Getpid())
 }
 
-func plantAdvertAt(t *testing.T, page, owner, url string, pid int) registry.Entry {
+func plantAdvertAt(t *testing.T, page, owner, url string, pid int) pageserve.Entry {
 	t.Helper()
-	e := registry.Entry{
-		URL: url, Room: "room-" + registry.Token(page)[:8],
+	e := pageserve.Entry{
+		URL: url, Room: "room-" + pageserve.Token(page)[:8],
 		Page: page, PID: pid, Owner: owner,
 	}
-	if err := registry.Write(e); err != nil {
+	if err := live().Write(e); err != nil {
 		t.Fatal(err)
 	}
 	return e
@@ -147,7 +147,7 @@ func TestOpenWaitsOutAnEditorThatDoesNotAnswer(t *testing.T) {
 	t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
 	dir := t.TempDir()
 	doc := writeDoc(t, dir, "doc.md", "# T\n")
-	if err := registry.AnnounceSession("session-me"); err != nil {
+	if err := live().AnnounceSession("session-me"); err != nil {
 		t.Fatal(err)
 	}
 	dying := exec.Command("sleep", "30")
@@ -277,7 +277,7 @@ func TestOpenRefusesADocumentAnotherLiveSessionOwns(t *testing.T) {
 	dir := t.TempDir()
 	doc := writeDoc(t, dir, "doc.md", "# T\n")
 	plantAdvert(t, doc, "session-other")
-	if err := registry.AnnounceSession("session-other"); err != nil {
+	if err := live().AnnounceSession("session-other"); err != nil {
 		t.Fatal(err)
 	}
 

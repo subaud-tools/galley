@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/subaud-tools/galley/internal/registry"
 	"github.com/subaud-tools/galley/internal/serve"
+	"github.com/subaud-tools/tools-common/pageserve"
 )
 
 // THE FOUR WAYS A CHANNEL SILENTLY NEVER ATTACHES, and the one thing they all
@@ -144,7 +144,7 @@ func (r *chanRig) silence(d time.Duration) {
 
 // liveEditor starts a real edit server on a real listener and advertises it,
 // which is what `galley edit` does minus the process.
-func liveEditor(t *testing.T, doc string, e registry.Entry) (*serve.EditServer, *httptest.Server, registry.Entry) {
+func liveEditor(t *testing.T, doc string, e pageserve.Entry) (*serve.EditServer, *httptest.Server, pageserve.Entry) {
 	t.Helper()
 	srv, err := serve.NewEdit(doc)
 	if err != nil {
@@ -157,7 +157,7 @@ func liveEditor(t *testing.T, doc string, e registry.Entry) (*serve.EditServer, 
 	if e.PID == 0 {
 		e.PID = os.Getpid()
 	}
-	if err := registry.Write(e); err != nil {
+	if err := live().Write(e); err != nil {
 		t.Fatal(err)
 	}
 	return srv, ts, e
@@ -203,7 +203,7 @@ func TestChannelDoesNotAdoptAnOrphanedDocument(t *testing.T) {
 	t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
 	dir := t.TempDir()
 	doc := writeDoc(t, dir, "doc.md", "# T\n\nHello.\n")
-	srv, ts, _ := liveEditor(t, doc, registry.Entry{Owner: "session-A-restarted-away"})
+	srv, ts, _ := liveEditor(t, doc, pageserve.Entry{Owner: "session-A-restarted-away"})
 
 	r := newRig(t, dir, "session-B-here", 25*time.Millisecond)
 	// Several scans: an adopt would have attached by now.
@@ -246,7 +246,7 @@ func TestChannelAttachesThroughASymlinkedPath(t *testing.T) {
 				docDir, scope = link, real
 			}
 			doc := writeDoc(t, docDir, "doc.md", "# T\n\nHello.\n")
-			srv, ts, _ := liveEditor(t, doc, registry.Entry{})
+			srv, ts, _ := liveEditor(t, doc, pageserve.Entry{})
 
 			r := newRig(t, scope, "", 25*time.Millisecond)
 			until(t, "the attach across the symlink", func() bool { return srv.Waiting() > 0 })
@@ -266,7 +266,7 @@ func TestChannelSaysWhenTheEditorIsGone(t *testing.T) {
 	t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
 	dir := t.TempDir()
 	doc := writeDoc(t, dir, "doc.md", "# T\n\nHello.\n")
-	srv, _, _ := liveEditor(t, doc, registry.Entry{})
+	srv, _, _ := liveEditor(t, doc, pageserve.Entry{})
 
 	r := newRig(t, dir, "", time.Hour) // one scan; no re-attach to muddy it
 	until(t, "the attach", func() bool { return srv.Waiting() > 0 })
@@ -296,7 +296,7 @@ func TestChannelSaysTheEditorIsGoneOnlyOnce(t *testing.T) {
 	t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
 	dir := t.TempDir()
 	doc := writeDoc(t, dir, "doc.md", "# T\n\nHello.\n")
-	srv, _, _ := liveEditor(t, doc, registry.Entry{})
+	srv, _, _ := liveEditor(t, doc, pageserve.Entry{})
 
 	// A REAL scan interval: the re-attach is the thing under test.
 	r := newRig(t, dir, "", 25*time.Millisecond)
@@ -318,10 +318,10 @@ func TestChannelWakesOnceForADuplicatedAdvert(t *testing.T) {
 	t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
 	dir := t.TempDir()
 	doc := writeDoc(t, dir, "doc.md", "# T\n\nHello.\n")
-	srv, ts, e := liveEditor(t, doc, registry.Entry{})
+	srv, ts, e := liveEditor(t, doc, pageserve.Entry{})
 	dup := e
 	dup.Room = e.Room + "-duplicate"
-	if err := registry.Write(dup); err != nil {
+	if err := live().Write(dup); err != nil {
 		t.Fatal(err)
 	}
 
@@ -341,7 +341,7 @@ func TestChannelWakesOnceForADuplicatedAdvert(t *testing.T) {
 
 // DEFECT 4b. A RECYCLED PID KEEPS A LIE ALIVE. The advert's PID answers to
 // signal 0 because the operating system handed it to something else, so
-// registry.List reports an editor that is not there. Nothing reaps it and
+// live().List reports an editor that is not there. Nothing reaps it and
 // nothing says anything: the channel attaches to a URL that answers nothing,
 // forever, believing it is attached.
 func TestChannelReapsAnAdvertNothingAnswers(t *testing.T) {
@@ -353,17 +353,17 @@ func TestChannelReapsAnAdvertNothingAnswers(t *testing.T) {
 	// Owned by THIS session (a bystander would now decline it, never probe it):
 	// the reap-on-unreachable path is for an editor the channel legitimately
 	// attaches to and finds answering nothing.
-	stale := registry.Entry{
+	stale := pageserve.Entry{
 		URL: "http://127.0.0.1:1", Room: "recycled", Page: doc, PID: os.Getpid(),
 		Owner: "session-now",
 	}
-	if err := registry.Write(stale); err != nil {
+	if err := live().Write(stale); err != nil {
 		t.Fatal(err)
 	}
 
 	r := newRig(t, dir, "session-now", 25*time.Millisecond)
 	until(t, "the stale advert to be reaped", func() bool {
-		entries, err := registry.List()
+		entries, err := live().List()
 		return err == nil && len(entries) == 0
 	})
 	// The reap and the status's reason are two steps in the channel; on a
@@ -396,8 +396,8 @@ func TestChannelStatusTellsTheThreeSilencesApart(t *testing.T) {
 		t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
 		dir := t.TempDir()
 		doc := writeDoc(t, dir, "doc.md", "# T\n\nHello.\n")
-		liveEditor(t, doc, registry.Entry{Owner: "other-session"})
-		if err := registry.AnnounceSession("other-session"); err != nil {
+		liveEditor(t, doc, pageserve.Entry{Owner: "other-session"})
+		if err := live().AnnounceSession("other-session"); err != nil {
 			t.Fatal(err)
 		}
 		r := newRig(t, dir, "me", 25*time.Millisecond)
@@ -415,7 +415,7 @@ func TestChannelStatusTellsTheThreeSilencesApart(t *testing.T) {
 		t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
 		elsewhere := t.TempDir()
 		doc := writeDoc(t, elsewhere, "doc.md", "# T\n\nHello.\n")
-		liveEditor(t, doc, registry.Entry{})
+		liveEditor(t, doc, pageserve.Entry{})
 		scope := t.TempDir()
 		r := newRig(t, scope, "me", 25*time.Millisecond)
 		time.Sleep(200 * time.Millisecond)
@@ -435,7 +435,7 @@ func TestChannelAttachesItsOwnEditorOutsideItsScope(t *testing.T) {
 	t.Run("owned by this session", func(t *testing.T) {
 		t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
 		doc := writeDoc(t, t.TempDir(), "doc.md", "# T\n\nHello.\n")
-		srv, ts, _ := liveEditor(t, doc, registry.Entry{Owner: "me"})
+		srv, ts, _ := liveEditor(t, doc, pageserve.Entry{Owner: "me"})
 		r := newRig(t, t.TempDir(), "me", 25*time.Millisecond)
 		until(t, "the attach outside the scope", func() bool { return srv.Waiting() > 0 })
 		s := r.status()
@@ -456,12 +456,12 @@ func TestChannelAttachesItsOwnEditorOutsideItsScope(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
 			if tc.owner != "" {
-				if err := registry.AnnounceSession(tc.owner); err != nil {
+				if err := live().AnnounceSession(tc.owner); err != nil {
 					t.Fatal(err)
 				}
 			}
 			doc := writeDoc(t, t.TempDir(), "doc.md", "# T\n\nHello.\n")
-			srv, _, e := liveEditor(t, doc, registry.Entry{Owner: tc.owner})
+			srv, _, e := liveEditor(t, doc, pageserve.Entry{Owner: tc.owner})
 			scope := t.TempDir()
 			r := newRig(t, scope, tc.self, 25*time.Millisecond)
 			time.Sleep(200 * time.Millisecond)
@@ -472,7 +472,7 @@ func TestChannelAttachesItsOwnEditorOutsideItsScope(t *testing.T) {
 			if !strings.Contains(s, "outside this channel's scope") || !strings.Contains(s, scope) {
 				t.Errorf("status does not report the scope mismatch (scope %s):\n%s", scope, s)
 			}
-			entries, _, err := registry.Inspect()
+			entries, _, err := live().Inspect()
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -494,7 +494,7 @@ func TestChannelAttachesItsOwnEditorOutsideItsScope(t *testing.T) {
 func TestWatchSessionStopsTheEditor(t *testing.T) {
 	t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
 	owner := "session-owning-this-editor"
-	if err := registry.AnnounceSession(owner); err != nil {
+	if err := live().AnnounceSession(owner); err != nil {
 		t.Fatal(err)
 	}
 
@@ -511,7 +511,7 @@ func TestWatchSessionStopsTheEditor(t *testing.T) {
 	}
 
 	// The session ends — its presence goes — and the editor takes itself down.
-	if err := registry.WithdrawSession(owner); err != nil {
+	if err := live().WithdrawSession(owner); err != nil {
 		t.Fatal(err)
 	}
 	select {

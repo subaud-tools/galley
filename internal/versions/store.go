@@ -247,7 +247,7 @@ func (s *Store) manifest() string { return filepath.Join(s.dir, "rounds.jsonl") 
 // Problem is one line of the manifest that could not be reported as a round,
 // and why.
 //
-// IT EXISTS BECAUSE SILENCE IS THE DEFECT — the same sentence internal/registry
+// IT EXISTS BECAUSE SILENCE IS THE DEFECT — the same sentence pageserve's Problem
 // carries over the same split, and for a worse reason here: a dropped advert is
 // rediscovered on the next scan, while a dropped round is a version that has
 // left the history for good with no log line and no counter. Line is 1-based
@@ -266,7 +266,7 @@ func (p Problem) String() string { return fmt.Sprintf("line %d: %s", p.Line, p.R
 //
 // List is the hot path and keeps its signature; a caller that wants to know
 // what was DROPPED — and something always should — reads Inspect. The split is
-// registry.List/registry.Inspect's, deliberately, so there is one shape in this
+// pageserve.Live.List/Inspect's, deliberately, so there is one shape in this
 // codebase for "report the good ones, and separately account for the rest".
 func (s *Store) List() ([]Round, error) {
 	rounds, _, err := s.Inspect()

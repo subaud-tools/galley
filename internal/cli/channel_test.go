@@ -12,10 +12,10 @@ import (
 	"time"
 
 	"github.com/subaud-tools/galley/internal/markdown"
-	"github.com/subaud-tools/galley/internal/registry"
 	"github.com/subaud-tools/galley/internal/serve"
 	"github.com/subaud-tools/galley/internal/suggest"
 	"github.com/subaud-tools/tools-common/channelmcp"
+	"github.com/subaud-tools/tools-common/pageserve"
 )
 
 // The whole loop, in one process: an editor advertises, the channel attaches,
@@ -35,7 +35,7 @@ func TestChannelForwardsARevisePress(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	if err := registry.Write(registry.Entry{URL: ts.URL, Room: srv.Room, Page: doc, PID: os.Getpid()}); err != nil {
+	if err := live().Write(pageserve.Entry{URL: ts.URL, Room: srv.Room, Page: doc, PID: os.Getpid()}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -182,13 +182,13 @@ func TestChannelIgnoresAnotherSessionsDocument(t *testing.T) {
 	t.Cleanup(func() { _ = srv.Close() })
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
-	if err := registry.Write(registry.Entry{URL: ts.URL, Room: srv.Room, Page: doc, PID: os.Getpid(), Owner: "somebody-else"}); err != nil {
+	if err := live().Write(pageserve.Entry{URL: ts.URL, Room: srv.Room, Page: doc, PID: os.Getpid(), Owner: "somebody-else"}); err != nil {
 		t.Fatal(err)
 	}
 	// somebody-else is still here: its channel is running (in this process,
 	// for the length of this test) and announces the session the way every
 	// `galley channel` does at startup.
-	if err := registry.AnnounceSession("somebody-else"); err != nil {
+	if err := live().AnnounceSession("somebody-else"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -216,7 +216,7 @@ func TestChannelIgnoresADocumentOutsideItsScope(t *testing.T) {
 	t.Cleanup(func() { _ = srv.Close() })
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
-	if err := registry.Write(registry.Entry{URL: ts.URL, Room: srv.Room, Page: doc, PID: os.Getpid()}); err != nil {
+	if err := live().Write(pageserve.Entry{URL: ts.URL, Room: srv.Room, Page: doc, PID: os.Getpid()}); err != nil {
 		t.Fatal(err)
 	}
 

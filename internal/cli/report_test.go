@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/subaud-tools/galley/internal/registry"
+	"github.com/subaud-tools/tools-common/pageserve"
 )
 
 // recordingEditor is an advertised editor that records each report posted to
@@ -29,7 +29,7 @@ func recordingEditor(t *testing.T, dir, name, owner string) chan map[string]stri
 	t.Cleanup(ts.Close)
 	doc := writeDoc(t, dir, name, "# T\n")
 	room := "room" + name[:1] + "0123456789abcdef0123456789abcdef"
-	if err := registry.Write(registry.Entry{URL: ts.URL, Room: room, Page: doc, PID: os.Getpid(), Owner: owner}); err != nil {
+	if err := live().Write(pageserve.Entry{URL: ts.URL, Room: room, Page: doc, PID: os.Getpid(), Owner: owner}); err != nil {
 		t.Fatal(err)
 	}
 	return got
@@ -105,7 +105,7 @@ func TestTheChannelPostsReportsInOrderOffTheReadLoop(t *testing.T) {
 		}
 	})
 	doc := writeDoc(t, dir, "a.md", "# T\n")
-	if err := registry.Write(registry.Entry{URL: ts.URL, Room: "room-a0123456789abcdef", Page: doc, PID: os.Getpid(), Owner: "sess-a"}); err != nil {
+	if err := live().Write(pageserve.Entry{URL: ts.URL, Room: "room-a0123456789abcdef", Page: doc, PID: os.Getpid(), Owner: "sess-a"}); err != nil {
 		t.Fatal(err)
 	}
 

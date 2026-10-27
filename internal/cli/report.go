@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/subaud-tools/galley/internal/registry"
 	tools "github.com/subaud-tools/tools-common"
 	"github.com/subaud-tools/tools-common/channelmcp"
 )
@@ -24,7 +23,7 @@ var reportClient = &http.Client{Timeout: 5 * time.Second}
 // the caller), not retried. `galley report` calls it under Claude Code; the
 // channel's report queue calls it under pi.
 func deliverReport(session string, event channelmcp.ReportEvent, token string) error {
-	entries, err := registry.List()
+	entries, err := live().List()
 	if err != nil {
 		return err
 	}

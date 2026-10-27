@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/subaud-tools/galley/internal/registry"
 	"github.com/subaud-tools/tools-common/channelmcp"
+	"github.com/subaud-tools/tools-common/pageserve"
 )
 
 // reportToken is a window's report token: 16 hex characters.
@@ -26,7 +26,7 @@ func TestWatchPrintsARevisePressAsOneLine(t *testing.T) {
 	t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
 	dir := t.TempDir()
 	doc := writeDoc(t, dir, "doc.md", "# T\n\nHello.\n")
-	srv, ts, _ := liveEditor(t, doc, registry.Entry{})
+	srv, ts, _ := liveEditor(t, doc, pageserve.Entry{})
 
 	r, w := io.Pipe()
 	c := newChannel(dir, "me")
@@ -93,7 +93,7 @@ func TestChannelAttachesOnlyOutsideClaudeCode(t *testing.T) {
 			t.Setenv("AGENT_SESSION_CHILD", "")
 			dir := t.TempDir()
 			doc := writeDoc(t, dir, "doc.md", "# T\n\nHello.\n")
-			srv, _, _ := liveEditor(t, doc, registry.Entry{})
+			srv, _, _ := liveEditor(t, doc, pageserve.Entry{})
 
 			ch := channelFromEnv(dir)
 			ch.scanEvery = 20 * time.Millisecond
@@ -150,7 +150,7 @@ func TestWatchLineCarriesText(t *testing.T) {
 	t.Setenv("AGENT_SESSION_ID", "me")
 	dir := t.TempDir()
 	doc := writeDoc(t, dir, "doc.md", "# T\n\nHello.\n")
-	srv, ts, _ := liveEditor(t, doc, registry.Entry{})
+	srv, ts, _ := liveEditor(t, doc, pageserve.Entry{})
 
 	r, w := io.Pipe()
 	ctx, cancel := context.WithCancel(context.Background())
