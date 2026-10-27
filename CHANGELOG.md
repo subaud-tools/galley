@@ -2,6 +2,15 @@
 
 Newest first. Notes for releases up to 0.10.2 are on the GitHub releases page: https://github.com/subaud-tools/galley/releases
 
+## 0.20.0
+
+- galley no longer writes a markdown file it then refuses to open: a line that would read back as a `$$` math fence, a `:::` directive, a `: ` definition or a `[!NOTE]` callout is written escaped, and a `:::` inside a table cell is accepted (#48, #61).
+- An unclosed `$$` is plain text. Before, it turned the rest of the document into one math block (#61).
+- Editing one block leaves every other block exactly as it was written: no blank lines added around code fences, no closing fence added to an unclosed one, and a suggestion across lines stays one block (#52).
+- Approving an HTML page after an edit changes only the blocks that changed: the page's head, doctype, entities, spacing, classed links and inline spans elsewhere are kept. The edited paragraph is still rebuilt from markdown (#49, in part).
+- Removing or adding two neighbouring blocks tells the agent about both. Before, only the first reached it (#56).
+- A comment survives a draft the agent saved without its marker. Before, it was dropped silently (#57).
+
 ## 0.19.0
 
 - Pressing Revise after a Revise got "no reply", with nothing new on the page, sends the round's instructions again. Before, the press approved the review and locked the page.
