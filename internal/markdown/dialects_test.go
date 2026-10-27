@@ -1,6 +1,7 @@
 package markdown_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -99,6 +100,11 @@ func TestParse_DisplayMathInterruptsAParagraph(t *testing.T) {
 // line goes back to meaning what it always meant. Without it a stray "$$" would
 // turn every line under it into literal TeX — unreviewable prose, which is the
 // harm the refusals above exist to avoid.
+//
+// The line is written back ESCAPED. Whether a bare "$$" pairs with one below
+// it is a question about the rest of the file, which the writer of one block
+// cannot ask, and written bare above a later "$$" it became TeX on the next
+// read (galley#61). A backslash nobody needed is the cheap direction.
 func TestParse_UnterminatedDisplayMathIsAParagraph(t *testing.T) {
 	doc, _, err := markdown.Parse([]byte("$$\n"))
 	if err != nil {
@@ -107,8 +113,36 @@ func TestParse_UnterminatedDisplayMathIsAParagraph(t *testing.T) {
 	if len(doc.Blocks) != 1 || doc.Blocks[0].Kind != docmodel.Paragraph {
 		t.Fatalf("blocks = %#v, want one paragraph", doc.Blocks)
 	}
-	if got := string(markdown.Serialize(doc)); got != "$$\n" {
-		t.Errorf("Serialize = %q, want the author's own line back", got)
+	if got := string(markdown.Serialize(doc)); got != "\\$$\n" {
+		t.Errorf("Serialize = %q, want the line escaped so no later \"$$\" can pair with it", got)
+	}
+}
+
+// TestParse_UnterminatedDisplayMathKeepsTheDocument is galley#61's first
+// defect: a "$$" that never closes took every line after it as TeX, so the
+// emphasis and the heading below it were gone. Ended by the file or by its
+// container, the lines read as they would with no math at all.
+func TestParse_UnterminatedDisplayMathKeepsTheDocument(t *testing.T) {
+	cases := []struct {
+		name, src string
+		want      []docmodel.BlockKind
+	}{
+		{"ended by the file", "$$\nfoo *x*\n\n# h\n", []docmodel.BlockKind{docmodel.Paragraph, docmodel.Heading}},
+		{"ended by its quote", "> $$\n> *x*\n> # h\n\nz\n", []docmodel.BlockKind{docmodel.Blockquote, docmodel.Paragraph, docmodel.Heading, docmodel.Paragraph}},
+		{"a closed block after an unclosed one", "> $$\n\n$$\nE\n$$\n", []docmodel.BlockKind{docmodel.Blockquote, docmodel.Paragraph, docmodel.MathBlock}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			doc, _, err := markdown.Parse([]byte(c.src))
+			if err != nil {
+				t.Fatalf("Parse: %v", err)
+			}
+			var got []docmodel.BlockKind
+			docmodel.Walk(doc, func(_ []int, b *docmodel.Block) { got = append(got, b.Kind) })
+			if fmt.Sprint(got) != fmt.Sprint(c.want) {
+				t.Errorf("kinds = %v, want %v", got, c.want)
+			}
+		})
 	}
 }
 

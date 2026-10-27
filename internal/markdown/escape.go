@@ -1,6 +1,7 @@
 package markdown
 
 import (
+	"bytes"
 	"strings"
 	"unicode"
 )
@@ -347,6 +348,10 @@ func blockEscape(r []rune, i int, ctx escapeCtx) bool {
 		return true
 	}
 	switch r[i] {
+	case '$':
+		return opensMath(r, lineStart, end)
+	case ':':
+		return opensRefusedDialect(r, lineStart, end)
 	case '>':
 		// A blockquote marker needs nothing after it.
 		return true
@@ -410,6 +415,30 @@ func opensUnescapableReference(r []rune, i int, ctx escapeCtx) bool {
 		}
 	}
 	return false
+}
+
+// opensMath reports whether the line from start is a display-math delimiter,
+// asking math.go's own predicate. A paragraph whose line is a bare "$$" pairs
+// with a "$$" below it on the next read and becomes TeX, taking the blocks
+// between with it (galley#61, from "\\$$\n$$\n0)\n$$"). Escaping the first
+// "$" is enough: "\\$$" is not a delimiter.
+//
+// A bare "$$" with no partner reads back as text anyway, so the backslash is
+// sometimes one it did not need; whether a partner exists is a question about
+// the rest of the file, and a missing backslash is a block that changes kind.
+func opensMath(r []rune, start, end int) bool {
+	return mathFence([]byte(string(r[start:end])))
+}
+
+// opensRefusedDialect reports whether the line from start reads as one of
+// the line-break dialects Parse refuses, asking dialects.go's own predicates:
+// a ":::" directive on any line, and a ": " definition on any line but the
+// block's first. Without the escape, Serialize writes a file galley then
+// refuses to open (galley#48: "\\:::" was written ":::", and a soft break
+// after a hard break put ": 0" at the start of a line).
+func opensRefusedDialect(r []rune, start, end int) bool {
+	line := []byte(string(r[start:end]))
+	return bytes.HasPrefix(line, []byte(":::")) || (start > 0 && definitionMarker(line))
 }
 
 // opensTableDelimiter reports whether the line from i is a GFM table's
@@ -509,13 +538,18 @@ func opensATXHeading(r []rune, i, end int) bool {
 // line but spaces and tabs. The spaced form matters — "_ _ _" is a
 // thematic break, and none of its underscores is flanking, so the inline
 // rules above leave every one of them bare.
+//
+// A lone carriage return is whitespace here too, as it is in a heading:
+// goldmark's isThematicBreak skips util.IsSpace, which counts it, so
+// "--\r-" is a rule. FuzzRoundTrip found it as a paragraph holding that text
+// that came back as a rule.
 func opensThematicBreak(r []rune, i, end int) bool {
 	c, n := r[i], 0
 	for j := i; j < end; j++ {
 		switch {
 		case r[j] == c:
 			n++
-		case isSpaceOrTab(r[j]):
+		case isHeadingSpace(r[j]):
 		default:
 			return false
 		}

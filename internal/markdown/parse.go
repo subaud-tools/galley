@@ -32,7 +32,6 @@ import (
 	extast "github.com/yuin/goldmark/extension/ast"
 
 	"github.com/yuin/goldmark/extension"
-	"github.com/yuin/goldmark/text"
 )
 
 // md is the goldmark instance used to parse markdown into an AST. Auto
@@ -76,7 +75,7 @@ var md = goldmark.New(
 // FrontMatter for why it is a block rather than a field.
 func Parse(src []byte) (docmodel.Doc, []InlineComment, error) {
 	front, rest := splitFrontMatter(src)
-	root := md.Parser().Parse(text.NewReader(rest))
+	root := parseTree(rest)
 	// The refusal machinery names a SOURCE line, so the lines goldmark never
 	// saw still have to be counted. Without this a document with four lines of
 	// front matter and raw HTML on line 8 refuses "line 4", and the author

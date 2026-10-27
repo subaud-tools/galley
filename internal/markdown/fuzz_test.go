@@ -58,7 +58,10 @@ import (
 //	    comment on the way;
 //	(c) every intermediate output reparses without error. No exemptions:
 //	    "Serialize wrote a construct Parse refuses" is a file that will not
-//	    load, and no shape of that is worth tolerating.
+//	    load, and no shape of that is worth tolerating;
+//	(d) every block's KIND survives the first serialization, with a
+//	    paragraph written after it: the reparse holds the same blocks, in
+//	    the same order, and then that paragraph. See blockKindsSurvive.
 //
 // Two further known classes, both pre-existing and both out of scope for
 // this task, are tolerated by MOVING property (a)'s deadline rather than by
@@ -86,6 +89,19 @@ func FuzzRoundTrip(f *testing.F) {
 				"across emphasis runs (known class — see "+
 				"TestSerialize_LinkSpanningEmphasis_BecomesSeveralLinks)", n)
 		}
+		if n := headingBreakSkips.Load(); n > 0 {
+			f.Logf("skipped the block-kind property on %d input(s) holding a heading with a "+
+				"hard break (known class — Serialize writes every heading ATX, which "+
+				"cannot hold one)", n)
+		}
+		if n := emptyItemSkips.Load(); n > 0 {
+			f.Logf("skipped the block-kind property on %d input(s) quoting an empty list "+
+				"item inside a list item (known class — the bare \">\" line ends the outer item)", n)
+		}
+		if n := adjacentListSkips.Load(); n > 0 {
+			f.Logf("skipped the block-kind property on %d input(s) holding two neighbouring "+
+				"lists of one kind (known class — they can be written with one marker and merge)", n)
+		}
 		if n := criticSlow.Load(); n > 0 {
 			f.Logf("granted %d input(s) extra rounds for CriticMarkup markers read back as "+
 				"syntax (known class — see "+
@@ -110,6 +126,8 @@ func FuzzRoundTrip(f *testing.F) {
 		// outs[k] is the (k+1)'th serialization: outs[0] = Serialize(doc),
 		// outs[k] = Serialize(Parse(outs[k-1])).
 		outs := [][]byte{markdown.Serialize(doc)}
+		// (d) the blocks are still the blocks, and nothing swallows the next.
+		blockKindsSurvive(t, src, doc, outs[0])
 		// lifted[k] is the text of the comments Parse pulled OUT of outs[k]
 		// on its way to producing outs[k+1]. Serialize never writes a
 		// lifted comment back — Parse returns it beside the model, by
@@ -219,6 +237,184 @@ func FuzzRoundTrip(f *testing.F) {
 			}
 		}
 	})
+}
+
+// kindSentinel is the paragraph property (d) writes after a serialization.
+const kindSentinel = "\n\nzzsentinel\n"
+
+// blockKindsSurvive is property (d): every block's kind survives the first
+// serialization, and so does a paragraph written after the last of them.
+//
+// The three properties above cannot see a block that SWALLOWS the document
+// after it. "$$\nfoo *x*\n\n# h\n" read as one math block that runs to the
+// end of the file (galley#61, #129): TeX keeps every letter, the bytes are
+// already a fixed point, and the reparse refuses nothing. What changed is what
+// the blocks ARE: a paragraph and a heading became raw TeX, and the emphasis
+// and the heading were gone.
+//
+// Comparing the kinds alone would not see it either, since the swallowed
+// document reads back as the same one math block. The paragraph written after
+// the output is the witness: an unclosed construct takes it too, and the
+// reparse comes up one block short. The same comparison catches a block that
+// changes kind on the way out (#61's bare "$$" paragraph that paired with the
+// math block below it).
+//
+// It is checked from Parse(src), not from the first serialization, because
+// renumbering and the other canonical rewrites change markers, never kinds.
+//
+// A note counts as a paragraph here, and that is the CriticMarkup class
+// property (a) grants rounds for, not an exemption from this one: markdown
+// has no escape for a marker, so text that reads "{>><<}" is written that way
+// and read back as a note ("{>{>><<}><<}" was the first input to show it).
+// Nothing is swallowed by it, and the paragraph after it still has to come
+// back.
+func blockKindsSurvive(t *testing.T, src string, doc docmodel.Doc, out []byte) {
+	t.Helper()
+	if breaksAHeading(doc) {
+		// A known class, recorded rather than fixed here: a setext heading
+		// can hold a hard break, an ATX heading cannot, and Serialize writes
+		// every heading ATX, so the heading's second line comes back as a
+		// paragraph under it ("0|000|0000  \n00000000\n- "). No letter is
+		// lost, which is why (b) does not see it.
+		headingBreakSkips.Add(1)
+		return
+	}
+	if quotesAnEmptyItemInAnItem(doc) {
+		// The second known class, recorded rather than fixed here: inside a
+		// list item, a quote holding an empty list item and then more is
+		// written with a bare ">" line between the two, and goldmark ends
+		// the OUTER item there ("- > -\n  > 0\n" comes back with the quote's
+		// paragraph at the top level). Nothing is lost and nothing refused.
+		emptyItemSkips.Add(1)
+		return
+	}
+	if adjacentLists(doc.Blocks) {
+		// The third known class, recorded rather than fixed here: two
+		// neighbouring lists of one kind are kept apart by their markers, and
+		// where the first one's nested lists flip its marker the two can be
+		// written alike and merge ("* + *\n+ * *" comes back as one list).
+		adjacentListSkips.Add(1)
+		return
+	}
+	back, _, err := markdown.Parse(append(append([]byte{}, out...), kindSentinel...))
+	if err != nil {
+		// Property (c) reports the output itself; the sentinel adds nothing
+		// a refusal could be about.
+		return
+	}
+	want := append(blockKinds(doc), "0:paragraph")
+	if got := blockKinds(back); strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Errorf("block kinds changed on the first serialization (with a paragraph written after it):\n src:  %q\n out:  %q\n got:  %v\n want: %v",
+			src, out, got, want)
+	}
+}
+
+// headingBreakSkips counts inputs property (d) skipped for a heading that
+// holds a hard break. Same caveat as linkSplitSkips.
+var headingBreakSkips atomic.Int64
+
+// breaksAHeading reports whether d holds a heading with a hard break in it.
+func breaksAHeading(d docmodel.Doc) bool {
+	found := false
+	docmodel.Walk(d, func(_ []int, b *docmodel.Block) {
+		if b.Kind != docmodel.Heading {
+			return
+		}
+		for _, in := range b.Inlines {
+			if in.Has(docmodel.HardBreak) {
+				found = true
+			}
+		}
+	})
+	return found
+}
+
+// emptyItemSkips counts inputs property (d) skipped for
+// quotesAnEmptyItemInAnItem. Same caveat as linkSplitSkips.
+var emptyItemSkips atomic.Int64
+
+// quotesAnEmptyItemInAnItem reports whether d holds a list item with a
+// blockquote under it, at any depth, that holds a list item with no text.
+func quotesAnEmptyItemInAnItem(d docmodel.Doc) bool {
+	var visit func(blocks []docmodel.Block, inItem, inQuote bool) bool
+	visit = func(blocks []docmodel.Block, inItem, inQuote bool) bool {
+		for _, b := range blocks {
+			switch b.Kind {
+			case docmodel.ListItem:
+				if inQuote && inItem && !blocksHaveText(b.Children) {
+					return true
+				}
+				if visit(b.Children, true, inQuote) {
+					return true
+				}
+			case docmodel.Blockquote:
+				if visit(b.Children, inItem, inItem || inQuote) {
+					return true
+				}
+			default:
+				if visit(b.Children, inItem, inQuote) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	return visit(d.Blocks, false, false)
+}
+
+func blocksHaveText(blocks []docmodel.Block) bool {
+	for _, b := range blocks {
+		if hasText(b.Inlines) || b.Text != "" || blocksHaveText(b.Children) {
+			return true
+		}
+	}
+	return false
+}
+
+// adjacentListSkips counts inputs property (d) skipped for adjacentLists.
+// Same caveat as linkSplitSkips.
+var adjacentListSkips atomic.Int64
+
+// adjacentLists reports whether two lists of the same kind sit side by side
+// anywhere in blocks.
+func adjacentLists(blocks []docmodel.Block) bool {
+	for i, b := range blocks {
+		if i > 0 && (b.Kind == docmodel.BulletList || b.Kind == docmodel.OrderedList) && blocks[i-1].Kind == b.Kind {
+			return true
+		}
+		if adjacentLists(b.Children) {
+			return true
+		}
+	}
+	return false
+}
+
+// blockKinds lists every block in d, depth then kind, in document order, with
+// a note read as the paragraph it is spelled as. A paragraph with no text is
+// left out: Serialize writes nothing for it ("{====}" is an empty highlight),
+// and there is no block there to keep.
+func blockKinds(d docmodel.Doc) []string {
+	var kinds []string
+	docmodel.Walk(d, func(path []int, b *docmodel.Block) {
+		if b.Kind == docmodel.Paragraph && !hasText(b.Inlines) {
+			return
+		}
+		kind := b.Kind
+		if kind == docmodel.Note {
+			kind = docmodel.Paragraph
+		}
+		kinds = append(kinds, strconv.Itoa(len(path)-1)+":"+string(kind))
+	})
+	return kinds
+}
+
+func hasText(inlines []docmodel.Inline) bool {
+	for _, in := range inlines {
+		if in.Text != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // maxSerializations is property (a)'s bound. Three is not arbitrary: the

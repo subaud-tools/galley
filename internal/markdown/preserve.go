@@ -5,7 +5,6 @@ import (
 
 	"github.com/subaud-tools/galley/internal/docmodel"
 	"github.com/yuin/goldmark/ast"
-	"github.com/yuin/goldmark/text"
 )
 
 // SerializeOnto writes d as markdown, KEEPING THE AUTHOR'S OWN BYTES for every
@@ -141,7 +140,7 @@ func candidates(prev []byte) map[string][]string {
 // and both blocks are written the serializer's way. The feature degrades to
 // "these two blocks are not preserved" instead of to a wrong boundary.
 func chunkStarts(src []byte) []string {
-	root := md.Parser().Parse(text.NewReader(src))
+	root := parseTree(src)
 	var starts []int
 	for n := root.FirstChild(); n != nil; n = n.NextSibling() {
 		pos, ok := firstSegment(n)

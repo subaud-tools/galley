@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/yuin/goldmark/ast"
+	extast "github.com/yuin/goldmark/extension/ast"
 )
 
 // THREE DIALECTS THAT ARE ONE PARAGRAPH TO COMMONMARK, AND ARE REFUSED RATHER
@@ -56,7 +57,13 @@ import (
 // soft breaks become spaces.
 func (p *converter) refuseDialect(n ast.Node, inQuote bool) error {
 	lines := n.Lines()
-	if lines.Len() == 0 {
+	if lines.Len() == 0 || n.Kind() == extast.KindTableCell {
+		// A TABLE CELL is asked through paragraph() too, and none of the three
+		// can be spelled inside one: a cell is one line of a row, so it has no
+		// second line for a definition, and its own pipes surround what would
+		// be a directive's ":::" or a callout's "[!NOTE]". Refusing it made an
+		// author's table with "| ::: |" a file galley would not open, and
+		// Serialize writes exactly that for a cell holding ":::" (galley#61).
 		return nil
 	}
 	for i := 0; i < lines.Len(); i++ {
