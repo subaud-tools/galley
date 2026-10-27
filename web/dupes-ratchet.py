@@ -61,6 +61,8 @@ harness again: the server spawn and its drain, the agent child with its JSONL
 journal, the chromium launch, the `check` and `select` helpers and the
 teardown, carried from livestructure.mjs and page.mjs as its plan asked
 (PLAN3 of the standards review makes the harness shared and lowers this).
+Its port guard is one more (58 → 59): the check rounds-ux.mjs and grip.mjs
+gained in galley#127, that a run refuses a port another galley answers on.
 Its own body — the walk through one Revise, reading the server's revise state
 and the page's pill at every step — is in no group.
 
@@ -78,7 +80,7 @@ even if the answer turns out to be the same one.
 import json
 import sys
 
-BOUND = 58
+BOUND = 59
 
 data = json.load(sys.stdin)
 groups = data["clone_groups"]

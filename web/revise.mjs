@@ -225,6 +225,20 @@ writeFileSync(
 process.env.GALLEY_LIVE_DIR = LIVE;
 process.env.AGENT_SESSION_ID = SESSION;
 
+// THE PORT IS THIS RUN'S, OR THE RUN DOES NOT START: the wait below is for
+// `/` answering, and another galley already on the port would answer it
+// (galley#10, #128).
+const taken = await fetch(`http://127.0.0.1:${PORT}/`).then(
+  () => true,
+  () => false,
+);
+if (taken) {
+  console.log(
+    `port ${PORT} already answers: another galley is serving there (run the gates one at a time, or set PORT)`,
+  );
+  process.exit(1);
+}
+
 const server = spawn(
   GALLEY,
   ['edit', DOC, '--no-open', '--port', String(PORT), '--owner', SESSION],

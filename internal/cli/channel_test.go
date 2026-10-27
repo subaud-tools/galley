@@ -93,7 +93,7 @@ func TestChannelForwardsARevisePress(t *testing.T) {
 		}
 		_ = resp.Body.Close()
 	}
-	notification := func(when, instruction string) {
+	notification := func(when, instruction string) string {
 		t.Helper()
 		select {
 		case m := <-got:
@@ -117,14 +117,17 @@ func TestChannelForwardsARevisePress(t *testing.T) {
 			if strings.Contains(content, "Run `galley pending") {
 				t.Errorf("%s: channel told the agent to discard the captured round:\n%s", when, content)
 			}
+			tok, _ := meta[channelmcp.MetaReport].(string)
+			return tok
 		case <-time.After(5 * time.Second):
 			t.Fatalf("%s: the press never became a notification", when)
 		}
+		return ""
 	}
 
 	instructAs(t, ts.URL, "Hello.", "Make the greeting warmer.")
 	press()
-	notification("first press", "Make the greeting warmer.")
+	first := notification("first press", "Make the greeting warmer.")
 
 	// THE RE-ARM GUARANTEE, which is the channel's whole life: after a wake the
 	// attach loop must already be issuing its next poll, or the reviewer's
@@ -150,7 +153,12 @@ func TestChannelForwardsARevisePress(t *testing.T) {
 		t.Fatalf("cancel handoff before the second instruction: resp=%v", resp)
 	}
 	press()
-	notification("second press", "Make the greeting warmer.")
+	// The same words come back after the cancel, so the wake is told from the
+	// first by its report token: a channel that emitted the first wake twice
+	// would carry the first window's token.
+	if second := notification("second press", "Make the greeting warmer."); second == first {
+		t.Errorf("second press carried the first window's report token %q: the first wake was emitted twice", first)
+	}
 }
 
 // THE WHOLE SEAL CYCLE, THROUGH THE CHANNEL: approve → the channel DETACHES →

@@ -309,7 +309,15 @@ func (s *EditServer) refileAsks(round int) {
 		return
 	}
 	r, ok, err := s.Versions().Get(round)
-	if err != nil || !ok || len(r.Asks) == 0 {
+	if err != nil {
+		// The send deleted these words from the page; say so rather than
+		// lose them quietly.
+		if s.Log != nil {
+			s.Log(fmt.Sprintf("the cancelled round %d's instructions could not be filed again: %v", round, err))
+		}
+		return
+	}
+	if !ok || len(r.Asks) == 0 {
 		return
 	}
 	at := time.Now().UTC()
