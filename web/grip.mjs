@@ -173,6 +173,20 @@ process.on('exit', () => {
 // the server's exit, so a claim about the FILE can wait for the last save.
 let stopped = null;
 async function serve(port) {
+  // THE PORT IS THIS RUN'S, OR THE RUN DOES NOT START. The answer below is
+  // `/` answering, and a `galley edit` that could not bind exits while another
+  // one goes on answering: another gate, or the last run's server still
+  // stopping. The run then drives that server's document and reports its
+  // state as this one's (galley#72, measured with two runs on one port).
+  const taken = await fetch(`http://127.0.0.1:${port}/`).then(
+    () => true,
+    () => false,
+  );
+  if (taken) {
+    throw new Error(
+      `port ${port} already answers: another galley is serving there (run the gates one at a time, or set PORT)`,
+    );
+  }
   const proc = spawn(
     GALLEY,
     ['edit', doc, '--no-open', '--port', String(port), '--on-revise', 'true'],
@@ -811,12 +825,22 @@ async function openGrip(ref) {
       () => false,
     );
   // A figure the sync has just redrawn is a box with no picture in it for a
-  // moment; its box is read once every picture on the page has its height.
+  // moment; its box is read once every picture on the page has its height,
+  // and every diagram is drawn again (or has given up and shows its source).
+  // A diagram still showing its source is a NodeView mid-rebuild, and Mark a
+  // region pressed on it put nothing into picking (galley#72).
   await page
     .waitForFunction(
       () =>
         [...document.querySelectorAll('.ProseMirror img')].every(
           (i) => i.complete && i.getBoundingClientRect().height > 0,
+        ) &&
+        [
+          ...document.querySelectorAll('.ProseMirror .gly-figure-mermaid'),
+        ].every(
+          (f) =>
+            f.classList.contains('gly-figure-unrendered') ||
+            !!f.querySelector('.gly-figure-render svg'),
         ),
       null,
       { timeout: 3000 },
@@ -843,6 +867,13 @@ async function openGrip(ref) {
 // sendFor presses Enter in the open composer and returns the instruction the
 // server filed for `text`, once it is listed. The first listing is the whole
 // one: a block instruction is written with its anchor in one transaction.
+//
+// AND ONCE THE PAGE HAS ITS NOTE. The server lists the instruction before the
+// page hears of the note it inserted, and every block after the note is
+// renumbered and may be redrawn when it does. A section that goes on before
+// then reads a page that is about to change under it: the diagram after the
+// image was looked up one index short, and pressed while it was being redrawn
+// (galley#72).
 async function sendFor(text) {
   await page.keyboard.press('Enter');
   let one = null;
@@ -851,6 +882,14 @@ async function sendFor(text) {
       ((await pending()).instructions || []).find((i) => i.text === text) ||
       null;
     if (!one) await page.waitForTimeout(250);
+  }
+  if (one) {
+    await page
+      .waitForSelector(`.ProseMirror .gly-note[data-comment-id="${one.key}"]`, {
+        state: 'attached',
+        timeout: 10000,
+      })
+      .catch(() => {});
   }
   return one;
 }
@@ -1271,18 +1310,15 @@ const figureOf = (index) =>
     };
   }, index);
 
-// The diagram, as the server lists it: the top-level fence whose language is
-// mermaid, found by the editor and matched to the server's block by index.
-const diagram = await (async () => {
-  const index = await page.evaluate(() => {
-    let at = -1;
-    window.galleyEdit.editor.state.doc.forEach((node, _pos, i) => {
-      if (node.attrs.language === 'mermaid') at = i;
-    });
-    return at;
-  });
-  return ((await pending()).blocks || []).find((b) => b.index === index);
-})();
+// The diagram, as the server lists it: the fence whose label names mermaid.
+// It is found in the server's list alone, as fileOn finds its blocks. Matching
+// an index the editor reads was a race: the image's note has just been filed
+// above the diagram, and a page that has not heard of it yet counts the
+// diagram one lower — the note's index, which the list skips — so the lookup
+// found nothing and every region check read null (galley#72).
+const diagram = ((await pending()).blocks || []).find(
+  (b) => b.kind === 'codeBlock' && b.label.startsWith('mermaid:'),
+);
 
 // --- §12 Esc during the pick goes back to the whole figure ----------------
 //

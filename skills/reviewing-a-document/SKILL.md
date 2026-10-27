@@ -173,6 +173,8 @@ galley wait path/to/doc.md
 
 It blocks until the reviewer sends a round, prints the captured instructions and their anchors, and exits when the review ends. The loop is otherwise identical: edit the file, then `galley ack <doc> --state answered --note "…"`. `galley agent-prompt <doc>` prints the full protocol for an agent starting cold.
 
+Neither `galley wait` nor an `--on-revise` command tells galley when the agent's turn ends, so if that agent dies the reviewer's Revise stays at "sent". Cancelling the handoff gives the document back with the round's instructions filed again, and the reviewer's next Revise sends them.
+
 ## Licensing
 
 Every command is free to run; galley never gates a feature and never contacts a server. It is free for any organization under 25 people, and larger organizations buy a one-time license by headcount at https://galley.tools/buy — the purchase receipt is the proof of compliance, and there is nothing to install or activate. If `galley` is not on PATH, the human needs to install the binary; this skill ships the protocol, not the program. `galley skills install` writes this skill once for each harness it finds (Claude Code, Codex, pi; `--agent NAME` for one), and `galley channel` keeps each copy current each time it starts.

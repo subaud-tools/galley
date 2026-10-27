@@ -56,6 +56,16 @@ the menu placement it first copied from verdict.ts was rewritten rather than
 counted, because that one was product code. The bar measurements and the
 menu/clipboard claims are in no group.
 
+revise.mjs is the eleventh, and it added three groups (55 → 58), all of them
+harness again: the server spawn and its drain, the agent child with its JSONL
+journal, the chromium launch, the `check` and `select` helpers and the
+teardown, carried from livestructure.mjs and page.mjs as its plan asked
+(PLAN3 of the standards review makes the harness shared and lowers this).
+Its port guard is one more (58 → 59): the check rounds-ux.mjs and grip.mjs
+gained in galley#127, that a run refuses a port another galley answers on.
+Its own body — the walk through one Revise, reading the server's revise state
+and the page's pill at every step — is in no group.
+
 THE OTHER TWO INSTANCES ARE ONE GROUP IN composer.ts, and they are the only
 duplication in product code anywhere under web/. It is a `postJSON` +
 `.then(res => …)` shape appearing twice in one file — small, real, and not
@@ -70,7 +80,7 @@ even if the answer turns out to be the same one.
 import json
 import sys
 
-BOUND = 55
+BOUND = 59
 
 data = json.load(sys.stdin)
 groups = data["clone_groups"]

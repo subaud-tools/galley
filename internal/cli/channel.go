@@ -359,6 +359,12 @@ func channelFromEnv(scope string) *channel {
 	return c
 }
 
+// errNeedsDoc is a tool call that named no document: said as that, rather
+// than as no editor running for the empty path.
+func errNeedsDoc(tool string) error {
+	return fmt.Errorf("%s needs the document path (doc)", tool)
+}
+
 func (c *channel) callTool(name string, args json.RawMessage) (string, error) {
 	switch name {
 	case "galley_ack":
@@ -379,6 +385,9 @@ func (c *channel) callTool(name string, args json.RawMessage) (string, error) {
 		if err := json.Unmarshal(args, &p); err != nil {
 			return "", err
 		}
+		if p.Doc == "" {
+			return "", errNeedsDoc(name)
+		}
 		rt, ok := serve.FindRuntime(p.Doc)
 		if !ok {
 			return "", fmt.Errorf("no running editor for %s", p.Doc)
@@ -398,6 +407,9 @@ func (c *channel) callTool(name string, args json.RawMessage) (string, error) {
 	}
 	if err := json.Unmarshal(args, &p); err != nil {
 		return "", err
+	}
+	if p.Doc == "" {
+		return "", errNeedsDoc(name)
 	}
 	rt, ok := serve.FindRuntime(p.Doc)
 	if !ok {

@@ -234,6 +234,15 @@ jobs:
         env:
           GALLEY: ${{ github.workspace }}/bin/galley
 
+      # ONE REVISE, END TO END. A fake agent drives the real binary through a
+      # whole Revise — sent, landed, working, answered, no reply, the resend, a
+      # cancel and the close — and at each step the server's revise state and
+      # the page's pill and Revise button must both show what the step expects.
+      - name: Gate — a Revise walks its whole lifecycle
+        run: node web/revise.mjs
+        env:
+          GALLEY: ${{ github.workspace }}/bin/galley
+
       # UNDO SURVIVES A SERVER-SIDE MUTATION. It runs from `web/` because it
       # imports playwright-core the way the others do, and it carries its own
       # control — three undos with nothing filed — so a CI box that delivers

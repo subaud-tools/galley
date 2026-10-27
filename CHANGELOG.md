@@ -2,6 +2,13 @@
 
 Newest first. Notes for releases up to 0.10.2 are on the GitHub releases page: https://github.com/subaud-tools/galley/releases
 
+## 0.19.0
+
+- Pressing Revise after a Revise got "no reply", with nothing new on the page, sends the round's instructions again. Before, the press approved the review and locked the page.
+- Cancelling a handoff puts the round's instructions back on the page, so the next Revise sends them. Before, they were gone and had to be filed again.
+- History shows the instructions of a round sent again after "no reply".
+- `galley_ack` and `galley_approve` without a document path say the path is missing.
+
 ## 0.18.0
 
 - The Claude Code plugin moved to the subaud-tools marketplace: `claude plugin marketplace add subaud-tools/plugins`, then `claude plugin install galley@subaud-tools`. It no longer carries the skill; run `galley skills install` for it. The `galley` marketplace and `galley@galley` are gone.

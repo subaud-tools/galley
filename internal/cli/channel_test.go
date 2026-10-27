@@ -93,7 +93,7 @@ func TestChannelForwardsARevisePress(t *testing.T) {
 		}
 		_ = resp.Body.Close()
 	}
-	notification := func(when, instruction string) {
+	notification := func(when, instruction string) string {
 		t.Helper()
 		select {
 		case m := <-got:
@@ -117,14 +117,17 @@ func TestChannelForwardsARevisePress(t *testing.T) {
 			if strings.Contains(content, "Run `galley pending") {
 				t.Errorf("%s: channel told the agent to discard the captured round:\n%s", when, content)
 			}
+			tok, _ := meta[channelmcp.MetaReport].(string)
+			return tok
 		case <-time.After(5 * time.Second):
 			t.Fatalf("%s: the press never became a notification", when)
 		}
+		return ""
 	}
 
 	instructAs(t, ts.URL, "Hello.", "Make the greeting warmer.")
 	press()
-	notification("first press", "Make the greeting warmer.")
+	first := notification("first press", "Make the greeting warmer.")
 
 	// THE RE-ARM GUARANTEE, which is the channel's whole life: after a wake the
 	// attach loop must already be issuing its next poll, or the reviewer's
@@ -139,8 +142,8 @@ func TestChannelForwardsARevisePress(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	// The first press opened the agent's handoff window and nobody answered
-	// it, so the document is read-only to the reviewer. Taking it back is the
-	// new workflow's own gesture before a fresh instruction.
+	// it, so the document is read-only to the reviewer. Taking it back files
+	// the round's instruction again, and the second press sends it.
 	resp, err := http.Post(ts.URL+"/_galley/handoff/cancel", "application/json", strings.NewReader("{}"))
 	if err != nil {
 		t.Fatalf("cancel handoff before the second instruction: %v", err)
@@ -149,9 +152,13 @@ func TestChannelForwardsARevisePress(t *testing.T) {
 	if resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("cancel handoff before the second instruction: resp=%v", resp)
 	}
-	instructAs(t, ts.URL, "Hello.", "Make the greeting shorter.")
 	press()
-	notification("second press", "Make the greeting shorter.")
+	// The same words come back after the cancel, so the wake is told from the
+	// first by its report token: a channel that emitted the first wake twice
+	// would carry the first window's token.
+	if second := notification("second press", "Make the greeting warmer."); second == first {
+		t.Errorf("second press carried the first window's report token %q: the first wake was emitted twice", first)
+	}
 }
 
 // THE WHOLE SEAL CYCLE, THROUGH THE CHANNEL: approve → the channel DETACHES →
@@ -433,5 +440,21 @@ func TestTheHandshakeCoreTeachesGalleyOpen(t *testing.T) {
 	}
 	if strings.Contains(skill, "has no tool that opens a document") {
 		t.Error("the plugin skill still says the channel cannot open a document")
+	}
+}
+
+// An ack or approve with no document path says the path is missing, rather
+// than that no editor is running for the empty string.
+func TestAckAndApproveWithoutADocSayTheyNeedThePath(t *testing.T) {
+	t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
+	ch := newChannel(t.TempDir(), "")
+	for _, tool := range []string{"galley_ack", "galley_approve"} {
+		for _, args := range []string{`{"state":"working","note":"on it"}`, `{"doc":""}`} {
+			_, err := ch.callTool(tool, json.RawMessage(args))
+			want := tool + " needs the document path (doc)"
+			if err == nil || err.Error() != want {
+				t.Errorf("%s %s: err = %v, want %q", tool, args, err, want)
+			}
+		}
 	}
 }

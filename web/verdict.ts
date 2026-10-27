@@ -177,17 +177,24 @@ const APPROVE_DONE = 'approved';
 function reviseFace(
   history: boolean,
   reviseWaiting: boolean,
+  noReply: boolean,
   approved: boolean,
   verdictIsApprove: boolean,
   reviseRunning: boolean,
   agentHasIt: boolean,
   approveNotBefore: number,
   now: number,
-): { approve: boolean; disabled: boolean; title: string } {
+): { approve: boolean; busy: boolean; disabled: boolean; title: string } {
+  // AFTER NO REPLY WITH NOTHING NEW THE FACE IS Revise, because that is the
+  // press (see resendsOnPress): the agent's turn ended, nothing is revising,
+  // and the press sends the round's instructions again. The counter face and
+  // the Approve face here once sat over a press that approved the review.
+  const busy = reviseWaiting && !noReply;
   // HISTORY WINS THE SLOT OUTRIGHT while it is open — a busy counter or an
   // Approve face under a reading mode would be offering a verb the surface
   // on screen cannot take.
-  const approve = !history && !reviseWaiting && (approved || verdictIsApprove);
+  const approve =
+    !history && !busy && !noReply && (approved || verdictIsApprove);
   // Disabled only while a COMMAND IS RUNNING, which is the only state the
   // server would refuse a second ask for. Still waiting with nothing running
   // leaves the button clickable while it keeps counting — which is the
@@ -205,19 +212,57 @@ function reviseFace(
   // set of clothes CLAUDE.md has not already recorded it in.
   const disabled =
     !history && (approved || reviseRunning || agentHasIt || approveCooling);
-  // The title follows the verdict the label shows: an Approve button
-  // explaining how to hand the document back would be the label and the
-  // tooltip disagreeing about what the click does. The Revise face's press
-  // DISCLOSES now (see askRevise), so its title says that rather than
-  // promising a post the press no longer makes.
-  const title = history
-    ? 'leave History and go back to the draft — nothing here changed it'
-    : reviseWaiting
-      ? 'asked, and nothing has landed yet — the counter stops when the document moves'
-      : approve
-        ? 'approve the document as it stands — the review is over'
-        : 'hand back for revision, or accept everything and approve — the press offers both';
-  return { approve, disabled, title };
+  const title = reviseTitle(history, noReply, busy, approve);
+  return { approve, busy, disabled, title };
+}
+
+// reviseTitle is the verdict button's tooltip for the face reviseFace picked.
+// The title follows the verdict the label shows: an Approve button
+// explaining how to hand the document back would be the label and the
+// tooltip disagreeing about what the click does. The Revise face's press
+// DISCLOSES now (see askRevise), so its title says that rather than
+// promising a post the press no longer makes.
+function reviseTitle(
+  history: boolean,
+  noReply: boolean,
+  busy: boolean,
+  approve: boolean,
+): string {
+  if (history) {
+    return 'leave History and go back to the draft — nothing here changed it';
+  }
+  if (noReply) {
+    return 'the agent’s turn ended without an answer — the press sends the same instructions again';
+  }
+  if (busy) {
+    return 'asked, and nothing has landed yet — the counter stops when the document moves';
+  }
+  return approve
+    ? 'approve the document as it stands — the review is over'
+    : 'hand back for revision, or accept everything and approve — the press offers both';
+}
+
+// noReplyResend is whether the last Revise ended with no reply while nothing
+// new is on the page: the press then sends the round again (the server's
+// unansweredAsks), and the face says Revise with no menu.
+function noReplyResend(
+  pendingCount: number,
+  m: MessageView | null | undefined,
+): boolean {
+  return pendingCount === 0 && !!m && m.state === 'no_reply';
+}
+
+// resendsOnPress is whether a press with nothing pending asks again rather
+// than approves: after no reply, or while a Revise is still waiting. Approve
+// is the press only where nothing is outstanding.
+function resendsOnPress(
+  pendingCount: number,
+  reviseWaiting: boolean,
+  m: MessageView | null | undefined,
+): boolean {
+  return (
+    pendingCount === 0 && (reviseWaiting || noReplyResend(pendingCount, m))
+  );
 }
 
 // agentHasRevise is whether the last Revise is still the agent's: sent, with
@@ -368,8 +413,13 @@ export const verdictMethods = {
     // clicked.
     const count = document.createElement('span');
     count.className = 'gly-revise-count';
-    idle.append('Revise', count, ' ▾');
+    // The ▾ in a box of its own, so the face after no reply (a press that
+    // sends, no menu) can hide it without the button changing width.
+    const caret = document.createElement('span');
+    caret.textContent = ' ▾';
+    idle.append('Revise', count, caret);
     this.reviseCount = count;
+    this.reviseCaret = caret;
     const busy = document.createElement('span');
     busy.className = 'gly-revise-label';
     const secs = document.createElement('span');
@@ -437,6 +487,19 @@ export const verdictMethods = {
       return;
     }
     if (this.verdict === APPROVE_IDLE) {
+      // Nothing on the page, but a Revise is outstanding: the press asks
+      // again, and after no reply the server sends the round's instructions
+      // again. Approving here sealed a review the reviewer meant to resend.
+      if (
+        resendsOnPress(
+          this.pendingCount,
+          this.reviseWaiting,
+          this.reviseMessage,
+        )
+      ) {
+        this.postVerdict({}, false);
+        return;
+      }
       if (Date.now() < this.approveNotBefore) {
         return;
       }
@@ -760,9 +823,16 @@ export const verdictMethods = {
       this.reviseCount.textContent = reviseCountClause(this.pendingCount);
     }
     const history = !!(this.versionsPanel && this.versionsPanel.open);
-    const { approve, disabled, title } = reviseFace(
+    const noReply = noReplyResend(this.pendingCount, this.reviseMessage);
+    const {
+      approve,
+      busy: counting,
+      disabled,
+      title,
+    } = reviseFace(
       history,
       this.reviseWaiting,
+      noReply,
       this.approved,
       this.verdict === APPROVE_IDLE,
       this.reviseRunning,
@@ -770,11 +840,11 @@ export const verdictMethods = {
       this.approveNotBefore,
       Date.now(),
     );
-    idle.classList.toggle(
-      'gly-reserved',
-      history || this.reviseWaiting || approve,
-    );
-    busy.classList.toggle('gly-reserved', history || !this.reviseWaiting);
+    idle.classList.toggle('gly-reserved', history || counting || approve);
+    busy.classList.toggle('gly-reserved', history || !counting);
+    if (this.reviseCaret) {
+      this.reviseCaret.classList.toggle('gly-reserved', noReply);
+    }
     approveLabel.classList.toggle('gly-reserved', !approve);
     if (this.reviseBack) {
       this.reviseBack.classList.toggle('gly-reserved', !history);
@@ -782,7 +852,7 @@ export const verdictMethods = {
     revise.classList.toggle('gly-history-out', history);
     this.paintMessage();
     revise.disabled = disabled;
-    revise.classList.toggle('gly-on', this.reviseWaiting);
+    revise.classList.toggle('gly-on', counting);
     revise.title = title;
   },
 

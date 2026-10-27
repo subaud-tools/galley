@@ -473,6 +473,14 @@ align: build
 livestructure: build
     GALLEY="$PWD/bin/galley" node web/livestructure.mjs
 
+# One Revise, walked end to end. The lifecycle gate: a fake agent (the file
+# with --agent) and chromium drive the real binary through open, Revise,
+# landed, working, answered, no reply, the resend, a cancel and the close, and
+# at every step the server's revise state and the page (the pill, its line,
+# whether Revise can be pressed) must agree with what the step expects.
+revise: build
+    GALLEY="$PWD/bin/galley" node web/revise.mjs
+
 # THE MEASUREMENT THE DIFF RESTS ON, RE-RUN.
 #
 # internal/diff is a port of a spike that settled two things BY MEASURING — that
@@ -532,6 +540,7 @@ gates: build
     GALLEY="$PWD/bin/galley" node web/grip.mjs
     GALLEY="$PWD/bin/galley" node web/align.mjs
     GALLEY="$PWD/bin/galley" node web/livestructure.mjs
+    GALLEY="$PWD/bin/galley" node web/revise.mjs
     GALLEY="$PWD/bin/galley" node web/share.mjs
     cd web && GALLEY="$PWD/../bin/galley" node ./undo.mjs
 

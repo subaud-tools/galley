@@ -555,3 +555,73 @@ func TestAnUnchangedAnsweredAckIsRefusedAfterTheGrace(t *testing.T) {
 		t.Fatal("a refused ack closed the window")
 	}
 }
+
+// A cancel takes back the round the press sent, and the instructions it sent
+// come back with it: the send deleted them from the page, so without this the
+// reviewer's words were gone. A range instruction comes back on its quote, a
+// document instruction on the document, and the next press sends them both.
+func TestACancelFilesTheRoundsInstructionsAgain(t *testing.T) {
+	s, _ := messageDoc(t)
+	instructOK(t, s, map[string]any{"op": "comment", "target": "Prose.", "text": "say more", "author": "court"})
+	instructDocument(t, s, "Add a title.")
+	heard(t, pressAndHear(t, s), "Add a title.", "say more")
+	if got := pendingView(t, s).Instructions; len(got) != 0 {
+		t.Fatalf("the press left %d instructions on the page", len(got))
+	}
+
+	cancelHandoff(t, s)
+
+	back := map[string]InstructionView{}
+	for _, in := range pendingView(t, s).Instructions {
+		back[in.Text] = in
+	}
+	if len(back) != 2 {
+		t.Fatalf("after the cancel the page holds %v, want both instructions", back)
+	}
+	if got := back["say more"]; got.Quote != "Prose." {
+		t.Fatalf("the range instruction came back on %q, want its quote %q", got.Quote, "Prose.")
+	}
+	if got := back["Add a title."]; got.Anchor != "document" {
+		t.Fatalf("the document instruction came back anchored %q, want document", got.Anchor)
+	}
+	heard(t, pressAndHear(t, s), "Add a title.", "say more")
+}
+
+// A quote the agent's imported draft no longer holds cannot carry its
+// instruction, which comes back on the whole document instead.
+func TestACancelFilesAnInstructionWhoseQuoteIsGoneOnTheDocument(t *testing.T) {
+	s, md := messageDoc(t)
+	instructOK(t, s, map[string]any{"op": "comment", "target": "Prose.", "text": "say more", "author": "court"})
+	heard(t, pressAndHear(t, s), "say more")
+	if err := os.WriteFile(md, []byte("# T\n\nDifferent words.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cancelHandoff(t, s)
+
+	got := pendingView(t, s).Instructions
+	if len(got) != 1 || got[0].Text != "say more" || got[0].Anchor != "document" {
+		t.Fatalf("after the cancel the page holds %+v, want the instruction on the document", got)
+	}
+}
+
+// A Revise the agent answered has no handoff left to cancel, so nothing comes
+// back: its instructions were answered.
+func TestACancelAfterAnAnswerFilesNothing(t *testing.T) {
+	s, md := messageDoc(t)
+	instructDocument(t, s, "Add a sentence: Water is wet.")
+	heard(t, pressAndHear(t, s), "Add a sentence: Water is wet.")
+	if err := os.WriteFile(md, []byte("# T\n\nProse. Water is wet.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if rec := postAckRec(t, s, "answered", "added"); rec.Code != http.StatusNoContent {
+		t.Fatalf("answered: %d %s", rec.Code, rec.Body.String())
+	}
+
+	if rec := postRec(t, s, "/_galley/handoff/cancel", map[string]any{}); rec.Code != http.StatusConflict {
+		t.Fatalf("cancel after the answer: %d %s, want 409", rec.Code, rec.Body.String())
+	}
+	if got := pendingView(t, s).Instructions; len(got) != 0 {
+		t.Fatalf("the cancel filed %d instructions after the answer", len(got))
+	}
+}
