@@ -2,7 +2,7 @@
 
 Newest first. Notes for releases up to 0.10.2 are on the GitHub releases page: https://github.com/subaud-tools/galley/releases
 
-## Unreleased
+## 0.19.0
 
 - Pressing Revise after a Revise got "no reply", with nothing new on the page, sends the round's instructions again. Before, the press approved the review and locked the page.
 - Cancelling a handoff puts the round's instructions back on the page, so the next Revise sends them. Before, they were gone and had to be filed again.
