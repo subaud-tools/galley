@@ -2,9 +2,10 @@
 
 Newest first. Notes for releases up to 0.10.2 are on the GitHub releases page: https://github.com/subaud-tools/galley/releases
 
-## Unreleased
+## 0.18.0
 
 - The Claude Code plugin moved to the subaud-tools marketplace: `claude plugin marketplace add subaud-tools/plugins`, then `claude plugin install galley@subaud-tools`. It no longer carries the skill; run `galley skills install` for it. The `galley` marketplace and `galley@galley` are gone.
+- `galley login` signs in over two short runs, as every family tool's does (tools-common 0.30.0): the first prints the code, the next saves the token once the machine is allowed; `galley login --wait` does it in one. Nothing needs it yet: `galley update` still downloads anonymously.
 
 ## 0.17.0
 
