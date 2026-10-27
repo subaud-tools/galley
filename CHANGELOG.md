@@ -2,6 +2,11 @@
 
 Newest first. Notes for releases up to 0.10.2 are on the GitHub releases page: https://github.com/subaud-tools/galley/releases
 
+## Unreleased
+
+- `galley skills install [--agent NAME]` writes the reviewing-a-document skill for pi and Codex, the harnesses the Claude Code plugin doesn't reach. `galley channel` keeps an installed copy current each time it starts.
+- `galley_open` on a document whose page is already open in a tab no longer opens a second tab. With no tab showing it, it opens the page as before.
+
 ## 0.16.2
 
 - While the agent has a Revise (sent, with the agent or working), pressing Revise with nothing new on the page does nothing, and the button is disabled. Before, the press sent an empty round: the agent's change notes were then matched against it and dropped, and the agent got a wake with no instructions. With new instructions on the page, Revise sends them as before.
