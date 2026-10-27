@@ -999,7 +999,10 @@ func (r *pageRenderer) writePage(out []byte, known func(cur []byte) bool) ([]byt
 	if !known(cur) {
 		return nil, errPageMoved
 	}
-	out = htmlpage.Keep(cur, out)
+	out, kept := htmlpage.Keep(cur, out)
+	if !kept && r.es.Log != nil {
+		r.es.Log(name + ": the write could not keep the page's own bytes; it is written as galley renders it")
+	}
 	w, err := prepareFileAtomic(r.pagePath, out)
 	if err != nil {
 		return nil, err

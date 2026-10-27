@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -103,4 +104,45 @@ func TestApprovingAnEditedPageChangesOnlyTheEditedText(t *testing.T) {
 	if string(got) != want {
 		t.Errorf("the approved page changed more than the edited sentence:\n--- got\n%s\n--- want\n%s", got, want)
 	}
+}
+
+// TestAWriteThatCannotKeepThePageSaysSo: a <p> closed by the next block's
+// start has no bytes of its own, so the write falls back to Render's page and
+// loses what the page held beyond extraction. That must show in the log.
+func TestAWriteThatCannotKeepThePageSaysSo(t *testing.T) {
+	dir := t.TempDir()
+	page := writePage(t, dir, "index.html", "<!doctype html><html><head></head><body><p>One.<p>Two.</p></body></html>\n")
+	s, err := NewEditPage(page)
+	if err != nil {
+		t.Fatalf("NewEditPage: %v", err)
+	}
+	defer func() { _ = s.Close() }()
+	var mu sync.Mutex
+	var lines []string
+	s.Log = func(line string) { mu.Lock(); lines = append(lines, line); mu.Unlock() }
+	if err := s.Project(); err != nil {
+		t.Fatal(err)
+	}
+	retext(t, s, "Two.", "Three.")
+	if err := s.Project(); err != nil {
+		t.Fatal(err)
+	}
+	if rec := postRec(t, s, "/_galley/revise", map[string]any{"verdict": "approve"}); rec.Code/100 != 2 {
+		t.Fatalf("approve: %d %s", rec.Code, rec.Body.String())
+	}
+	if err := s.Project(); err != nil {
+		t.Fatal(err)
+	}
+	_ = s.Close()
+	if got := string(mustRead(t, page)); !strings.Contains(got, "Three.") {
+		t.Fatalf("the edit was not written: %s", got)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	for _, l := range lines {
+		if strings.Contains(l, "could not keep the page's own bytes") {
+			return
+		}
+	}
+	t.Errorf("no log line said the write fell back to the rendered page; log: %q", lines)
 }

@@ -29,16 +29,18 @@ import (
 // exactly as Render's page does (the same markdown and the same template), so
 // the loop, which re-extracts what was written, cannot tell the two apart. Any
 // page the splice cannot place a block in, or whose shell Render changed (an
-// emptied container pruned, a restructure), gets Render's page as before.
-func Keep(base, rendered []byte) []byte {
+// emptied container pruned, a restructure), gets Render's page as before, and
+// kept is false so the caller can say so: a fallback loses what the page held
+// beyond extraction, and must not do it silently.
+func Keep(base, rendered []byte) (out []byte, kept bool) {
 	if bytes.Equal(base, rendered) {
-		return rendered
+		return rendered, true
 	}
 	out, ok := keep(base, rendered)
 	if !ok {
-		return rendered
+		return rendered, false
 	}
-	return out
+	return out, true
 }
 
 func keep(base, rendered []byte) ([]byte, bool) {
@@ -240,31 +242,39 @@ func locate(src []byte, slots [][]contentNode) ([][]span, bool) {
 	return out, true
 }
 
+// find returns the first start tag from toks[from:] whose element, closed by
+// its matching end tag, makes exactly n. A start tag with n's name and
+// attributes whose bytes make something else (a shell <p> before the content
+// one) is a look-alike: the search goes on past it.
 func find(src []byte, toks []pageToken, from int, n *html.Node) (span, int, bool) {
 	for i := from; i < len(toks); i++ {
 		t := toks[i]
 		if t.typ != html.StartTagToken || t.name != n.Data || !reflect.DeepEqual(t.attr, nodeAttrs(n)) {
 			continue
 		}
-		depth := 0
-		for k := i; k < len(toks); k++ {
-			switch {
-			case toks[k].typ == html.StartTagToken && toks[k].name == n.Data:
-				depth++
-			case toks[k].typ == html.EndTagToken && toks[k].name == n.Data:
-				depth--
-			}
-			if depth == 0 {
-				sp := span{start: t.start, end: toks[k].end}
-				if !sameNode(src[sp.start:sp.end], n) {
-					return span{}, 0, false
-				}
-				return sp, k + 1, true
-			}
+		if end, ok := closes(toks, i, n.Data); ok && sameNode(src[t.start:toks[end].end], n) {
+			return span{start: t.start, end: toks[end].end}, end + 1, true
 		}
-		return span{}, 0, false
 	}
 	return span{}, 0, false
+}
+
+// closes returns the index of the end tag that closes the start tag at
+// toks[i], counting nested tags of the same name.
+func closes(toks []pageToken, i int, name string) (int, bool) {
+	depth := 0
+	for k := i; k < len(toks); k++ {
+		switch {
+		case toks[k].typ == html.StartTagToken && toks[k].name == name:
+			depth++
+		case toks[k].typ == html.EndTagToken && toks[k].name == name:
+			depth--
+		}
+		if depth == 0 {
+			return k, true
+		}
+	}
+	return 0, false
 }
 
 // nodeAttrs is n's attributes in the tokenizer's form, nil when it has none.

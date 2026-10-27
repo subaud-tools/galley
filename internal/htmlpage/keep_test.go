@@ -64,7 +64,7 @@ func TestKeepSplicesOnlyWhatChanged(t *testing.T) {
 			if want == "" {
 				want = string(rendered)
 			}
-			got := Keep([]byte(keepPage), rendered)
+			got, _ := Keep([]byte(keepPage), rendered)
 			if string(got) != want {
 				t.Errorf("Keep:\n--- got\n%s\n--- want\n%s", got, want)
 			}
@@ -84,7 +84,39 @@ func TestKeepFallsBackWhenABlockCannotBePlaced(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := Keep([]byte(page), rendered); !bytes.Equal(got, rendered) {
-		t.Errorf("Keep = %q, want Render's page %q", got, rendered)
+	if got, kept := Keep([]byte(page), rendered); !bytes.Equal(got, rendered) || kept {
+		t.Errorf("Keep = %q (kept %v), want Render's page %q and kept false", got, kept, rendered)
+	}
+}
+
+// TestKeepLooksPastALookAlikeBlock: a shell <p> with the same tag and
+// attributes as a content block comes first in the page. Its bytes are not
+// that block's, so the search must go on to the next candidate rather than
+// give up and fall back to Render's page.
+func TestKeepLooksPastALookAlikeBlock(t *testing.T) {
+	const page = `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+</head>
+<body>
+<header><p><img src="a.png"></p></header>
+<main><p>Alpha <span class="k">kept</span>.</p>
+<p>Beta.</p></main>
+</body>
+</html>
+`
+	ex, err := Extract([]byte(page))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rendered, err := Render(ex.Template, bytes.Replace(ex.Markdown, []byte("Beta."), []byte("Gamma."), 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := strings.Replace(page, "Beta.", "Gamma.", 1)
+	got, kept := Keep([]byte(page), rendered)
+	if string(got) != want || !kept {
+		t.Errorf("Keep (kept %v):\n--- got\n%s\n--- want\n%s", kept, got, want)
 	}
 }
