@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/subaud-tools/galley/internal/registry"
 	"github.com/subaud-tools/galley/internal/serve"
+	"github.com/subaud-tools/tools-common/pageserve"
 )
 
 // THE OWNER IS AN ARGUMENT, NEVER THE ENVIRONMENT. Under pi, in-process
@@ -37,7 +37,7 @@ func TestRequireLiveOwnerRefusesADeadOwner(t *testing.T) {
 
 func TestRequireLiveOwnerAcceptsALiveOwner(t *testing.T) {
 	t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
-	if err := registry.AnnounceSession("session-me"); err != nil {
+	if err := live().AnnounceSession("session-me"); err != nil {
 		t.Fatal(err)
 	}
 	if err := requireLiveOwner("session-me"); err != nil {
@@ -58,15 +58,15 @@ func TestEditRefusesADeadOwnerBeforeListening(t *testing.T) {
 	if !strings.Contains(err.Error(), "owner session ghost has no live channel") {
 		t.Fatalf("error = %q", err)
 	}
-	entries, _ := registry.List()
+	entries, _ := live().List()
 	if len(entries) != 0 {
 		t.Fatalf("a refused editor still advertised: %+v", entries)
 	}
 }
 
-func advertFor(t *testing.T, room string) registry.Entry {
+func advertFor(t *testing.T, room string) pageserve.Entry {
 	t.Helper()
-	entries, err := registry.List()
+	entries, err := live().List()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func advertFor(t *testing.T, room string) registry.Entry {
 		}
 	}
 	t.Fatalf("no advert for room %s", room)
-	return registry.Entry{}
+	return pageserve.Entry{}
 }
 
 func TestAdvertiseStampsTheExplicitOwner(t *testing.T) {

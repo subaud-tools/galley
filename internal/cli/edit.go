@@ -21,9 +21,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/subaud-tools/galley/internal/registry"
 	"github.com/subaud-tools/galley/internal/serve"
 	"github.com/subaud-tools/galley/internal/versions"
+	"github.com/subaud-tools/tools-common/pageserve"
 )
 
 // pendingPayload mirrors the JSON shape of serve.EditServer's internal
@@ -147,7 +147,7 @@ func runEdit(args []string, out, errw io.Writer) error {
 	// costs at most one failed bind, never a refusal to serve.
 	wantPort := *port
 	if wantPort == 0 {
-		if p, ok := registry.LastPort(srv.MdPath); ok {
+		if p, ok := live().LastPort(srv.MdPath); ok {
 			wantPort = p
 		}
 	}
@@ -159,7 +159,7 @@ func runEdit(args []string, out, errw io.Writer) error {
 		return fmt.Errorf("listen: %w", err)
 	}
 	if addr, ok := ln.Addr().(*net.TCPAddr); ok {
-		registry.SaveLastPort(srv.MdPath, addr.Port)
+		live().SaveLastPort(srv.MdPath, addr.Port)
 	}
 	if err := announceEdit(srv, url, *owner); err != nil {
 		return fmt.Errorf("announce: %w", err)
@@ -172,7 +172,7 @@ func runEdit(args []string, out, errw io.Writer) error {
 	// shutdown's withdrawEdit but without touching the runtime file a still-live
 	// `galley pending`/`suggest` needs.
 	srv.OnApprove = func() {
-		_ = registry.Remove(srv.Room)
+		_ = live().Remove(srv.Room)
 		fmt.Println("review approved — Ctrl-C to stop")
 	}
 
@@ -218,7 +218,7 @@ func runEdit(args []string, out, errw io.Writer) error {
 	// (see channel.claim); instead the editor takes itself down when its
 	// session ends, so no orphan is left for anyone to answer.
 	//
-	// The session's liveness is its channel's presence (registry.AnnounceSession
+	// The session's liveness is its channel's presence (live().AnnounceSession
 	// / SessionLive). requireLiveOwner already proved it at startup, so an
 	// --owner here always binds; an editor with no owner has no session to die
 	// with and serves until Ctrl-C, as it always has.
@@ -415,7 +415,7 @@ func announceEdit(srv *serve.EditServer, url, owner string) error {
 // two spellings of one entry format would drift, and the drift would present
 // as a channel that silently never re-attaches.
 //
-// The live registry is the channel's discovery surface — see internal/registry.
+// The live registry is the channel's discovery surface — see live.go.
 // Owner is --owner's value: the session whose channel asked for this editor,
 // or "" for an editor that belongs to no session and is claimable by any
 // channel whose root covers it. It is NEVER read from the environment here;
@@ -426,7 +426,7 @@ func advertiseEdit(srv *serve.EditServer, url, owner string) {
 	if err != nil {
 		abs = srv.MdPath
 	}
-	if err := registry.Write(registry.Entry{
+	if err := live().Write(pageserve.Entry{
 		URL:   url,
 		Room:  srv.Room,
 		Page:  abs,
@@ -439,7 +439,7 @@ func advertiseEdit(srv *serve.EditServer, url, owner string) {
 
 func withdrawEdit(srv *serve.EditServer) {
 	_ = os.Remove(srv.RuntimePath)
-	_ = registry.Remove(srv.Room)
+	_ = live().Remove(srv.Room)
 }
 
 // requireLiveOwner is the whole of the ownership check: --owner names a
@@ -458,7 +458,7 @@ func requireLiveOwner(owner string) error {
 	if owner == "" {
 		return nil
 	}
-	if !registry.SessionLive(owner) {
+	if !live().SessionLive(owner) {
 		return fmt.Errorf("owner session %s has no live channel", owner)
 	}
 	return nil
@@ -495,7 +495,7 @@ func watchSession(ctx context.Context, owner string, interval time.Duration, mis
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			if registry.SessionLive(owner) {
+			if live().SessionLive(owner) {
 				misses = 0
 				continue
 			}

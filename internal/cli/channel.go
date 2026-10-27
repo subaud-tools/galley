@@ -46,12 +46,12 @@ import (
 	"time"
 
 	"github.com/subaud-tools/galley/internal/debug"
-	"github.com/subaud-tools/galley/internal/registry"
 	"github.com/subaud-tools/galley/internal/serve"
 	"github.com/subaud-tools/galley/internal/version"
 	tools "github.com/subaud-tools/tools-common"
 	"github.com/subaud-tools/tools-common/channelmcp"
 	"github.com/subaud-tools/tools-common/harness"
+	"github.com/subaud-tools/tools-common/pageserve"
 )
 
 // channelInstructions reaches the session's system prompt through the MCP
@@ -236,7 +236,7 @@ type channel struct {
 	// per scan. Cleared when the advert finally goes, which is the only thing
 	// that could make attaching sensible again.
 	stopped   map[string]bool
-	problems  []registry.Problem
+	problems  []pageserve.Problem
 	gone      []string
 	announced map[string]bool // stderr dedupe: one line per room per reason
 	// ended is every room this channel DETACHED from on a terminal ending —
@@ -500,11 +500,11 @@ func (c *channel) inScope(page string) bool {
 // stranded a review, the fix is to reopen it — galley_open starts the editor
 // from inside the channel and stamps this session as owner — never to have a
 // bystander answer for it.
-func (c *channel) claim(e registry.Entry) (bool, string) {
+func (c *channel) claim(e pageserve.Entry) (bool, string) {
 	switch {
 	case e.Owner == "" || e.Owner == c.self:
 		return true, ""
-	case registry.SessionLive(e.Owner):
+	case live().SessionLive(e.Owner):
 		return false, fmt.Sprintf("owned by session %s, whose channel is still running — "+
 			"its wakes go to that session, not this one", e.Owner)
 	default:
@@ -517,7 +517,7 @@ func (c *channel) claim(e registry.Entry) (bool, string) {
 // claimForAttach takes EXCLUSIVE ownership of an UNOWNED advert on
 // the first attach, by stamping this session's id on it, so no other channel
 // under whose root it also falls attaches to it too and its wakes fan out to
-// both sessions. registry.Claim is a compare-and-set under an advisory lock, so
+// both sessions. live().Claim is a compare-and-set under an advisory lock, so
 // of two channels racing one advert exactly one wins.
 //
 // It returns ok=false with a reason only when another LIVE session claimed it
@@ -527,14 +527,14 @@ func (c *channel) claim(e registry.Entry) (bool, string) {
 // presence cannot be proven). Claiming is skipped when there is nothing to
 // stamp: a channel with no session id attaches to unowned adverts as before,
 // and stamping "" would leave the advert unowned.
-func (c *channel) claimForAttach(e registry.Entry) (bool, string) {
+func (c *channel) claimForAttach(e pageserve.Entry) (bool, string) {
 	c.mu.Lock()
 	already := c.attached[e.Room]
 	c.mu.Unlock()
 	if already || c.self == "" || e.Owner == c.self {
 		return true, ""
 	}
-	claimed, err := registry.Claim(e.Room, c.self)
+	claimed, err := live().Claim(e.Room, c.self)
 	switch {
 	case err != nil:
 		fmt.Fprintf(os.Stderr, "[galley channel] could not claim %s (%v) — attaching without exclusive ownership\n", e.Page, err)
@@ -562,11 +562,11 @@ func (c *channel) run(r io.Reader, w io.Writer) error {
 	// withdrawing is reaped by PID on the next read. A serve-only channel
 	// still says so: galley_open's editor binds to this presence.
 	if c.self != "" {
-		if err := registry.AnnounceSession(c.self); err != nil {
+		if err := live().AnnounceSession(c.self); err != nil {
 			fmt.Fprintf(os.Stderr, "[galley channel] cannot record this session's presence: %v — "+
 				"editors this session opens cannot bind to its lifetime and may keep serving after it ends\n", err)
 		}
-		defer func() { _ = registry.WithdrawSession(c.self) }()
+		defer func() { _ = live().WithdrawSession(c.self) }()
 	}
 	if !c.serveOnly {
 		go c.watch(ctx)
@@ -595,7 +595,7 @@ func (c *channel) watch(ctx context.Context) {
 // advert skipped in silence is indistinguishable from no advert at all, and
 // the two call for opposite actions from whoever is waiting.
 func (c *channel) scanOnce(ctx context.Context) {
-	entries, problems, err := registry.Inspect()
+	entries, problems, err := live().Inspect()
 	if err != nil {
 		c.listErrOnce.Do(func() {
 			fmt.Fprintf(os.Stderr, "[galley channel] cannot read the live registry: %v — no editors will be attached\n", err)
@@ -608,9 +608,9 @@ func (c *channel) scanOnce(ctx context.Context) {
 	// off stderr — the startup line exists to break in-scope silence, and
 	// neither of those is that.
 	quiet := map[string]bool{}
-	live := map[string]bool{}
+	listed := map[string]bool{}
 	for _, e := range entries {
-		live[e.Room] = true
+		listed[e.Room] = true
 		c.mu.Lock()
 		stopped := c.stopped[e.Room]
 		c.mu.Unlock()
@@ -634,7 +634,7 @@ func (c *channel) scanOnce(ctx context.Context) {
 			// refusal is the ownership rule working, and the harness turns this
 			// stderr into a notification that reads like the misroute it
 			// prevents. A dead owner's stranded review is still said.
-			if registry.SessionLive(e.Owner) {
+			if live().SessionLive(e.Owner) {
 				quiet[e.Room] = true
 			}
 			continue
@@ -668,7 +668,7 @@ func (c *channel) scanOnce(ctx context.Context) {
 	c.unattached = unattached
 	c.problems = problems
 	for room := range c.stopped {
-		if !live[room] {
+		if !listed[room] {
 			delete(c.stopped, room)
 		}
 	}
@@ -802,7 +802,7 @@ type waitWire struct {
 // WHEN IT DOES. Every return from this loop used to be silent, which left the
 // agent unable to tell "the reviewer is still reading" from "the review is
 // gone"; both are silence, and only one of them means stop waiting.
-func (c *channel) attach(ctx context.Context, e registry.Entry) {
+func (c *channel) attach(ctx context.Context, e pageserve.Entry) {
 	defer func() {
 		c.mu.Lock()
 		delete(c.attached, e.Room)
@@ -932,7 +932,7 @@ func (c *channel) attach(ctx context.Context, e registry.Entry) {
 // `why` rides the note field, which is the same slot the reopen's reason uses
 // and for the same reason: it is the one fact in this wake that the model
 // cannot recover from anywhere else.
-func (c *channel) emitGone(e registry.Entry, why string) {
+func (c *channel) emitGone(e pageserve.Entry, why string) {
 	c.mu.Lock()
 	c.stopped[e.Room] = true
 	c.mu.Unlock()
@@ -952,8 +952,8 @@ func (c *channel) emitGone(e registry.Entry, why string) {
 // emitted — nothing was ever attached, so there is no review to have ended —
 // but the advert comes down and the reason is recorded where a session can
 // read it back.
-func (c *channel) reapStaleAdvert(e registry.Entry, cause error) {
-	_ = registry.Remove(e.Room)
+func (c *channel) reapStaleAdvert(e pageserve.Entry, cause error) {
+	_ = live().Remove(e.Room)
 	line := fmt.Sprintf("%s — unreachable: its advert points at %s and nothing answered there (%v); "+
 		"the advert has been withdrawn. A process that died without withdrawing, or a recycled PID.",
 		e.Page, e.URL, cause)
@@ -989,7 +989,7 @@ func countMeta(n int) string {
 // entry points, because a wrapper nothing called was dead code the linter
 // caught immediately. `report` is the wake's report token, set as
 // channelmcp.MetaReport when there is one.
-func (c *channel) emit(e registry.Entry, reason, fp, note string, pending pendingPayload, instructions int, report string) {
+func (c *channel) emit(e pageserve.Entry, reason, fp, note string, pending pendingPayload, instructions int, report string) {
 	// THE FOUR ENDINGS COME FROM wake.go, which is the ONE place either
 	// carrier turns a wake into a meaning. This switch used to hold them, and
 	// `galley wait` held its own four — which is how the pull carrier came to
