@@ -2,6 +2,7 @@ package markdown_test
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -95,11 +96,11 @@ func FuzzRoundTrip(f *testing.F) {
 				"cannot hold one)", n)
 		}
 		if n := emptyItemSkips.Load(); n > 0 {
-			f.Logf("skipped the block-kind property on %d input(s) quoting an empty list "+
+			f.Logf("checked only the sentinel, not the block kinds, on %d input(s) quoting an empty list "+
 				"item inside a list item (known class — the bare \">\" line ends the outer item)", n)
 		}
 		if n := adjacentListSkips.Load(); n > 0 {
-			f.Logf("skipped the block-kind property on %d input(s) holding two neighbouring "+
+			f.Logf("checked only the sentinel, not the block kinds, on %d input(s) holding two neighbouring "+
 				"lists of one kind (known class — they can be written with one marker and merge)", n)
 		}
 		if n := criticSlow.Load(); n > 0 {
@@ -270,6 +271,14 @@ const kindSentinel = "\n\nzzsentinel\n"
 // back.
 func blockKindsSurvive(t *testing.T, src string, doc docmodel.Doc, out []byte) {
 	t.Helper()
+	if problem := kindsProblem(doc, out); problem != "" {
+		t.Errorf("%s:\n src:  %q\n out:  %q", problem, src, out)
+	}
+}
+
+// kindsProblem is property (d) for one document and its first serialization:
+// what is wrong, or "" when nothing is.
+func kindsProblem(doc docmodel.Doc, out []byte) string {
 	if breaksAHeading(doc) {
 		// A known class, recorded rather than fixed here: a setext heading
 		// can hold a hard break, an ATX heading cannot, and Serialize writes
@@ -277,8 +286,13 @@ func blockKindsSurvive(t *testing.T, src string, doc docmodel.Doc, out []byte) {
 		// paragraph under it ("0|000|0000  \n00000000\n- "). No letter is
 		// lost, which is why (b) does not see it.
 		headingBreakSkips.Add(1)
-		return
+		return ""
 	}
+	// The next two known classes change which blocks hold which, never the
+	// end of the document, so for them only the kinds go unchecked: the
+	// paragraph written after the output must still come back, last and on
+	// its own.
+	kindsOnly := false
 	if quotesAnEmptyItemInAnItem(doc) {
 		// The second known class, recorded rather than fixed here: inside a
 		// list item, a quote holding an empty list item and then more is
@@ -286,7 +300,7 @@ func blockKindsSurvive(t *testing.T, src string, doc docmodel.Doc, out []byte) {
 		// the OUTER item there ("- > -\n  > 0\n" comes back with the quote's
 		// paragraph at the top level). Nothing is lost and nothing refused.
 		emptyItemSkips.Add(1)
-		return
+		kindsOnly = true
 	}
 	if adjacentLists(doc.Blocks) {
 		// The third known class, recorded rather than fixed here: two
@@ -294,19 +308,42 @@ func blockKindsSurvive(t *testing.T, src string, doc docmodel.Doc, out []byte) {
 		// where the first one's nested lists flip its marker the two can be
 		// written alike and merge ("* + *\n+ * *" comes back as one list).
 		adjacentListSkips.Add(1)
-		return
+		kindsOnly = true
 	}
 	back, _, err := markdown.Parse(append(append([]byte{}, out...), kindSentinel...))
 	if err != nil {
 		// Property (c) reports the output itself; the sentinel adds nothing
 		// a refusal could be about.
-		return
+		return ""
+	}
+	if kindsOnly {
+		if !sentinelLast(back) {
+			return fmt.Sprintf("the paragraph written after the first serialization did not come back on its own:\n got:  %v", blockKinds(back))
+		}
+		return ""
 	}
 	want := append(blockKinds(doc), "0:paragraph")
 	if got := blockKinds(back); strings.Join(got, " ") != strings.Join(want, " ") {
-		t.Errorf("block kinds changed on the first serialization (with a paragraph written after it):\n src:  %q\n out:  %q\n got:  %v\n want: %v",
-			src, out, got, want)
+		return fmt.Sprintf("block kinds changed on the first serialization (with a paragraph written after it):\n got:  %v\n want: %v", got, want)
 	}
+	return ""
+}
+
+// sentinelLast reports whether d ends in a top-level paragraph that is
+// exactly kindSentinel's text.
+func sentinelLast(d docmodel.Doc) bool {
+	if len(d.Blocks) == 0 {
+		return false
+	}
+	last := d.Blocks[len(d.Blocks)-1]
+	if last.Kind != docmodel.Paragraph {
+		return false
+	}
+	var text strings.Builder
+	for _, in := range last.Inlines {
+		text.WriteString(in.Text)
+	}
+	return text.String() == strings.TrimSpace(kindSentinel)
 }
 
 // headingBreakSkips counts inputs property (d) skipped for a heading that
@@ -329,8 +366,9 @@ func breaksAHeading(d docmodel.Doc) bool {
 	return found
 }
 
-// emptyItemSkips counts inputs property (d) skipped for
-// quotesAnEmptyItemInAnItem. Same caveat as linkSplitSkips.
+// emptyItemSkips counts inputs whose block kinds property (d) did not compare
+// for quotesAnEmptyItemInAnItem (the sentinel is still checked). Same caveat
+// as linkSplitSkips.
 var emptyItemSkips atomic.Int64
 
 // quotesAnEmptyItemInAnItem reports whether d holds a list item with a
@@ -371,8 +409,9 @@ func blocksHaveText(blocks []docmodel.Block) bool {
 	return false
 }
 
-// adjacentListSkips counts inputs property (d) skipped for adjacentLists.
-// Same caveat as linkSplitSkips.
+// adjacentListSkips counts inputs whose block kinds property (d) did not
+// compare for adjacentLists (the sentinel is still checked). Same caveat as
+// linkSplitSkips.
 var adjacentListSkips atomic.Int64
 
 // adjacentLists reports whether two lists of the same kind sit side by side
@@ -899,5 +938,32 @@ func TestRoundBudget_ATableEarnsNoExtraRounds(t *testing.T) {
 	src := []byte("| a | b |\n| :-- | --: |\n| 1 | 2 |\n")
 	if got := roundBudget(src); got != maxSerializations {
 		t.Errorf("roundBudget(a table) = %d, want the base %d", got, maxSerializations)
+	}
+}
+
+// TestKindsProblemStillSeesASwallowInAKnownClass: the known classes property
+// (d) tolerates change the KINDS of blocks, never the end of the document.
+// An output that swallows the paragraph written after it is still caught for
+// them, however it is spelled: here an unclosed fence after two neighbouring
+// lists, and after an empty item quoted inside an item.
+func TestKindsProblemStillSeesASwallowInAKnownClass(t *testing.T) {
+	for _, tc := range []struct{ name, src string }{
+		{"neighbouring lists", "* a\n\n+ b\n"},
+		{"an empty item quoted in an item", "- > -\n  > 0\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			doc, _, err := markdown.Parse([]byte(tc.src))
+			if err != nil {
+				t.Fatal(err)
+			}
+			out := markdown.Serialize(doc)
+			if p := kindsProblem(doc, out); p != "" {
+				t.Fatalf("the honest output is a problem: %s\n out: %q", p, out)
+			}
+			swallowed := append(append([]byte{}, out...), "\n```\n"...)
+			if kindsProblem(doc, swallowed) == "" {
+				t.Errorf("an output that swallows the paragraph after it passed property (d):\n out: %q", swallowed)
+			}
+		})
 	}
 }
