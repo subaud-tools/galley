@@ -22,5 +22,9 @@
     "schemacheck.mjs",
     "schemacorpus.mjs",
     "eslint.config.mjs"
+  ],
+  "ignoreDependencies": [
+    "globals",
+    "typescript-eslint"
   ]
 }

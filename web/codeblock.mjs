@@ -52,7 +52,12 @@ import { spawn } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { chromium } from 'playwright-core';
+import {
+  check as kitCheck,
+  counts,
+  launchOrSkip,
+  until,
+} from './build/probe.mjs';
 // THE GATE READS THE APP'S OWN CONSTANT, not a copy of it — rounds-ux.mjs's
 // discipline for CAPTURE_LABEL, and the reason is the same: the deny line's
 // wording is a product decision recorded in one place, and a check that
@@ -88,13 +93,10 @@ const FIXTURE =
 // and nowhere else.
 const ASKED = 'use pnpm here, and say why in a comment above it';
 
-let failures = 0;
-const check = (name, ok, detail) => {
-  console.log(
-    `${ok ? 'ok  ' : 'FAIL'}  ${name}${ok || detail === undefined ? '' : ` — ${JSON.stringify(detail)}`}`,
-  );
-  if (!ok) failures += 1;
-};
+// The scaffolding's check, with the detail written as JSON as this gate always
+// has.
+const check = (name, ok, detail) =>
+  kitCheck(name, ok, detail === undefined ? '' : JSON.stringify(detail));
 
 const dir = mkdtempSync(join(tmpdir(), 'galley-codeblock-'));
 const doc = join(dir, 'install.md');
@@ -154,18 +156,13 @@ process.on('exit', () => {
 // does; the difference here is that it runs twice, once per server, so it is a
 // function rather than a block.
 const up = async (port) => {
-  const started = Date.now();
-  for (;;) {
-    try {
-      if ((await fetch(`http://127.0.0.1:${port}/`)).ok) return;
-    } catch {
-      // Not up yet.
-    }
-    if (Date.now() - started > 20000) {
-      throw new Error(`server on ${port} never came up`);
-    }
-    await new Promise((r) => setTimeout(r, 200));
-  }
+  if (
+    !(await until(
+      async () => (await fetch(`http://127.0.0.1:${port}/`)).ok,
+      20000,
+    ))
+  )
+    throw new Error(`server on ${port} never came up`);
 };
 
 const chromePath = process.env.GALLEY_CHROME;
@@ -230,9 +227,10 @@ const selectInFence = (page, want) =>
 
 start(PORT);
 await up(PORT);
-browser = await chromium.launch(
-  chromePath ? { executablePath: chromePath } : {},
-);
+browser = await launchOrSkip({
+  required: true,
+  ...(chromePath ? { executablePath: chromePath } : {}),
+});
 const page = await open(PORT);
 
 // --- §1 the fence is one addressable block ------------------------------
@@ -545,9 +543,10 @@ await new Promise((r) => setTimeout(r, 1500));
 
 start(REOPEN_PORT);
 await up(REOPEN_PORT);
-browser = await chromium.launch(
-  chromePath ? { executablePath: chromePath } : {},
-);
+browser = await launchOrSkip({
+  required: true,
+  ...(chromePath ? { executablePath: chromePath } : {}),
+});
 const reopened = await open(REOPEN_PORT);
 await reopened.waitForSelector('.gly-rail-band .gly-thread', {
   timeout: 10000,
@@ -595,6 +594,8 @@ await browser.close();
 browser = null;
 
 console.log(
-  failures === 0 ? '\nall code-block checks passed' : `\n${failures} FAILED`,
+  counts().fails === 0
+    ? '\nall code-block checks passed'
+    : `\n${counts().fails} FAILED`,
 );
-process.exit(failures === 0 ? 0 : 1);
+process.exit(counts().fails === 0 ? 0 : 1);

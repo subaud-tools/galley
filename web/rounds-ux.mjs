@@ -2,7 +2,14 @@ import { spawn } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { chromium } from 'playwright-core';
+import {
+  check,
+  cleanup,
+  counts,
+  launchOrSkip,
+  onCleanup,
+  until,
+} from './build/probe.mjs';
 // THE GATE READS THE APP'S OWN CONSTANTS, not a copy of them — the discipline
 // web/layers.mjs already states for SEALED_VERBS. A hand-copied label here goes
 // stale the moment the button is renamed, and the check keeps reporting `ok`
@@ -57,14 +64,6 @@ server.stderr.on('data', (d) => {
 });
 
 let browser;
-let failures = 0;
-function check(name, ok, detail = '') {
-  if (ok) console.log(`ok    ${name}`);
-  else {
-    failures += 1;
-    console.log(`FAIL  ${name}${detail ? ` — ${detail}` : ''}`);
-  }
-}
 
 // A SELECTION SET THROUGH THE DOM IS A RACE, AND ESC IS WHAT MAKES IT ONE.
 // onKey's Escape hands focus back to the page on purpose ("the way out of the
@@ -412,18 +411,14 @@ async function ack(page, state, note = '') {
 
 try {
   const base = `http://127.0.0.1:${PORT}`;
-  for (let i = 0; i < 80; i += 1) {
-    try {
-      if ((await fetch(base)).ok) break;
-    } catch {}
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
+  await until(async () => (await fetch(base)).ok, 8000);
 
-  browser = await chromium.launch(
-    process.env.GALLEY_CHROME
+  browser = await launchOrSkip({
+    required: true,
+    ...(process.env.GALLEY_CHROME
       ? { executablePath: process.env.GALLEY_CHROME }
-      : {},
-  );
+      : {}),
+  });
   const page = await browser.newPage({
     viewport: { width: 1440, height: 900 },
   });
@@ -4160,26 +4155,29 @@ try {
     JSON.stringify(sealedHistory),
   );
 } finally {
-  if (browser) await browser.close();
-  // And the port is given back before the run ends, so the next run, or the
-  // next gate, does not find this server still answering on it.
-  await new Promise((done) => {
-    if (server.exitCode !== null || server.signalCode !== null) return done();
-    const cap = setTimeout(() => server.kill('SIGKILL'), 10000);
-    server.once('exit', () => {
-      clearTimeout(cap);
-      done();
-    });
-    server.kill('SIGTERM');
-  });
-  try {
-    rmSync(dir, { recursive: true, force: true });
-  } catch {
-    // The server can project once while SIGTERM is landing.
-  }
+  // The browser closes first (launchOrSkip added it at launch), then the port
+  // is given back before the run ends, so the next run, or the next gate, does
+  // not find this server still answering on it.
+  onCleanup(
+    () =>
+      new Promise((done) => {
+        if (server.exitCode !== null || server.signalCode !== null)
+          return done();
+        const cap = setTimeout(() => server.kill('SIGKILL'), 10000);
+        server.once('exit', () => {
+          clearTimeout(cap);
+          done();
+        });
+        server.kill('SIGTERM');
+      }),
+  );
+  // The server can project once while SIGTERM is landing; a cleanup that
+  // throws is ignored.
+  onCleanup(() => rmSync(dir, { recursive: true, force: true }));
+  await cleanup();
 }
 
-if (failures) {
+if (counts().fails) {
   if (serverOutput.trim()) console.log(serverOutput.trim());
   process.exit(1);
 }

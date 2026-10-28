@@ -194,17 +194,22 @@ if (process.argv[2] === '--agent') {
 
 // --- the reviewer half ------------------------------------------------------
 
-let failures = 0;
-function check(name, ok, detail) {
-  if (ok) {
-    console.log(`ok    ${name}`);
-    return;
-  }
-  failures += 1;
-  console.log(
-    `FAIL  ${name}${detail === undefined ? '' : ` — ${JSON.stringify(detail, null, 1)}`}`,
+// Imported here, after the --agent branch, so the child this file runs
+// as keeps node's own signal handling.
+const {
+  check: kitCheck,
+  counts,
+  launchOrSkip,
+  until: poll,
+} = await import('./build/probe.mjs');
+// The scaffolding's check, with the detail written as JSON as this gate always
+// has: most details here are objects.
+const check = (name, ok, detail) =>
+  kitCheck(
+    name,
+    ok,
+    detail === undefined ? '' : JSON.stringify(detail, null, 1),
   );
-}
 
 const HERE = mkdtempSync(join(tmpdir(), 'galley-revise-'));
 const DOC = join(HERE, 'lifecycle.md');
@@ -281,33 +286,13 @@ process.on('exit', () => {
   }
 });
 
-const { chromium } = await (async () => {
-  const where = process.env.GALLEY_PW;
-  if (where) {
-    const { createRequire } = await import('node:module');
-    return createRequire(join(where, 'noop.js'))('playwright-core');
-  }
-  return import('playwright-core');
-})();
-
-// until polls pred until it holds, and throws naming the step when it does
-// not within ms. Every wait in this file is one of these: on a state, never on
-// the clock.
+// until is the scaffolding's wait that throws naming the step when pred does
+// not hold within ms. Every wait in this file is one of these: on a state,
+// never on the clock.
 async function until(step, ms, pred) {
-  const started = Date.now();
-  for (;;) {
-    let got;
-    try {
-      got = await pred();
-    } catch {
-      got = null;
-    }
-    if (got) return got;
-    if (Date.now() - started > ms) {
-      throw new Error(`timed out after ${ms}ms waiting for: ${step}`);
-    }
-    await new Promise((r) => setTimeout(r, 150));
-  }
+  const got = await poll(pred, ms);
+  if (!got) throw new Error(`timed out after ${ms}ms waiting for: ${step}`);
+  return got;
 }
 
 const base = `http://127.0.0.1:${PORT}`;
@@ -366,11 +351,12 @@ agent.stderr.on('data', (b) => {
   if (line) console.log(`      [agent] ${line}`);
 });
 
-browser = await chromium.launch(
-  process.env.GALLEY_CHROME
+browser = await launchOrSkip({
+  required: true,
+  ...(process.env.GALLEY_CHROME
     ? { executablePath: process.env.GALLEY_CHROME }
-    : {},
-);
+    : {}),
+});
 const page = await browser.newPage({ viewport: { width: 1400, height: 1000 } });
 page.on('pageerror', (e) => console.log(`      [page error] ${e.message}`));
 await page.goto(`${base}/`, { waitUntil: 'networkidle' });
@@ -730,8 +716,8 @@ await until('the editor to stop', 20000, () => serverExit).catch(() => null);
 check('the editor stopped when asked', !!serverExit, serverSaid.slice(-600));
 
 console.log(
-  failures === 0
+  counts().fails === 0
     ? '\nall revise-lifecycle checks passed'
-    : `\n${failures} FAILED`,
+    : `\n${counts().fails} FAILED`,
 );
-process.exit(failures === 0 ? 0 : 1);
+process.exit(counts().fails === 0 ? 0 : 1);
