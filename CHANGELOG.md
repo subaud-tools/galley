@@ -2,6 +2,11 @@
 
 Newest first. Notes for releases up to 0.10.2 are on the GitHub releases page: https://github.com/subaud-tools/galley/releases
 
+## Unreleased
+
+- `galley login -h` and the man page name the command again: `Usage: galley login [--name NAME] [--wait]`, not `Usage: galley [--name NAME] [--wait]` (tools-common 0.32.0).
+- `galley update` prints the notice galley's site publishes, when there is one.
+
 ## 0.21.0
 
 - galley finds its running editors through the family's shared server code (tools-common 0.31.1), the same code cull, sift and diazo use. Nothing you see changes: the files under `~/.galley/live` keep their names and contents, so an editor or channel from 0.20.0 and one from this release still find and wake each other. A message about a damaged or newer entry in that folder now says "pageserve: … entry" where it said "registry: … advert".
