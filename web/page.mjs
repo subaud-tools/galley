@@ -171,17 +171,22 @@ if (process.argv[2] === '--agent') {
 
 // --- the reviewer half ------------------------------------------------------
 
-let failures = 0;
-function check(name, ok, detail) {
-  if (ok) {
-    console.log(`ok    ${name}`);
-    return;
-  }
-  failures += 1;
-  console.log(
-    `FAIL  ${name}${detail === undefined ? '' : ` — ${JSON.stringify(detail, null, 1)}`}`,
+// Imported here, after the --agent branch, so the child this file runs
+// as keeps node's own signal handling.
+const {
+  check: kitCheck,
+  counts,
+  launchOrSkip,
+  until: poll,
+} = await import('./build/probe.mjs');
+// The scaffolding's check, with the detail written as JSON as this gate always
+// has: most details here are objects.
+const check = (name, ok, detail) =>
+  kitCheck(
+    name,
+    ok,
+    detail === undefined ? '' : JSON.stringify(detail, null, 1),
   );
-}
 
 const HERE = mkdtempSync(join(tmpdir(), 'galley-page-'));
 const PAGE = join(HERE, 'index.html');
@@ -239,31 +244,9 @@ process.on('exit', () => {
   }
 });
 
-const { chromium } = await (async () => {
-  const where = process.env.GALLEY_PW;
-  if (where) {
-    const { createRequire } = await import('node:module');
-    return createRequire(join(where, 'noop.js'))('playwright-core');
-  }
-  return import('playwright-core');
-})();
-
 const base = `http://127.0.0.1:${PORT}`;
-await new Promise((resolve, reject) => {
-  const started = Date.now();
-  const poll = async () => {
-    try {
-      const res = await fetch(`${base}/`);
-      if (res.ok) return resolve();
-    } catch {
-      // Not up yet.
-    }
-    if (Date.now() - started > 20000)
-      return reject(new Error('server never came up'));
-    setTimeout(poll, 250);
-  };
-  poll();
-});
+if (!(await poll(async () => (await fetch(`${base}/`)).ok, 20000)))
+  throw new Error('server never came up');
 
 const journal = () =>
   readFileSync(JOURNAL, 'utf8')
@@ -271,21 +254,14 @@ const journal = () =>
     .filter(Boolean)
     .map((l) => JSON.parse(l));
 const said = (step) => journal().find((l) => l.step === step) || null;
-const heard = async (step, ms) => {
-  const started = Date.now();
-  for (;;) {
-    const line = said(step);
-    if (line) return line;
-    if (Date.now() - started > ms) return null;
-    await new Promise((r) => setTimeout(r, 200));
-  }
-};
+const heard = async (step, ms) => (await poll(() => said(step), ms)) || null;
 
-browser = await chromium.launch(
-  process.env.GALLEY_CHROME
+browser = await launchOrSkip({
+  required: true,
+  ...(process.env.GALLEY_CHROME
     ? { executablePath: process.env.GALLEY_CHROME }
-    : {},
-);
+    : {}),
+});
 const page = await browser.newPage({ viewport: { width: 1400, height: 1000 } });
 page.on('pageerror', (e) => console.log(`      [page error] ${e.message}`));
 await page.goto(`${base}/`, { waitUntil: 'networkidle' });
@@ -711,6 +687,8 @@ await new Promise((r) => setTimeout(r, 1500));
 }
 
 console.log(
-  failures === 0 ? '\nall page checks passed' : `\n${failures} FAILED`,
+  counts().fails === 0
+    ? '\nall page checks passed'
+    : `\n${counts().fails} FAILED`,
 );
-process.exit(failures === 0 ? 0 : 1);
+process.exit(counts().fails === 0 ? 0 : 1);

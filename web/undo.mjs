@@ -35,7 +35,13 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import net from 'node:net';
-import { chromium } from 'playwright-core';
+import {
+  check,
+  cleanup,
+  counts,
+  launchOrSkip,
+  onCleanup,
+} from './build/probe.mjs';
 
 // THE MODIFIER IS THE PLATFORM'S, and CI is where that stopped being academic.
 // `Meta+z` is the macOS chord; on Linux it does nothing at all, so this gate
@@ -46,14 +52,6 @@ import { chromium } from 'playwright-core';
 // per platform, which is the one spelling that is right in both places.
 const UNDO = 'ControlOrMeta+z';
 const REDO = 'ControlOrMeta+Shift+z';
-
-let failures = 0;
-const check = (name, ok, detail) => {
-  console.log(
-    `${ok ? 'ok  ' : 'FAIL'}  ${name}${ok || !detail ? '' : ` — ${detail}`}`,
-  );
-  if (!ok) failures++;
-};
 
 const GALLEY = process.env.GALLEY || 'bin/galley';
 const PORT = 8291;
@@ -106,9 +104,14 @@ await new Promise((r) => setTimeout(r, 1500));
 // nine lines the dupes ratchet correctly reported this file cloning, and the
 // answer to a clone is to not write it rather than to raise a bound.
 const chromePath = process.env.GALLEY_CHROME;
-const browser = await chromium.launch(
-  chromePath ? { executablePath: chromePath } : {},
-);
+const browser = await launchOrSkip({
+  required: true,
+  ...(chromePath ? { executablePath: chromePath } : {}),
+});
+// After the browser's own (added at launch): the server, then its folder, at
+// the end or on an interrupt, so no run leaves a `galley edit` on the port.
+onCleanup(() => server.kill('SIGTERM'));
+onCleanup(() => rmSync(dir, { recursive: true, force: true }));
 const page = await browser.newPage({
   viewport: { width: 1280, height: 900 },
 });
@@ -319,14 +322,10 @@ check(
 // harness. Reading a paragraph's text back and asserting on it is fine; using a
 // click to CHOOSE what to delete is not.
 
-await browser.close();
-server.kill('SIGTERM');
-try {
-  rmSync(dir, { recursive: true, force: true });
-} catch {}
+await cleanup();
 
 // THE SERVER IS KILLED BEFORE THIS LINE, and the order is the point. An exit
 // that ran first would leave a `galley edit` listening — which is exactly the
 // state that made three runs of this file measure a previous run's document and
 // report the CRDT scrambling text it never touched. See the port guard above.
-if (failures) process.exit(1);
+if (counts().fails) process.exit(1);

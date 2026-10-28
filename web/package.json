@@ -13,11 +13,12 @@
     "dupes": "fallow dupes",
     "complexity": "fallow health",
     "kit-copy": "go mod download github.com/subaud-tools/tools-common && KIT_DIR=$(go list -m -f '{{.Dir}}' github.com/subaud-tools/tools-common) && test -n \"$KIT_DIR\" && mkdir -p kit && cp -f \"$KIT_DIR/localweb/page/assets/share.js\" \"$KIT_DIR/localweb/page/assets/share.css\" \"$KIT_DIR/localweb/page/assets/enter.js\" \"$KIT_DIR/localweb/page/assets/dom.js\" \"$KIT_DIR/localweb/page/assets/selection.js\" \"$KIT_DIR/localweb/page/assets/msgstate.js\" kit/ && sed -n '/^\\/\\/ ---- share.js/,$p' \"$KIT_DIR/localweb/page/assets/kit.d.ts\" > kit/share.d.ts && awk '/^\\/\\/ ---- /{p=/^\\/\\/ ---- enter\\.js/} p' \"$KIT_DIR/localweb/page/assets/kit.d.ts\" > kit/enter.d.ts && test -s kit/enter.d.ts && awk '/^\\/\\/ ---- /{p=/^\\/\\/ ---- dom\\.js/} p' \"$KIT_DIR/localweb/page/assets/kit.d.ts\" > kit/dom.d.ts && test -s kit/dom.d.ts && awk '/^\\/\\/ ---- /{p=/^\\/\\/ ---- msgstate\\.js/} p' \"$KIT_DIR/localweb/page/assets/kit.d.ts\" > kit/msgstate.d.ts && test -s kit/msgstate.d.ts && sed -n '/^\\.kit-pill /,/no_reply/p' \"$KIT_DIR/localweb/page/assets/kit.css\" > kit/msgpill.css && grep -q no_reply kit/msgpill.css && chmod 644 kit/share.js kit/share.css kit/share.d.ts kit/enter.js kit/enter.d.ts kit/dom.js kit/selection.js kit/msgstate.js kit/dom.d.ts kit/msgstate.d.ts kit/msgpill.css",
+    "build-copy": "go mod download github.com/subaud-tools/tools-common && KIT_DIR=$(go list -m -f '{{.Dir}}' github.com/subaud-tools/tools-common) && test -n \"$KIT_DIR\" && mkdir -p build && cp -f \"$KIT_DIR/localweb/page/build/eslint.base.mjs\" \"$KIT_DIR/localweb/page/build/probe.mjs\" build/ && cp -f \"$KIT_DIR/localweb/page/build/mermaid-entry.ts\" mermaid-entry.ts && chmod 644 build/eslint.base.mjs build/probe.mjs mermaid-entry.ts",
     "build:editor-js": "esbuild entry.ts --bundle --minify --format=iife --target=es2019 --charset=utf8 --outfile=../internal/serve/assets/editor.js",
     "build:editor-css": "esbuild editor.css --bundle --minify --charset=utf8 --outfile=../internal/serve/assets/editor.css",
     "build:mermaid": "esbuild mermaid-entry.ts --bundle --minify --format=iife --global-name=galleyMermaid --target=es2019 --charset=utf8 --outfile=../internal/serve/assets/mermaid.js",
     "probe": "node probe.mjs",
-    "build": "npm run --silent kit-copy && npm run --silent build:editor-js && npm run --silent build:editor-css && npm run --silent build:mermaid && npm run --silent probe"
+    "build": "npm run --silent kit-copy && npm run --silent build-copy && npm run --silent build:editor-js && npm run --silent build:editor-css && npm run --silent build:mermaid && npm run --silent probe"
   },
   "dependencies": {
     "@tiptap/core": "2.27.2",

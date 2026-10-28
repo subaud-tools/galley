@@ -2,6 +2,10 @@
 
 Newest first. Notes for releases up to 0.10.2 are on the GitHub releases page: https://github.com/subaud-tools/galley/releases
 
+## 0.22.0
+
+- galley's page types, lint rules, mermaid entry and browser gates come from the family's shared page build (tools-common 0.33.0), and its rendered page from tools-common's mermaidkit. A rendered document is the same as before.
+
 ## 0.21.1
 
 - `galley login -h` and the man page name the command again: `Usage: galley login [--name NAME] [--wait]`, not `Usage: galley [--name NAME] [--wait]` (tools-common 0.32.0).

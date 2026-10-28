@@ -54,6 +54,12 @@ import {
   SHARE_REPLY_MS,
   sharedLine,
 } from './share.ts';
+import {
+  check as kitCheck,
+  counts,
+  launchOrSkip,
+  until as poll,
+} from './build/probe.mjs';
 
 // The server offers the Shares only where it can put a file on the clipboard.
 const MAC = process.platform === 'darwin';
@@ -71,17 +77,14 @@ const FIXTURE_PAGE = join(
   'galley-tools-index.html',
 );
 
-let failures = 0;
-function check(name, ok, detail) {
-  if (ok) {
-    console.log(`ok    ${name}`);
-    return;
-  }
-  failures += 1;
-  console.log(
-    `FAIL  ${name}${detail === undefined ? '' : ` — ${JSON.stringify(detail, null, 1)}`}`,
+// The scaffolding's check, with the detail written as JSON as this gate always
+// has: most details here are objects.
+const check = (name, ok, detail) =>
+  kitCheck(
+    name,
+    ok,
+    detail === undefined ? '' : JSON.stringify(detail, null, 1),
   );
-}
 
 // realpath: macOS's tmpdir is a symlink, and the server reports the path it
 // resolved.
@@ -146,17 +149,8 @@ function serve(target, port) {
 }
 
 async function up(base) {
-  const started = Date.now();
-  for (;;) {
-    try {
-      const res = await fetch(`${base}/`);
-      if (res.ok) return;
-    } catch {
-      // Not up yet.
-    }
-    if (Date.now() - started > 20000) throw new Error(`${base} never came up`);
-    await new Promise((r) => setTimeout(r, 250));
-  }
+  if (!(await poll(async () => (await fetch(`${base}/`)).ok, 20000)))
+    throw new Error(`${base} never came up`);
 }
 
 const approve = (base) =>
@@ -166,25 +160,17 @@ const approve = (base) =>
     body: JSON.stringify({ verdict: 'approve' }),
   });
 
-const { chromium } = await (async () => {
-  const where = process.env.GALLEY_PW;
-  if (where) {
-    const { createRequire } = await import('node:module');
-    return createRequire(join(where, 'noop.js'))('playwright-core');
-  }
-  return import('playwright-core');
-})();
-
 const base = serve(DOC, PORT);
 const pageBase = serve(PAGE, PAGE_PORT);
 await up(base);
 await up(pageBase);
 
-browser = await chromium.launch(
-  process.env.GALLEY_CHROME
+browser = await launchOrSkip({
+  required: true,
+  ...(process.env.GALLEY_CHROME
     ? { executablePath: process.env.GALLEY_CHROME }
-    : {},
-);
+    : {}),
+});
 
 async function open(url) {
   const context = await browser.newContext({
@@ -566,6 +552,8 @@ async function statusSays(page, want) {
 }
 
 console.log(
-  failures === 0 ? '\nall share checks passed' : `\n${failures} FAILED`,
+  counts().fails === 0
+    ? '\nall share checks passed'
+    : `\n${counts().fails} FAILED`,
 );
-process.exit(failures === 0 ? 0 : 1);
+process.exit(counts().fails === 0 ? 0 : 1);
