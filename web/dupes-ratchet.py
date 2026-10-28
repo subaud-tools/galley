@@ -66,6 +66,12 @@ gained in galley#127, that a run refuses a port another galley answers on.
 Its own body — the walk through one Revise, reading the server's revise state
 and the page's pill at every step — is in no group.
 
+Four groups LEFT (59 → 55) when the gates' `check`, chromium launch and
+server-up waits moved onto tools-common's probe scaffolding, copied into
+web/build/probe.mjs (PLAN3 of the standards review). fallow does not scan
+web/build/, which is tools-common's code, checked against the pin by
+`just bundle-fresh`.
+
 THE OTHER TWO INSTANCES ARE ONE GROUP IN composer.ts, and they are the only
 duplication in product code anywhere under web/. It is a `postJSON` +
 `.then(res => …)` shape appearing twice in one file — small, real, and not
@@ -80,7 +86,7 @@ even if the answer turns out to be the same one.
 import json
 import sys
 
-BOUND = 59
+BOUND = 55
 
 data = json.load(sys.stdin)
 groups = data["clone_groups"]

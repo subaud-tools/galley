@@ -108,21 +108,24 @@ import { join } from 'node:path';
 // The point of exporting them is that the UI cannot drift into its own wording,
 // and a gate that retyped them here would be the drift it is guarding against.
 import { CODE_INSIDE, CODE_HINT, FRONT_MATTER_INSIDE } from './suggestions.ts';
+import {
+  check as kitCheck,
+  counts,
+  launchOrSkip,
+  until as poll,
+} from './build/probe.mjs';
 
 const GALLEY = process.env.GALLEY || 'bin/galley';
 const PORT = Number(process.env.PORT || 8253);
 
-let failures = 0;
-function check(name, ok, detail) {
-  if (ok) {
-    console.log(`ok    ${name}`);
-    return;
-  }
-  failures += 1;
-  console.log(
-    `FAIL  ${name}${detail === undefined ? '' : ` — ${JSON.stringify(detail, null, 1)}`}`,
+// The scaffolding's check, with the detail written as JSON as this gate always
+// has: most details here are objects.
+const check = (name, ok, detail) =>
+  kitCheck(
+    name,
+    ok,
+    detail === undefined ? '' : JSON.stringify(detail, null, 1),
   );
-}
 
 // THE FIXTURE'S POINT IS STILL THE BOLD WORD IN THE MIDDLE. "The retryBudget
 // value controls" is three inlines, because a bold run is its own inline — the
@@ -396,31 +399,9 @@ process.on('exit', () => {
   }
 });
 
-const { chromium } = await (async () => {
-  const where = process.env.GALLEY_PW;
-  if (where) {
-    const { createRequire } = await import('node:module');
-    return createRequire(join(where, 'noop.js'))('playwright-core');
-  }
-  return import('playwright-core');
-})();
-
 const base = `http://127.0.0.1:${PORT}`;
-await new Promise((resolve, reject) => {
-  const started = Date.now();
-  const poll = async () => {
-    try {
-      const res = await fetch(`${base}/`);
-      if (res.ok) return resolve();
-    } catch {
-      // Not up yet.
-    }
-    if (Date.now() - started > 20000)
-      return reject(new Error('server never came up'));
-    setTimeout(poll, 250);
-  };
-  poll();
-});
+if (!(await poll(async () => (await fetch(`${base}/`)).ok, 20000)))
+  throw new Error('server never came up');
 
 // The bytes with the SERVER up and no browser attached, read before chromium
 // launches. §0 needs the two halves apart: `galley edit` parses the file and
@@ -428,11 +409,12 @@ await new Promise((resolve, reject) => {
 // blamed for it.
 const BEFORE_BROWSER = readFileSync(DOC, 'utf8');
 
-const browser = await chromium.launch(
-  process.env.GALLEY_CHROME
+const browser = await launchOrSkip({
+  required: true,
+  ...(process.env.GALLEY_CHROME
     ? { executablePath: process.env.GALLEY_CHROME }
-    : {},
-);
+    : {}),
+});
 const page = await browser.newPage({ viewport: { width: 1400, height: 1000 } });
 page.on('pageerror', (e) => console.log(`      [page error] ${e.message}`));
 await page.goto(`${base}/`, { waitUntil: 'networkidle' });
@@ -2294,6 +2276,8 @@ await browser.close();
 server.kill('SIGTERM');
 
 console.log(
-  failures === 0 ? '\nall typing checks passed' : `\n${failures} FAILED`,
+  counts().fails === 0
+    ? '\nall typing checks passed'
+    : `\n${counts().fails} FAILED`,
 );
-process.exit(failures === 0 ? 0 : 1);
+process.exit(counts().fails === 0 ? 0 : 1);

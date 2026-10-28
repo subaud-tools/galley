@@ -42,7 +42,12 @@ import { spawn } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { chromium } from 'playwright-core';
+import {
+  check as kitCheck,
+  counts,
+  launchOrSkip,
+  until as poll,
+} from './build/probe.mjs';
 // The kinds that take a grip, read from the app's own list rather than copied:
 // a copy here would go on certifying the old set the day a kind is added.
 import { GRIP_KINDS } from './grips.ts';
@@ -134,11 +139,11 @@ const FIGURE = `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="80">
 
 // FAILURES ARE COLLECTED BY NAME, so the summary line can say which promise
 // broke without scrolling back through the ok lines.
+// The scaffolding counts and prints them, with the detail as JSON.
 const failed = [];
 function check(name, ok, detail) {
   if (!ok) failed.push(name);
-  const why = ok || detail === undefined ? '' : ` — ${JSON.stringify(detail)}`;
-  console.log(`${ok ? 'ok  ' : 'FAIL'}  ${name}${why}`);
+  kitCheck(name, ok, detail === undefined ? '' : JSON.stringify(detail));
 }
 
 const dir = mkdtempSync(join(tmpdir(), 'galley-grip-'));
@@ -204,14 +209,7 @@ async function serve(port) {
     if (code && signal !== 'SIGTERM') console.log(`      [${port}] ${tail}`);
   });
   const base = `http://127.0.0.1:${port}`;
-  for (let wait = 0; wait < 100; wait += 1) {
-    const ok = await fetch(`${base}/`).then(
-      (r) => r.ok,
-      () => false,
-    );
-    if (ok) return base;
-    await new Promise((r) => setTimeout(r, 200));
-  }
+  if (await poll(async () => (await fetch(`${base}/`)).ok, 20000)) return base;
   throw new Error(`galley edit on ${port} never answered`);
 }
 
@@ -219,7 +217,7 @@ const base = await serve(PORT);
 const pending = async () => (await fetch(`${base}/_galley/pending`)).json();
 
 const executablePath = process.env.GALLEY_CHROME || undefined;
-const browser = await chromium.launch({ executablePath });
+const browser = await launchOrSkip({ required: true, executablePath });
 children.add(() => browser.process()?.kill('SIGKILL'));
 // Wide enough that the rail is beside the document; the narrow widths are
 // their own section. The wait is on the TABLE rather than on `.ProseMirror`:
@@ -2114,7 +2112,7 @@ await browser.close();
       back.text === 'add a units column',
     back || list,
   );
-  const reopened = await chromium.launch({ executablePath });
+  const reopened = await launchOrSkip({ required: true, executablePath });
   children.add(() => reopened.process()?.kill('SIGKILL'));
   const view = await reopened.newPage({
     viewport: { width: 1440, height: 1000 },
@@ -2263,8 +2261,8 @@ await browser.close();
 }
 
 console.log(
-  failed.length === 0
+  counts().fails === 0
     ? '\nall block-grip checks passed'
-    : `\n${failed.length} FAILED: ${failed.join('; ')}`,
+    : `\n${counts().fails} FAILED: ${failed.join('; ')}`,
 );
-process.exit(failed.length === 0 ? 0 : 1);
+process.exit(counts().fails === 0 ? 0 : 1);
