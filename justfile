@@ -54,11 +54,12 @@ verify-extra: verify-web bundle-fresh
 # builds, and the browser silently runs last week's editor. mermaid.js is
 # checked with the other two; it is the output a page only fetches when it
 # holds a diagram, so nobody would find a stale one by opening a document.
-# web/kit is tools-common's Share menu and Enter rule, copied from the module
-# go.mod pins by the build: a copy that disagrees with the pin is the same
-# stale bundle.
+# web/kit is tools-common's Share menu and Enter rule, and web/build (the
+# eslint base, the probe scaffolding) and web/mermaid-entry.ts its page build
+# files, all copied from the module go.mod pins by the build: a copy that
+# disagrees with the pin is the same stale bundle.
 bundle-fresh: assets
-    git diff --exit-code -- internal/serve/assets/editor.js internal/serve/assets/editor.css internal/serve/assets/mermaid.js web/kit \
+    git diff --exit-code -- internal/serve/assets/editor.js internal/serve/assets/editor.css internal/serve/assets/mermaid.js web/kit web/build web/mermaid-entry.ts \
       || { echo "the committed editor bundle does not match web/: run 'just assets' and commit the result"; exit 1; }
 
 # The browser gates (below): a real chromium, minutes, one at a time. Not in
@@ -213,9 +214,8 @@ fmt-web: _web-deps
 fmt-web-check: _web-deps
     cd web && npm run --silent fmt:check
 
-# Static analysis for web/. See web/eslint.config.mjs for the rule set and for
-# why it is ESLint — including the five standing findings the `--max-warnings`
-# bound in the `lint` script holds the line on.
+# Static analysis for web/: tools-common's eslint base, configured in
+# web/eslint.config.mjs.
 lint-web: _web-deps
     cd web && npm run --silent lint
 
@@ -289,8 +289,7 @@ dead-code: check-entries _web-deps
 # .superpowers/ assessment this comment used to cite is gone), so this does not
 # claim a split — what survives #143 is the count.
 #
-# Thirteen is a CEILING and is said out loud to be one, in the shape
-# eslint.config.mjs uses. A fourteenth is a red build, so nothing new arrives
+# Thirteen is a CEILING and is said out loud to be one. A fourteenth is a red build, so nothing new arrives
 # under cover of the backlog, and the branch that simplifies one lowers the
 # number with it. If TypeScript coverage instrumentation ever lands, CRAP
 # becomes meaningful and this should be revisited.
@@ -328,9 +327,8 @@ analyse: check-entries _web-deps
     cd web && npm run --silent dupes || true
     cd web && npm run --silent complexity || true
 
-# THE MEASURED BOUNDS (2026-08-22, this branch), NAMED THE WAY
-# eslint.config.mjs names its five — a number with nothing behind it is not a
-# ratchet, it is a mystery. ALL THREE NOW GATE, in the pre-push hook AND in the
+# THE MEASURED BOUNDS (2026-08-22, this branch), EACH NAMED — a number with
+# nothing behind it is not a ratchet, it is a mystery. ALL THREE NOW GATE, in the pre-push hook AND in the
 # CI job below, alongside `check-entries`. Each sits exactly ON its bound, so
 # the next regression is red on the commit that causes it:
 #
