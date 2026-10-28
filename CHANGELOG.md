@@ -2,7 +2,7 @@
 
 Newest first. Notes for releases up to 0.10.2 are on the GitHub releases page: https://github.com/subaud-tools/galley/releases
 
-## Unreleased
+## 0.21.1
 
 - `galley login -h` and the man page name the command again: `Usage: galley login [--name NAME] [--wait]`, not `Usage: galley [--name NAME] [--wait]` (tools-common 0.32.0).
 - `galley update` prints the notice galley's site publishes, when there is one.
