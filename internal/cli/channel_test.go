@@ -1,12 +1,8 @@
 package cli
 
 import (
-	"bufio"
+	"context"
 	"encoding/json"
-	"io"
-	"net/http"
-	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -14,223 +10,8 @@ import (
 	"github.com/subaud-tools/galley/internal/markdown"
 	"github.com/subaud-tools/galley/internal/serve"
 	"github.com/subaud-tools/galley/internal/suggest"
-	"github.com/subaud-tools/tools-common/channelmcp"
 	"github.com/subaud-tools/tools-common/pageserve"
 )
-
-// The whole loop, in one process: an editor advertises, the channel attaches,
-// a Revise press becomes a channel notification — and a SECOND press becomes a
-// second one, which is the re-arm guarantee the channel's whole life is. This
-// is the paired session the product exists for, minus only the harness on the
-// far end.
-func TestChannelForwardsARevisePress(t *testing.T) {
-	t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
-	dir := t.TempDir()
-	doc := writeDoc(t, dir, "doc.md", "# T\n\nHello.\n")
-	srv, err := serve.NewEdit(doc)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = srv.Close() })
-	ts := httptest.NewServer(srv.Handler())
-	defer ts.Close()
-
-	if err := live().Write(pageserve.Entry{URL: ts.URL, Room: srv.Room, Page: doc, PID: os.Getpid()}); err != nil {
-		t.Fatal(err)
-	}
-
-	// The channel under test, on pipes instead of stdio.
-	clientOut, serverIn := io.Pipe()
-	serverOut, clientIn := io.Pipe()
-	ch := newChannel(dir, "") // scope = the doc's dir; self = no session id
-	// The FIRST scan attaches (run scans once before it ever sleeps); after
-	// that the interval is effectively infinite, so the re-arm this test
-	// asserts below can only come from the attach loop itself. Without this, a
-	// channel that detaches after every wake sneaks past: the deferred
-	// c.attached delete plus the next 100ms rescan re-attach it, and the
-	// second press is heard for the wrong reason. Verified by breaking attach
-	// to return after its first wake — red with this line, green without it.
-	ch.scanEvery = time.Hour
-	go func() { _ = ch.run(clientOut, clientIn) }()
-	defer func() { _ = serverIn.Close() }()
-
-	// Handshake, then wait for the attach: the editor's Waiting() going
-	// positive is the observable fact that the long-poll is armed.
-	if _, err := io.WriteString(serverIn, `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}`+"\n"); err != nil {
-		t.Fatal(err)
-	}
-	sc := bufio.NewScanner(serverOut)
-	sc.Buffer(make([]byte, 1<<20), 1<<24)
-	if !sc.Scan() {
-		t.Fatal("no handshake reply")
-	}
-	deadline := time.Now().Add(5 * time.Second)
-	for srv.Waiting() == 0 {
-		if time.Now().After(deadline) {
-			t.Fatal("the channel never attached — Waiting() stayed 0")
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-
-	// One reader for the test's whole life: a scanner can only be driven from
-	// one goroutine, and the re-arm half below needs a SECOND notification off
-	// the same stream.
-	got := make(chan map[string]any, 2)
-	go func() {
-		for sc.Scan() {
-			var m map[string]any
-			if json.Unmarshal(sc.Bytes(), &m) == nil && m["method"] == "notifications/claude/channel" {
-				got <- m
-			}
-		}
-	}()
-
-	press := func() {
-		t.Helper()
-		resp, err := http.Post(ts.URL+"/_galley/revise", "application/json", strings.NewReader(`{}`))
-		if err != nil {
-			t.Fatal(err)
-		}
-		_ = resp.Body.Close()
-	}
-	notification := func(when, instruction string) string {
-		t.Helper()
-		select {
-		case m := <-got:
-			params, _ := m["params"].(map[string]any)
-			meta, _ := params["meta"].(map[string]any)
-			content, _ := params["content"].(string)
-			if meta["reason"] != "revise" {
-				t.Errorf("%s: meta.reason = %v", when, meta["reason"])
-			}
-			if meta["doc"] == "" {
-				t.Errorf("%s: meta.doc missing: %v", when, meta)
-			}
-			if tok, _ := meta[channelmcp.MetaReport].(string); !reportToken.MatchString(tok) {
-				t.Errorf("%s: meta.report = %q, want the window's 16-hex token", when, tok)
-			}
-			for _, want := range []string{"Hello.", instruction} {
-				if !strings.Contains(content, want) {
-					t.Errorf("%s: captured instruction lost %q:\n%s", when, want, content)
-				}
-			}
-			if strings.Contains(content, "Run `galley pending") {
-				t.Errorf("%s: channel told the agent to discard the captured round:\n%s", when, content)
-			}
-			tok, _ := meta[channelmcp.MetaReport].(string)
-			return tok
-		case <-time.After(5 * time.Second):
-			t.Fatalf("%s: the press never became a notification", when)
-		}
-		return ""
-	}
-
-	instructAs(t, ts.URL, "Hello.", "Make the greeting warmer.")
-	press()
-	first := notification("first press", "Make the greeting warmer.")
-
-	// THE RE-ARM GUARANTEE, which is the channel's whole life: after a wake the
-	// attach loop must already be issuing its next poll, or the reviewer's
-	// SECOND press is refused as unheard. Waiting() going positive again is the
-	// observable fact that the re-armed poll registered — the same idiom as the
-	// initial attach above. A channel that detaches after every wake fails here.
-	deadline = time.Now().Add(5 * time.Second)
-	for srv.Waiting() == 0 {
-		if time.Now().After(deadline) {
-			t.Fatal("the channel never re-armed after the first wake — Waiting() stayed 0")
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	// The first press opened the agent's handoff window and nobody answered
-	// it, so the document is read-only to the reviewer. Taking it back files
-	// the round's instruction again, and the second press sends it.
-	resp, err := http.Post(ts.URL+"/_galley/handoff/cancel", "application/json", strings.NewReader("{}"))
-	if err != nil {
-		t.Fatalf("cancel handoff before the second instruction: %v", err)
-	}
-	_ = resp.Body.Close()
-	if resp.StatusCode != http.StatusNoContent {
-		t.Fatalf("cancel handoff before the second instruction: resp=%v", resp)
-	}
-	press()
-	// The same words come back after the cancel, so the wake is told from the
-	// first by its report token: a channel that emitted the first wake twice
-	// would carry the first window's token.
-	if second := notification("second press", "Make the greeting warmer."); second == first {
-		t.Errorf("second press carried the first window's report token %q: the first wake was emitted twice", first)
-	}
-}
-
-// THE WHOLE SEAL CYCLE, THROUGH THE CHANNEL: approve → the channel DETACHES →
-// reopen → the channel attaches AGAIN → a revise wakes it.
-//
-// This is the one path no unit test can express, and the one the seal's design
-// rests on: reopen invents no discovery machinery, it simply RE-ADVERTISES the
-// registry entry the verdict withdrew, and the channel's own scan loop finds it
-// on its next interval. If the re-advertise and the scan ever disagree about
-// the entry's shape, the symptom is a channel that silently never comes back —
-// which is exactly what a reviewer would report as "the agent stopped hearing
-// me" with nothing in any log.
-func TestChannelIgnoresAnotherSessionsDocument(t *testing.T) {
-	t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
-	dir := t.TempDir()
-	doc := writeDoc(t, dir, "doc.md", "# T\n\nHello.\n")
-	srv, err := serve.NewEdit(doc)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = srv.Close() })
-	ts := httptest.NewServer(srv.Handler())
-	defer ts.Close()
-	if err := live().Write(pageserve.Entry{URL: ts.URL, Room: srv.Room, Page: doc, PID: os.Getpid(), Owner: "somebody-else"}); err != nil {
-		t.Fatal(err)
-	}
-	// somebody-else is still here: its channel is running (in this process,
-	// for the length of this test) and announces the session the way every
-	// `galley channel` does at startup.
-	if err := live().AnnounceSession("somebody-else"); err != nil {
-		t.Fatal(err)
-	}
-
-	ch := newChannel(dir, "me")
-	clientOut, serverIn := io.Pipe()
-	_, clientIn := io.Pipe()
-	go func() { _ = ch.run(clientOut, clientIn) }()
-	defer func() { _ = serverIn.Close() }()
-
-	time.Sleep(300 * time.Millisecond) // several scan intervals in test mode
-	if n := srv.Waiting(); n != 0 {
-		t.Fatalf("attached to another session's document: Waiting() = %d", n)
-	}
-}
-
-// Scope: an unowned entry OUTSIDE the root is not claimable.
-func TestChannelIgnoresADocumentOutsideItsScope(t *testing.T) {
-	t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
-	elsewhere := t.TempDir()
-	doc := writeDoc(t, elsewhere, "doc.md", "# T\n\nHello.\n")
-	srv, err := serve.NewEdit(doc)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = srv.Close() })
-	ts := httptest.NewServer(srv.Handler())
-	defer ts.Close()
-	if err := live().Write(pageserve.Entry{URL: ts.URL, Room: srv.Room, Page: doc, PID: os.Getpid()}); err != nil {
-		t.Fatal(err)
-	}
-
-	ch := newChannel(t.TempDir(), "") // scope is a different tree
-	clientOut, serverIn := io.Pipe()
-	_, clientIn := io.Pipe()
-	go func() { _ = ch.run(clientOut, clientIn) }()
-	defer func() { _ = serverIn.Close() }()
-
-	time.Sleep(300 * time.Millisecond)
-	if n := srv.Waiting(); n != 0 {
-		t.Fatalf("attached outside its scope: Waiting() = %d", n)
-	}
-}
 
 // channelInstructions must teach the unified verb grammar: reply by thread
 // key, approve (accept/resolve/sweep by target shape), decline (final, both
@@ -247,8 +28,6 @@ func TestApproveContentIsTerminal(t *testing.T) {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
-
-var _ = channelmcp.Handler{} // keep the import while the test file grows
 
 // A COUNT THAT COULD NOT BE READ IS NOT A ZERO.
 //
@@ -289,7 +68,7 @@ func TestTargetsCrossCodeSpansAndRefuseBackticks(t *testing.T) {
 // thread — that one is created by the first reply — read onto every thread,
 // and it sends an agent looking for a key that is already on the screen.
 func TestTheWakeCountsInstructions(t *testing.T) {
-	var wire waitWire
+	var wire serve.AgentWake
 	body := `{"reason":"revise","pending":{"instructions":[{"text":"one"},{"text":"two"}]}}`
 	if err := json.Unmarshal([]byte(body), &wire); err != nil {
 		t.Fatal(err)
@@ -446,11 +225,11 @@ func TestTheHandshakeCoreTeachesGalleyOpen(t *testing.T) {
 // An ack or approve with no document path says the path is missing, rather
 // than that no editor is running for the empty string.
 func TestAckAndApproveWithoutADocSayTheyNeedThePath(t *testing.T) {
-	t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
-	ch := newChannel(t.TempDir(), "")
+	isolate(t)
+	ch := pageserve.New(channelSpec(), pageserve.Identity{CWD: t.TempDir()}, pageserve.NewClient(serve.Live(), nil))
 	for _, tool := range []string{"galley_ack", "galley_approve"} {
 		for _, args := range []string{`{"state":"working","note":"on it"}`, `{"doc":""}`} {
-			_, err := ch.callTool(tool, json.RawMessage(args))
+			_, err := callTool(context.Background(), ch, tool, json.RawMessage(args))
 			want := tool + " needs the document path (doc)"
 			if err == nil || err.Error() != want {
 				t.Errorf("%s %s: err = %v, want %q", tool, args, err, want)

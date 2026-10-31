@@ -66,6 +66,7 @@
 // `galley edit`, neither of which CI has. `just layers` is the gate any change
 // to a surface, a card or a verb has to clear before it lands.
 
+import { served } from './gateserve.mjs';
 import { execFileSync, spawn } from 'node:child_process';
 import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -92,7 +93,6 @@ import { UNTRACKED_NOTE } from './sheet.ts';
 import { GUTTER_PX, unplacedSaid } from './rail.ts';
 
 const GALLEY = process.env.GALLEY || 'bin/galley';
-const PORT = Number(process.env.PORT || 8252);
 const WIDE = { width: 1600, height: 1100 };
 // Split so §8 can say WHICH selector came back dead, and so a selector that
 // matches nothing is a named failure rather than a silent subtraction from a
@@ -302,7 +302,7 @@ const FIGURE_LABEL = 'a figure with a caption';
 // nothing else in this pass changes shape for it.
 const server = spawn(
   GALLEY,
-  ['edit', DOC, '--no-open', '--port', String(PORT), '--on-revise', 'true'],
+  ['edit', DOC, '--no-open', '--on-revise', 'true'],
   {
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: true,
@@ -355,21 +355,7 @@ const { chromium } = await (async () => {
   return import('playwright-core');
 })();
 
-await new Promise((resolve, reject) => {
-  const started = Date.now();
-  const poll = async () => {
-    try {
-      const res = await fetch(`http://127.0.0.1:${PORT}/`);
-      if (res.ok) return resolve();
-    } catch {
-      // Not up yet.
-    }
-    if (Date.now() - started > 20000)
-      return reject(new Error('server never came up'));
-    setTimeout(poll, 250);
-  };
-  poll();
-});
+const { base: BASE, url } = await served(server);
 
 // --- the round the reviewer has already filed --------------------------------
 //
@@ -377,7 +363,6 @@ await new Promise((resolve, reject) => {
 // section below ever measures, and a gate whose fixture is half there reads
 // "nothing overflows", "no card is adrift" and "the region holds nothing" as
 // passes.
-const BASE = `http://127.0.0.1:${PORT}`;
 const instruct = async (body) => {
   const res = await fetch(`${BASE}/_galley/instruct`, {
     method: 'POST',
@@ -490,7 +475,7 @@ const browser = await chromium.launch(
 );
 const page = await browser.newPage({ viewport: WIDE });
 page.on('pageerror', (e) => console.log(`      [page error] ${e.message}`));
-await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+await page.goto(url, { waitUntil: 'networkidle' });
 await page.waitForSelector('.gly-rail-band .gly-card', { timeout: 15000 });
 await page.waitForTimeout(1500);
 
@@ -1696,7 +1681,7 @@ await page.waitForTimeout(300);
 // counted.
 const takeBack = (key) =>
   page.evaluate(async (k) => {
-    await fetch('/_galley/instruction/delete', {
+    await fetch('_galley/instruction/delete', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ key: k }),
@@ -1803,7 +1788,7 @@ const takeBack = (key) =>
   const GROWN = 'say who this handoff is for:\n\nthe reviewer,\nor the agent';
   await page.evaluate(
     async ({ k, text }) => {
-      await fetch('/_galley/instruct', {
+      await fetch('_galley/instruct', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ op: 'edit', key: k, text, author: 'court' }),
@@ -1921,7 +1906,7 @@ const takeBack = (key) =>
   const resting = await paint();
   const filed = await page.evaluate(
     async (k) => {
-      const r = await fetch('/_galley/instruct', {
+      const r = await fetch('_galley/instruct', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -3723,7 +3708,7 @@ console.log('\n--- §9 · the rail speaks one card language ---');
   // askRevise), and this block is not a check about that menu — motion.mjs
   // drives it. What matters here is the state the page ends up in.
   const asked = await page.evaluate(async () => {
-    const res = await fetch('/_galley/revise', {
+    const res = await fetch('_galley/revise', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: '{}',
@@ -6196,7 +6181,7 @@ const placeComposer = (nth = 0) =>
   // fixture that then sealed with nothing entrusted and took every else branch
   // below for the rest of the run.
   const filed = await page.evaluate(() =>
-    fetch('/_galley/instruct', {
+    fetch('_galley/instruct', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -6249,7 +6234,7 @@ const placeComposer = (nth = 0) =>
   const livePaint = await paintOfSealed();
 
   await page.evaluate(() =>
-    fetch('/_galley/revise', {
+    fetch('_galley/revise', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ verdict: 'approve', trust: true }),
@@ -6295,7 +6280,7 @@ const placeComposer = (nth = 0) =>
   // reports the second population as `landing` now; both are read here, and
   // the bound is asserted rather than assumed.
   const handoff = await page.evaluate(async () => {
-    const st = await fetch('/_galley/revise').then((r) => r.json());
+    const st = await fetch('_galley/revise').then((r) => r.json());
     return {
       verdict: st.verdict,
       entrusted: st.entrusted,

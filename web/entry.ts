@@ -151,7 +151,7 @@ import { revealMark, coalesce, growthWatch, anchorNote } from './card.ts';
 import { VersionsPanel } from './versions.ts';
 // getJSON/postJSON own talking to the server; see web/net.ts's header for why
 // they cannot live in a mixin.
-import { getJSON } from './net.ts';
+import { getJSON, wsUrl } from './net.ts';
 // The verdict vocabulary — see web/verdict.ts's header. Not everything this
 // file exports is needed here; only what the constructor and the methods
 // that stayed in this file (the App shell itself, not a mixin) read.
@@ -598,7 +598,7 @@ function init(opts?: { room?: string; wsURL?: string }): void {
   // `getAttribute`'s return type, not a behaviour change to anything a real
   // page load can reach.
   const room = (opts && opts.room) || mount.getAttribute('data-room') || '';
-  const wsURL = (opts && opts.wsURL) || defaultWsURL();
+  const wsURL = (opts && opts.wsURL) || wsUrl();
 
   // PAGE MODE, read HERE so the shell-marker extension is only ever installed
   // for a page-backed review. The shell writes data-page-mode="1" onto the
@@ -718,11 +718,6 @@ function init(opts?: { room?: string; wsURL?: string }): void {
 // carries, and `in` says so honestly instead of asserting it away.
 function isThread(t: ThreadLike): t is Thread {
   return 'key' in t;
-}
-
-function defaultWsURL(): string {
-  const scheme = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
-  return `${scheme}${window.location.host}/yjs`;
 }
 
 // keepPlace's own coordinates — see placeOf below for what each one means and

@@ -16,6 +16,7 @@
 // appears after you break it is a rule the reviewer meets as a bug.
 
 import type { NodeViewRenderer } from '@tiptap/core';
+import { apiUrl, routes } from './net.ts';
 
 // --- images ---
 
@@ -44,7 +45,7 @@ export function imageNodeView(
       dom.appendChild(chip());
     }
     const img = document.createElement('img');
-    // A relative src resolves against "/", which is where the shell is served,
+    // A relative src resolves against the shell's <base>, this document's own,
     // and serveSibling answers it from beside the document.
     img.src = src;
     img.alt = node.attrs.alt || '';
@@ -98,7 +99,7 @@ function loadMermaid(): Promise<MermaidModule> {
   if (!mermaidLoad) {
     mermaidLoad = new Promise((resolve, reject) => {
       const s = document.createElement('script');
-      s.src = '/_galley/mermaid.js';
+      s.src = apiUrl(routes.mermaid);
       s.onload = () => {
         const mod = window.galleyMermaid;
         if (mod && 'default' in mod) {

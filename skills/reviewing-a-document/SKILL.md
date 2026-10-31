@@ -9,7 +9,7 @@ galley is a document two parties revise in rounds. The reviewer reads a draft in
 
 ## Starting a review
 
-**A review does not exist until an editor is running, and you start one with the `galley_open` tool.** Call it with the document's path. It starts the editor for this session, in the background, and opens the page in the human's browser. From then on their Revise rounds arrive here as events. It returns the URL too: give it to the human if they closed the tab. Calling it again for the same document returns the same URL, unless another session owns it, and opens the page again only when no tab shows it; if that document's review has ended, it stops the old editor and starts a fresh review. To review an approved document again, call `galley_open` again.
+**A review does not exist until a document is open, and you open one with the `galley_open` tool.** Call it with the document's path. It adds the document to galley's one server for this session, starting the server if it is not running, and opens the page in the human's browser. From then on their Revise rounds arrive here as events. It returns the URL too, signed in, so it works in any browser: give it to the human if they closed the tab. Calling it again for the same document returns the same URL and opens the page again only when no tab shows it. If another live session owns the document, it is refused as theirs. If the session that opened it has gone, the document becomes yours. If that document's review has ended, a fresh review replaces it. To review an approved document again, call `galley_open` again.
 
 `galley_open` accepts HTML files too. For `page.html` it extracts the prose into `.galley/pages/<base>/content.md`, opens the editor on that file, and re-renders the page after every round. The agent edits `content.md` — not `page.html` directly.
 
@@ -88,8 +88,8 @@ An edit you make to the file outside a round is recorded as a version, so the re
 
 - **`approve`** — the reviewer approved the document as it stands. The review is over.
 - **`changed`** — re-read the document before doing anything else.
-- **`closed`** — the editor is gone; nobody is waiting.
-- **Silence when you expect a round** — call `galley_channel_status`. It lists which open documents this session is attached to, and why any others are not.
+- **`closed`** — the document left the server; nobody is waiting. A server restart is not this: every open document comes back by itself, with its unsent work, and no event is sent.
+- **Silence when you expect a round** — call `galley_channel_status`. It lists which open documents reach this session, whether anything of this session is waiting on them, and why any others do not.
 
 ## Sharing an approved document
 

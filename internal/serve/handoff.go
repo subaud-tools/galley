@@ -18,7 +18,6 @@ import (
 
 	"github.com/reearth/ygo/crdt"
 	"github.com/subaud-tools/galley/internal/docmodel"
-	"github.com/subaud-tools/galley/internal/markdown"
 	"github.com/subaud-tools/galley/internal/ondisk"
 	"github.com/subaud-tools/galley/internal/review"
 	"github.com/subaud-tools/galley/internal/suggest"
@@ -567,7 +566,7 @@ func (s *EditServer) loadDraft(l handoffLease) (string, bool, error) {
 	// thread is opened for either. The reviewer's own
 	// comments are untouched: their words are in pending.json, and the ID
 	// marks the agent kept place them.
-	model, _, err := markdown.Parse(raw)
+	model, err := parseOutside(raw)
 	if err != nil {
 		return "", false, err
 	}

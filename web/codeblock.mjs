@@ -48,16 +48,12 @@
 // chromium` once, or GALLEY_CHROME=<executable>. It is in `just gates` beside
 // the other five, and a step of its own in ci.yml.
 
+import { served } from './gateserve.mjs';
 import { spawn } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import {
-  check as kitCheck,
-  counts,
-  launchOrSkip,
-  until,
-} from './build/probe.mjs';
+import { check as kitCheck, counts, launchOrSkip } from './build/probe.mjs';
 // THE GATE READS THE APP'S OWN CONSTANT, not a copy of it — rounds-ux.mjs's
 // discipline for CAPTURE_LABEL, and the reason is the same: the deny line's
 // wording is a product decision recorded in one place, and a check that
@@ -69,8 +65,6 @@ const GALLEY = process.env.GALLEY || 'bin/galley';
 // is stopped and a second is started on the same file. A single port would
 // bind again a second later, which is exactly the shape that makes a run
 // intermittently talk to a socket the kernel has not finished releasing.
-const PORT = Number(process.env.PORT || 8264);
-const REOPEN_PORT = PORT + 1;
 
 // THE FIXTURE. A heading, prose, ONE top-level fence, prose — the fence sits a
 // couple of hundred pixels down the page on purpose, so the rail card's
@@ -104,13 +98,12 @@ writeFileSync(doc, FIXTURE);
 
 // EVERY SERVER THIS GATE STARTS IS REMEMBERED, because it starts two and the
 // second one only exists after the first is dead. A leaked `galley edit` holds
-// the port and the next run measures somebody else's document (undo.mjs
-// records that afternoon).
+// its document open.
 const running = [];
-const start = (port) => {
+const start = () => {
   const proc = spawn(
     GALLEY,
-    ['edit', doc, '--no-open', '--port', String(port), '--on-revise', 'true'],
+    ['edit', doc, '--no-open', '--on-revise', 'true'],
     { stdio: ['ignore', 'pipe', 'pipe'] },
   );
   let said = '';
@@ -123,11 +116,11 @@ const start = (port) => {
     // SIGTERM is our own clean shutdown between phases, and a graceful exit
     // reports code 0 / signal null — neither is a crash, so neither prints.
     if (signal !== 'SIGTERM' && code !== 0) {
-      console.log(`      [server ${port} exited] ${code} ${said.trim()}`);
+      console.log(`      [server exited] ${code} ${said.trim()}`);
     }
   });
   running.push(proc);
-  return proc;
+  return served(proc);
 };
 
 let browser = null;
@@ -152,19 +145,6 @@ process.on('exit', () => {
   }
 });
 
-// WAIT FOR THE SERVER TO ANSWER, not for a clock. Polling `/` is what page.mjs
-// does; the difference here is that it runs twice, once per server, so it is a
-// function rather than a block.
-const up = async (port) => {
-  if (
-    !(await until(
-      async () => (await fetch(`http://127.0.0.1:${port}/`)).ok,
-      20000,
-    ))
-  )
-    throw new Error(`server on ${port} never came up`);
-};
-
 const chromePath = process.env.GALLEY_CHROME;
 // Wide enough that the rail is beside the document rather than under it — the
 // card's placement beside the fence is one of the claims, and a narrow window
@@ -181,19 +161,17 @@ const VIEWPORT = { width: 1400, height: 1000 };
 // is not a page this gate can read. (The gates' newPage/goto/wait sequence is
 // five lines the dupes ratchet correctly reports as a clone; undo.mjs's rule
 // applies — the answer to a clone is to not write it, not to raise a bound.)
-const open = async (port) => {
+const open = async ({ url }) => {
   const page = await browser.newPage({ viewport: VIEWPORT });
-  page.on('pageerror', (crash) =>
-    console.log(`      [page ${port}] ${crash.message}`),
-  );
-  await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'networkidle' });
+  page.on('pageerror', (crash) => console.log(`      [page] ${crash.message}`));
+  await page.goto(url, { waitUntil: 'networkidle' });
   await page.locator('.ProseMirror pre').first().waitFor({ timeout: 15000 });
   await page.waitForTimeout(1200);
   return page;
 };
 
-const pendingOn = async (port) =>
-  await (await fetch(`http://127.0.0.1:${port}/_galley/pending`)).json();
+const pendingOn = async ({ base }) =>
+  await (await fetch(`${base}/_galley/pending`)).json();
 
 // The fence's own BlockRef, out of the server's block list. The key is a
 // content hash and nothing in the browser (or in this gate) can compute one, so
@@ -225,17 +203,16 @@ const selectInFence = (page, want) =>
     editor.view.focus();
   }, want);
 
-start(PORT);
-await up(PORT);
+const first = await start();
 browser = await launchOrSkip({
   required: true,
   ...(chromePath ? { executablePath: chromePath } : {}),
 });
-const page = await open(PORT);
+const page = await open(first);
 
 // --- §1 the fence is one addressable block ------------------------------
 
-const ref = fenceRef(await pendingOn(PORT));
+const ref = fenceRef(await pendingOn(first));
 check(
   'the server offers the fence as an addressable block with a key',
   !!ref && !!ref.key && ref.kind === 'codeBlock',
@@ -419,7 +396,7 @@ await page.waitForTimeout(600);
   );
 }
 
-const filed = await pendingOn(PORT);
+const filed = await pendingOn(first);
 {
   const list = filed.instructions || [];
   const one = list.length === 1 ? list[0] : null;
@@ -541,19 +518,18 @@ await new Promise((r) => setTimeout(r, 1500));
   );
 }
 
-start(REOPEN_PORT);
-await up(REOPEN_PORT);
+const second = await start();
 browser = await launchOrSkip({
   required: true,
   ...(chromePath ? { executablePath: chromePath } : {}),
 });
-const reopened = await open(REOPEN_PORT);
+const reopened = await open(second);
 await reopened.waitForSelector('.gly-rail-band .gly-thread', {
   timeout: 10000,
 });
 
 {
-  const view = await pendingOn(REOPEN_PORT);
+  const view = await pendingOn(second);
   const again = fenceRef(view);
   const list = view.instructions || [];
   const one = list.length === 1 ? list[0] : null;

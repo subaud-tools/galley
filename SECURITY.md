@@ -15,7 +15,9 @@ galley is a local tool. It runs on your machine, serves a review page on `127.0.
 **Most valuable, in order:**
 
 1. **Document corruption or data loss** — galley writes to files you asked it to review. A path that loses an author's words, writes outside the document's directory, or corrupts a document on a save is a serious bug even when nobody is attacking.
-2. **The local server** — the review page is bound to loopback. Anything that exposes it beyond the machine, lets another local process drive somebody else's review, or executes content from a document is in scope. Note that `--on-revise` and `--on-settle` run a shell command **by design**, configured by whoever launched the editor; that is a feature, not a finding.
+2. **The local server** — one `galley serve` per machine holds every open review on one loopback port. Every route and the editor's websocket need the server's token: the address galley opens carries it once, and the browser then holds it in a cookie. Anything that exposes the server beyond the machine, reaches a review without the token, lets another local process drive somebody else's review, or executes content from a document is in scope. Note that `--on-revise` and `--on-settle` run a shell command **by design**, configured by whoever opened the document; that is a feature, not a finding.
+
+An HTML page under review runs its own scripts, on the server's origin, so that its preview renders as the real page does. Those scripts can therefore reach every review open on the server, not only their own. Review only HTML pages you trust. That a page under review can read and change other open reviews is known and out of scope. Running commands, opening other files, stopping the server or taking an agent's wakes from a page under review stay in scope.
 
 galley has no license key, no gate, and no signing key: it is free under 25 people and licensed by one-time purchase above that, enforced by the license terms rather than by any technical control. There is therefore no "licence forgery" or "gate bypass" surface — the binary never verifies a key and never withholds a feature.
 

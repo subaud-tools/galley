@@ -44,7 +44,7 @@ func TestOfflinePendingKeepsEveryLine(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp, err := http.Post(ts.URL+"/_galley/instruct", "application/json", bytes.NewReader(raw))
+	resp, err := serverClient.Post(ts.URL+"/_galley/instruct", "application/json", bytes.NewReader(raw))
 	if err != nil {
 		t.Fatal(err)
 	}

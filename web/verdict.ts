@@ -43,7 +43,7 @@
 
 import { censusCounts } from './rail.ts';
 import type { PendingThread } from './rail.ts';
-import { getJSON, postJSON } from './net.ts';
+import { getJSON, postJSON, routes } from './net.ts';
 import { runFor } from './runs.ts';
 import { arrivalMessage, queueArrivals, holdLabel } from './arrivals.ts';
 import { BACK_TO_DRAFT } from './versions.ts';
@@ -548,7 +548,7 @@ export const verdictMethods = {
     // at because this press just wrote to it ('approving…' / 'requesting a
     // revision…'). A caller of `postVerdict` cannot await it without going
     // async itself for no benefit — the click handler already returned.
-    void postJSON('/_galley/revise', body)
+    void postJSON(routes.revise, body)
       .then((res) => {
         if (res.status === 204) {
           if (approving) {
@@ -750,7 +750,7 @@ export const verdictMethods = {
   },
 
   readRevise(this: AppShell) {
-    return getJSON<ReviseWatchView>('/_galley/revise')
+    return getJSON<ReviseWatchView>(routes.revise)
       .then((d) => {
         if (!d) {
           return;

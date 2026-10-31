@@ -318,7 +318,7 @@ func waitFor(baseURL, since string, timeout time.Duration) (waitResult, error) {
 	// NO client-side timeout. The server bounds every poll; a client that gave
 	// up first would report a perfectly live editor as a dead one, which is the
 	// one answer a waiting loop must never get wrong.
-	client := &http.Client{}
+	client := serverClient
 
 	// The last fingerprint the editor reported, carried into the timeout
 	// message. A caller that set --timeout and got nothing still needs a cursor
@@ -352,6 +352,11 @@ func waitFor(baseURL, since string, timeout time.Duration) (waitResult, error) {
 			_ = resp.Body.Close()
 			time.Sleep(waitBusyBackoff)
 			continue
+		}
+		if resp.StatusCode == http.StatusNotFound {
+			// The server has closed the document under this poll.
+			_ = resp.Body.Close()
+			return waitResult{}, errWaitStopped
 		}
 		var res waitResult
 		if err := decodeOK(resp, &res); err != nil {

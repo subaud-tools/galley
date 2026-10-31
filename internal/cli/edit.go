@@ -1,6 +1,6 @@
 // edit.go is the CLI surface for edit mode: `edit`, `pending`, `revise`. Live
-// via a running server's JSON endpoints when serve.FindRuntime finds one,
-// offline from the files otherwise.
+// through the server's JSON endpoints when it holds the document
+// (serve.FindRuntime), offline from the files otherwise.
 package cli
 
 import (
@@ -10,14 +10,13 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
@@ -72,7 +71,7 @@ type editFlags struct {
 func newEditFlags() (*flag.FlagSet, *editFlags) {
 	fs := flag.NewFlagSet("edit", flag.ContinueOnError)
 	v := &editFlags{
-		port:   fs.Int("port", 0, "port to listen on (default: a free one; the URL is printed and the registry carries it)"),
+		port:   fs.Int("port", 0, "port for the server, when this command starts it (default: the last one used, else a free one)"),
 		noOpen: fs.Bool("no-open", false, "do not open a browser"),
 		onRevise: fs.String("on-revise", "", "shell command that hands the round's instructions to an agent, "+
 			"run on demand (POST /_galley/revise, or the editor's Revise button)"),
@@ -82,216 +81,134 @@ func newEditFlags() (*flag.FlagSet, *editFlags) {
 		root: fs.String("root", "", "site root to serve preview assets from, for an HTML page (default: the page's own "+
 			"directory). Set it to the site root so a subpage's ../shared assets resolve in the preview "+
 			"as they do when the whole site is served from that root."),
-		owner: fs.String("owner", "", "session id that owns this editor — set by the channel's galley_open tool, "+
-			"never by hand. That session's channel must be live; the editor stops when it stops. "+
-			"Omit it for an editor that belongs to no session (a plain terminal)."),
+		owner: fs.String("owner", "", "session id that owns this document — set by the channel's galley_open tool, "+
+			"never by hand. That session's channel must be live; the document closes when it stops. "+
+			"Omit it for a document that belongs to no session (a plain terminal)."),
 	}
 	return fs, v
 }
 
+// runEdit is a client of the server: it starts the server if none is running,
+// registers the document, prints its address and stays until the document
+// closes. Ctrl-C, SIGTERM and SIGHUP (the terminal closing) close it. The owner's session, an approve and the
+// page's Done are the server's to act on; this process hears the document go.
 func runEdit(args []string, out, errw io.Writer) error {
 	fs, v := newEditFlags()
 	pos, err := splitPositional(fs, args, out)
 	if err != nil {
 		return err
 	}
-	port, noOpen, onRevise, onSettle, quiet, root, owner := v.port, v.noOpen, v.onRevise, v.onSettle, v.quiet, v.root, v.owner
-
-	if err := requireLiveOwner(*owner); err != nil {
+	// From 0.23.0 a channel opens documents on the server itself, so only an
+	// older one, still running since before the install, starts this with --owner.
+	if *v.owner != "" {
+		_, _ = fmt.Fprintln(errw, "galley edit --owner comes from a galley channel older than 0.23.0, which can't use this server; restart that agent session")
+	}
+	if err := requireLiveOwner(*v.owner); err != nil {
 		return err
 	}
-
-	srv, err := routeEdit(pos[0], *root)
+	abs, err := filepath.Abs(pos[0])
+	if err != nil {
+		return err
+	}
+	dir, err := os.Getwd()
 	if err != nil {
 		return err
 	}
 
-	logLine := func(line string) {
-		fmt.Printf("[%s] %s\n", time.Now().Format("15:04:05"), line)
+	if e, err := serve.Running(); err == nil && *v.port != 0 && e.Base != fmt.Sprintf("http://127.0.0.1:%d", *v.port) {
+		_, _ = fmt.Fprintf(errw, "galley serve is already running at %s; --port %d is not used\n", e.Base, *v.port)
 	}
-	// THE LOG IS ALWAYS WIRED, not only with --on-revise: it is where a file
-	// changed outside the editor is reported (loaded, kept aside, missing,
-	// unreadable), and galley#44 left no trace because nothing was listening.
-	srv.Log = logLine
-	if *onRevise != "" {
-		srv.OnRevise = *onRevise
-	}
-	// Wiring the notifier does NOT turn it on. Phase 1 refused to wire it at
-	// all, because capture mode's ratified contract was "nothing fires on its
-	// own" and setting --on-revise must not silently enrol anyone in
-	// settle-triggered notification. Phase 2a keeps that promise with a
-	// different mechanism: the notifier is configured here but the server only
-	// touches it in LIVE mode, and `on ask` — the default — is exactly phase
-	// 1's behaviour. A document that is never told to go live never fires.
-	//
-	// CONFIGURED, NOT REPLACED. NewEdit always makes one, because the notifier
-	// now holds the single "has the document moved since the agent last saw
-	// it" decision that a blocked `galley wait` rides — and pull needs no
-	// command at all. Assigning a fresh Notifier here would work, but it is the
-	// shape that quietly detaches every waiter, so the pattern is worth not
-	// setting.
-	srv.Notify.Quiet = *quiet
-	if *onSettle != "" {
-		srv.Notify.Command = *onSettle
-		srv.Notify.Log = logLine
-	}
-	// Whatever this document was carrying when it was opened is not news — not
-	// to an --on-settle command, and not to a `galley wait` that arms in the
-	// same second.
-	srv.SeedNotify()
-
-	// Reuse the port this document last served on so a restart does not 404 the
-	// reviewer's open tab (friction #5). Only when the reviewer did not pin one:
-	// an explicit --port is an instruction, not a default to override. A
-	// remembered port that is now taken falls back to a free one — the hint
-	// costs at most one failed bind, never a refusal to serve.
-	wantPort := *port
-	if wantPort == 0 {
-		if p, ok := live().LastPort(srv.MdPath); ok {
-			wantPort = p
+	client := pageserve.NewClient(serve.Live(), func() (pageserve.Entry, error) {
+		if *v.port != 0 {
+			return serve.Process().Start(pageserve.Executable(), *v.port)
 		}
-	}
-	ln, url, err := serve.Listen(fmt.Sprintf("127.0.0.1:%d", wantPort))
-	if err != nil && wantPort != 0 && *port == 0 {
-		ln, url, err = serve.Listen("127.0.0.1:0")
-	}
-	if err != nil {
-		return fmt.Errorf("listen: %w", err)
-	}
-	if addr, ok := ln.Addr().(*net.TCPAddr); ok {
-		live().SaveLastPort(srv.MdPath, addr.Port)
-	}
-	if err := announceEdit(srv, url, *owner); err != nil {
-		return fmt.Errorf("announce: %w", err)
-	}
-	defer withdrawEdit(srv)
-
-	// Approve is terminal for the review but not for the session: the editor
-	// keeps serving (Ctrl-C stops it, not the verdict), so only the registry
-	// entry — the channel's discovery surface — comes down, same as a normal
-	// shutdown's withdrawEdit but without touching the runtime file a still-live
-	// `galley pending`/`suggest` needs.
-	srv.OnApprove = func() {
-		_ = live().Remove(srv.Room)
-		fmt.Println("review approved — Ctrl-C to stop")
-	}
-
-	fmt.Printf("document  %s\n", srv.MdPath)
-	fmt.Printf("room      %s\n", srv.Room)
-	fmt.Printf("serving   %s\n", url)
-	for _, line := range editStartupLines(filepath.Base(srv.MdPath), *onRevise, *onSettle, *quiet) {
-		fmt.Println(line)
-	}
-	fmt.Println("\nEdits sync as you type. Ctrl-C to stop.")
-
-	if !*noOpen {
-		openBrowser(url)
-	}
-
-	httpSrv := &http.Server{
-		Handler:           srv.Handler(),
-		ReadHeaderTimeout: 10 * time.Second,
-	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
-	// DONE IS CTRL-C FROM THE PAGE, AND IT TAKES THE SAME PATH. The terminal
-	// bar's Done button POSTs /_galley/stop, which runs this hook — and this
-	// hook does exactly what the signal does: closes one channel the select
-	// below is already watching. A second shutdown sequence written for the
-	// endpoint would be a second ordering of release-waiters, wait-for-revision,
-	// flush, close, and the two would drift the first time either was touched.
-	//
-	// sync.OnceFunc because a double-press (or a press racing Ctrl-C) must not
-	// close a closed channel.
-	stopped := make(chan struct{})
-	srv.OnStop = sync.OnceFunc(func() {
-		fmt.Println("done — stopping the editor")
-		close(stopped)
+		return serve.Process().Ensure(pageserve.Executable())
 	})
 
-	// BIND THE EDITOR TO THE SESSION THAT OPENED IT. An editor is launched
-	// detached, so it outlives the call that started it — and, left alone,
-	// the SESSION too: an advert owned by a session that is gone is exactly
-	// the orphan the channel used to adopt and misroute. It no longer adopts
-	// (see channel.claim); instead the editor takes itself down when its
-	// session ends, so no orphan is left for anyone to answer.
-	//
-	// The session's liveness is its channel's presence (live().AnnounceSession
-	// / SessionLive). requireLiveOwner already proved it at startup, so an
-	// --owner here always binds; an editor with no owner has no session to die
-	// with and serves until Ctrl-C, as it always has.
-	if *owner != "" {
-		go watchOwnerSession(ctx, *owner, srv.OnStop)
-	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	defer stop()
 
-	errCh := make(chan error, 1)
-	go func() {
-		if err := httpSrv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			errCh <- err
+	var doc serve.OpenAnswer
+	if _, err := client.Do(ctx, http.MethodPost, "/api/docs", serve.OpenRequest{
+		Path: abs,
+		DocOptions: serve.DocOptions{
+			Owner: *v.owner, OnRevise: *v.onRevise, OnSettle: *v.onSettle, Quiet: *v.quiet, Root: *v.root, Dir: dir,
+		},
+	}, &doc); err != nil {
+		// The server's own sentence, without its status.
+		var refused *pageserve.StatusError
+		if errors.As(err, &refused) {
+			return errors.New(refused.Msg)
 		}
-	}()
-
-	select {
-	case err := <-errCh:
 		return err
-	case <-stopped:
-		return shutdownEdit(srv, httpSrv)
-	case <-ctx.Done():
-		return shutdownEdit(srv, httpSrv)
 	}
+
+	_, _ = fmt.Fprintf(out, "document  %s\n", doc.Page)
+	_, _ = fmt.Fprintf(out, "room      %s\n", doc.Room)
+	_, _ = fmt.Fprintf(out, "serving   %s\n", doc.URL)
+	for _, line := range editStartupLines(filepath.Base(doc.Page), *v.onRevise, *v.onSettle, *v.quiet) {
+		_, _ = fmt.Fprintln(out, line)
+	}
+	_, _ = fmt.Fprintln(out, "\nEdits sync as you type. Ctrl-C to stop.")
+	if !*v.noOpen {
+		openBrowser(doc.URL)
+	}
+
+	if holdDocument(ctx, client.Passive(), doc.ID, *v.owner, errw) {
+		_, _ = fmt.Fprintln(out, "the document was closed")
+		return nil
+	}
+	closeCtx, cancel := context.WithTimeout(context.Background(), closeWait)
+	defer cancel()
+	if _, err := client.Passive().Do(closeCtx, http.MethodDelete, "/api/docs/"+doc.ID, nil, nil); err != nil {
+		var refused *pageserve.StatusError
+		if !errors.As(err, &refused) || refused.Code != http.StatusNotFound {
+			return fmt.Errorf("closing %s: %w", doc.Page, err)
+		}
+	}
+	_, _ = fmt.Fprintf(out, "\n%s\n", doc.Page)
+	return nil
 }
 
-// shutdownEdit is the ONE orderly stop — reached by Ctrl-C, by SIGTERM, and by
-// the terminal bar's Done through EditServer.OnStop. The order of its four
-// steps is the whole of it, and each one is load-bearing; see the comments
-// inside.
-func shutdownEdit(srv *serve.EditServer, httpSrv *http.Server) error {
-	// BEFORE Shutdown, which waits for in-flight requests: a blocked
-	// GET /_galley/wait is an in-flight request, and one that would hold
-	// shutdown open for the whole grace period and then have its connection
-	// yanked. Releasing first lets every `galley wait` exit with an honest
-	// "the editor stopped" rather than a torn connection.
-	srv.ReleaseWaiters()
+// closeWait bounds the final flush a close waits for.
+const closeWait = 10 * time.Second
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	_ = httpSrv.Shutdown(shutdownCtx)
+// holdInterval is how often `galley edit` looks for its document.
+const holdInterval = 500 * time.Millisecond
 
-	// ReviseInFlight hands back a nil channel when nothing is running —
-	// never block on it unconditionally, only inside this branch where
-	// inFlight being true guarantees ch is the real, closeable one.
-	if ch, inFlight := srv.ReviseInFlight(); inFlight {
-		fmt.Println("\na revision is still running — waiting up to 5s for it to finish")
+// holdDocument waits for the document to leave the server, and reports true
+// when it has; false means ctx ended first. A stopped server is not a closed
+// document: it comes back holding it, so this keeps waiting, unless the owner's
+// session has gone too, when it would not come back.
+func holdDocument(ctx context.Context, client *pageserve.Client, id, owner string, errw io.Writer) bool {
+	t := time.NewTicker(holdInterval)
+	defer t.Stop()
+	saidGone := false
+	for {
 		select {
-		case <-ch:
-			fmt.Println("revision finished")
-		case <-time.After(reviseShutdownGrace):
-			// Not killed: the goroutine (and whatever shell command it
-			// started) keeps running as an orphan after this process
-			// exits. Silence would be worse than an honest "I don't know
-			// how this ends."
-			fmt.Println("revision still running — abandoning the wait; " +
-				"it will keep running after this process exits, but nothing here will see how it finishes")
+		case <-ctx.Done():
+			return false
+		case <-t.C:
+		}
+		var docs []serve.DocView
+		if _, err := client.Do(ctx, http.MethodGet, "/api/docs", nil, &docs); err != nil {
+			if ctx.Err() != nil {
+				return false
+			}
+			if owner != "" && !live().SessionLive(owner) {
+				return true
+			}
+			if !saidGone {
+				_, _ = fmt.Fprintf(errw, "galley serve is not answering (%v); waiting for it to come back\n", err)
+				saidGone = true
+			}
+			continue
+		}
+		saidGone = false
+		if !slices.ContainsFunc(docs, func(d serve.DocView) bool { return d.ID == id }) {
+			return true
 		}
 	}
-
-	// Flush synchronously: the debounced projection may still be pending,
-	// and the reviewer's (or agent's) last edit must not die with the
-	// process. Its error is fatal-with-message on purpose — a silently
-	// dropped final edit is worse than a loud one.
-	if err := srv.Flush(); err != nil {
-		return fmt.Errorf("final flush: %w", err)
-	}
-	// AFTER the flush, never before: Close drops the peer connections and
-	// stops the websocket server's idle sweeper, so anything still to be
-	// written must already be written.
-	if err := srv.Close(); err != nil {
-		fmt.Fprintf(os.Stderr, "shutdown: %v\n", err)
-	}
-	fmt.Printf("\n%s\n", srv.MdPath)
-	return nil
 }
 
 // editStartupLines reports how this session is configured to answer a Revise
@@ -364,84 +281,6 @@ func editStartupLines(mdBase, onRevise, onSettle string, quiet time.Duration) []
 	return lines
 }
 
-// reviseShutdownGrace bounds how long Ctrl-C waits for an in-flight revision
-// before reporting it abandoned. A few seconds, not the revision's own
-// unbounded runtime (see EditServer.handleRevise's "DELIBERATELY NO TIMEOUT"):
-// the operator asked to stop, and "wait an unknown number of minutes" is not
-// a reasonable answer to Ctrl-C.
-// routeEdit dispatches to the correct EditServer constructor based on the
-// file extension: .html and .htm open the page-backed editor via
-// serve.NewEditPage; every other extension (including .md) uses serve.NewEdit.
-func routeEdit(path, root string) (*serve.EditServer, error) {
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".html", ".htm":
-		if root != "" {
-			return serve.NewEditPageRoot(path, root)
-		}
-		return serve.NewEditPage(path)
-	default:
-		if root != "" {
-			return nil, fmt.Errorf("--root applies to an HTML page, not %s", filepath.Ext(path))
-		}
-		return serve.NewEdit(path)
-	}
-}
-
-const reviseShutdownGrace = 5 * time.Second
-
-// announceEdit and withdrawEdit write and remove the running editor's advert,
-// serve.Runtime at EditServer.RuntimePath (serve.DefaultRuntimePath), which is
-// how a plain `galley pending`/`wait`/`ack` finds the running server.
-func announceEdit(srv *serve.EditServer, url, owner string) error {
-	raw, err := json.MarshalIndent(serve.Runtime{
-		URL:   url,
-		Room:  srv.Room,
-		Page:  srv.MdPath,
-		PID:   os.Getpid(),
-		Owner: owner,
-	}, "", "  ")
-	if err != nil {
-		return err
-	}
-	if err := writeFileAtomic(srv.RuntimePath, append(raw, '\n')); err != nil {
-		return err
-	}
-	advertiseEdit(srv, url, owner)
-	return nil
-}
-
-// advertiseEdit writes THE registry entry. It is factored out of announceEdit
-// so a reopen, if one ever re-advertises, writes the same bytes startup does —
-// two spellings of one entry format would drift, and the drift would present
-// as a channel that silently never re-attaches.
-//
-// The live registry is the channel's discovery surface — see live.go.
-// Owner is --owner's value: the session whose channel asked for this editor,
-// or "" for an editor that belongs to no session and is claimable by any
-// channel whose root covers it. It is NEVER read from the environment here;
-// see requireLiveOwner. Best-effort: an editor that cannot advertise is still
-// an editor, so a registry failure is reported but does not refuse to serve.
-func advertiseEdit(srv *serve.EditServer, url, owner string) {
-	abs, err := filepath.Abs(srv.MdPath)
-	if err != nil {
-		abs = srv.MdPath
-	}
-	if err := live().Write(pageserve.Entry{
-		URL:   url,
-		Room:  srv.Room,
-		Page:  abs,
-		PID:   os.Getpid(),
-		Owner: owner,
-	}); err != nil {
-		fmt.Fprintf(os.Stderr, "galley: live registry: %v\n", err)
-	}
-}
-
-func withdrawEdit(srv *serve.EditServer) {
-	_ = os.Remove(srv.RuntimePath)
-	_ = live().Remove(srv.Room)
-}
-
 // requireLiveOwner is the whole of the ownership check: --owner names a
 // session, and that session must have a channel listening right now.
 //
@@ -462,50 +301,6 @@ func requireLiveOwner(owner string) error {
 		return fmt.Errorf("owner session %s has no live channel", owner)
 	}
 	return nil
-}
-
-// watchOwnerSession stops the editor once the session that opened it is gone,
-// calling the same orderly-stop hook Ctrl-C does (OnStop — which withdraws the
-// advert). It is the editor half of Option A: an editor belongs to exactly one
-// session and does not outlive it, so the channel never has an orphan to adopt.
-//
-// The check is DEBOUNCED. A channel can restart within a living session (the
-// MCP server re-spawns) and leave a brief gap where the presence file is
-// absent; taking the editor down on the first miss would kill a review over a
-// flicker. Requiring several consecutive misses waits out that gap while still
-// reaping an editor within seconds of its session actually ending — and the
-// only real cost of erring long is an orphan the channel already refuses to
-// touch, never a misroute.
-func watchOwnerSession(ctx context.Context, owner string, stop func()) {
-	// ~6s grace: enough to ride out a channel that restarts within a living
-	// session, short enough to reap the editor seconds after its session ends.
-	watchSession(ctx, owner, 2*time.Second, 3, stop)
-}
-
-// watchSession is watchOwnerSession's testable core: it calls stop once the
-// owner's presence has been missing for missesToStop consecutive polls. Split
-// out so a test can drive it at millisecond speed rather than the production
-// six-second grace.
-func watchSession(ctx context.Context, owner string, interval time.Duration, missesToStop int, stop func()) {
-	t := time.NewTicker(interval)
-	defer t.Stop()
-	misses := 0
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-t.C:
-			if live().SessionLive(owner) {
-				misses = 0
-				continue
-			}
-			misses++
-			if misses >= missesToStop {
-				stop()
-				return
-			}
-		}
-	}
 }
 
 // --- galley pending ---
@@ -788,7 +583,7 @@ type reviseStateView struct {
 }
 
 func reviseState(baseURL string) (reviseStateView, error) {
-	resp, err := http.Get(baseURL + "/_galley/revise")
+	resp, err := serverClient.Get(baseURL + "/_galley/revise")
 	if err != nil {
 		return reviseStateView{}, err
 	}
@@ -804,7 +599,7 @@ func reviseState(baseURL string) (reviseStateView, error) {
 }
 
 // errNoServer is TERMINAL, and says so, because the shape it is read in is a
-// retry loop. A review exists only while an editor is running, so every caller
+// retry loop. A review exists only while the server holds the document, so every caller
 // here — wait, ack, the edit-mode probes — is asking about something that does
 // not exist yet rather than something running late. Measured: an agent told
 // only "no server running" read it as transient and spun `galley wait` 360
@@ -816,17 +611,17 @@ func errNoServer(doc string) error {
 }
 
 // --- HTTP calls, factored out so they can be exercised against an
-// httptest.Server directly, with no runtime file and no subprocess. Each one
+// httptest.Server directly, with no server and no subprocess. Each one
 // is exactly the request; interpreting the response (success, fall back
 // offline, or surface the server's own error text) is the caller's job, the
 // same division runReply/runResolve in main.go already use. ---
 
 func getPendingHTTP(baseURL string) (*http.Response, error) {
-	return http.Get(baseURL + "/_galley/pending")
+	return serverClient.Get(baseURL + "/_galley/pending")
 }
 
 func postReviseHTTP(baseURL string) (*http.Response, error) {
-	return http.Post(baseURL+"/_galley/revise", "application/json", nil)
+	return serverClient.Post(baseURL+"/_galley/revise", "application/json", nil)
 }
 
 // decodeOK reads a 200 response's JSON body into v; a non-200 response is
@@ -842,10 +637,3 @@ func decodeOK(resp *http.Response, v any) error {
 	}
 	return json.NewDecoder(resp.Body).Decode(v)
 }
-
-// writeFileAtomic is internal/serve's WriteFileAtomic under the name every
-// caller in this file already uses. It is NOT a local copy any more: the
-// atomic write has to preserve the target's permission bits and write through
-// a symlink rather than replacing it, and two implementations of that would
-// drift the first time one of them was fixed.
-func writeFileAtomic(path string, raw []byte) error { return serve.WriteFileAtomic(path, raw) }

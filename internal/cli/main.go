@@ -3,15 +3,18 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"strings"
 
+	"github.com/subaud-tools/galley/internal/serve"
 	"github.com/subaud-tools/galley/internal/version"
 	tools "github.com/subaud-tools/tools-common"
 	"github.com/subaud-tools/tools-common/localweb"
+	"github.com/subaud-tools/tools-common/pageserve"
 )
 
 // about is galley's overview, shown by `galley help` above the generated
@@ -42,8 +45,8 @@ the room, push can spawn one — with the document and nothing else — and
 'galley agent-prompt' is the text that tells it what to do:
   galley edit doc.md --on-revise 'claude -p "$(galley agent-prompt doc.md)"'
 
-The channel is pull, packaged: it starts with the session, attaches to every
-editor this session opens — and any unowned one under its root — and delivers
+The channel is pull, packaged: it starts with the session, waits on every
+document this session opens — and any unowned one under its root — and delivers
 each Revise, settle and Approve into the session as an event. No listener to
 remember. In Claude Code it comes from galley's plugin; install it once, then
 start claude as usual:
@@ -148,9 +151,13 @@ func newApp() *tools.App {
 			"The hook is told a round arrived, NOT to go read `galley pending` — a sent\n" +
 			"round is no longer pending, so the woken agent runs `galley wait <doc>`,\n" +
 			"which prints the captured round it was woken by.\n\n" +
-			"--owner <session-id> binds the editor to a session whose channel is live: the\n" +
-			"channel's galley_open tool passes it, and the editor stops when that session\n" +
-			"ends. Without --owner the editor belongs to no session.\n\n" +
+			"Starts `galley serve` if it is not running and opens the document on it, prints\n" +
+			"its address and stays until the document closes. Ctrl-C closes the document and\n" +
+			"leaves the server. --port reaches the server only when this command starts it;\n" +
+			"a server already running elsewhere is said on stderr, and the document opens there.\n\n" +
+			"--owner <session-id> binds the document to a session whose channel is live: the\n" +
+			"channel's galley_open tool passes it, and the document closes when that session\n" +
+			"ends. Without --owner it belongs to no session.\n\n" +
 			"--on-revise example:\n" +
 			"  galley edit doc.md --on-revise 'muster send <alias> " +
 			"\"galley: revision requested — run: galley wait <doc>\" " +
@@ -277,32 +284,18 @@ func newApp() *tools.App {
 		Group:    "agent",
 		Summary:  "MCP channel server — pushes review wakes into the session",
 		Synopsis: "channel [--scope <dir>]",
-		Help: "An MCP channel server on stdio. It opens editors for this session through\n" +
-			"its galley_open tool and serves galley's other tools. Under pi it also\n" +
-			"attaches to every editor this session owns, plus\n" +
-			"any editor under --scope that no session owns at all, and pushes each\n" +
-			"Revise, settle, Approve — and the editor going away —\n" +
-			"into the session as an event. Every editor it does NOT attach to\n" +
-			"is reported with its reason, on stderr and through the\n" +
-			"galley_channel_status tool. Under Claude Code it serves the tools only:\n" +
-			"`galley watch`, which the galley plugin runs, delivers the events.\n",
+		Help: "An MCP channel server on stdio. It opens documents for this session through\n" +
+			"its galley_open tool, starting the server if needed, and serves galley's other\n" +
+			"tools. Under pi it also waits on the server for every document this session owns,\n" +
+			"plus any under --scope that no session owns at all, and pushes each Revise,\n" +
+			"settle, Approve — and a document going away — into the session as an event.\n" +
+			"The galley_channel_status tool says why any other open document does not reach it.\n" +
+			"Under Claude Code it serves the tools only: `galley watch`, which the galley plugin\n" +
+			"runs, delivers the events.\n",
 		NewFlags: func() *flag.FlagSet { fs, _ := newChannelFlags(); return fs },
 		Run:      runChannel,
 	})
-	app.Register(tools.Command{
-		Name:     "watch",
-		Group:    "agent",
-		Summary:  "print review wakes as JSON lines — the Claude Code plugin's feed",
-		Synopsis: "watch [--scope <dir>]",
-		Help: "Attaches to the editors `galley channel` would and prints each\n" +
-			"Revise, settle, Approve — and the editor going away — as one JSON line\n" +
-			"{\"text\": ..., \"content\": ..., \"meta\": {...}} on stdout. The galley plugin's\n" +
-			"mod runs it for a Claude Code session and starts a turn with each line's text.\n" +
-			"Diagnostics go to stderr. Runs until signalled. In a session pi's claude-bridge\n" +
-			"runs, it prints {\"stop\": ...} and exits 0.",
-		NewFlags: func() *flag.FlagSet { fs, _ := newScopeFlags("watch"); return fs },
-		Run:      runWatch,
-	})
+	app.Register(watchCommand())
 	app.Register(tools.Command{
 		Name:        "skills",
 		Group:       "agent",
@@ -319,6 +312,7 @@ func newApp() *tools.App {
 		NewFlags: newSkillsFlags,
 		Run:      runSkills,
 	})
+	app.Register(serveCommand())
 	app.Register(reportCommand())
 	// ledger dispatches its own sub-verbs; declaring them as Subcommands lets
 	// `galley ledger -h` show this help while `galley ledger sync -h` reaches
@@ -340,3 +334,33 @@ func openBrowser(url string) {
 	// stopping the server for.
 	_ = localweb.OpenBrowser(url)
 }
+
+// serveCommand is `galley serve`: pageserve's command over galley's server, in
+// the foreground with no flag and opening no browser, as its channel will start
+// it and galley_open opens the page.
+func serveCommand() tools.Command {
+	cmd := pageserve.Commands{
+		Spec:       pageserve.Spec{Tool: "galley"},
+		Process:    serve.Process(),
+		Group:      "review",
+		Foreground: true,
+		Serve: func(ctx context.Context, port int, errw io.Writer) error {
+			return serve.Run(ctx, serve.Options{
+				Port: port, Version: version.Version(), Exe: pageserve.Executable(), Sessions: live(), Log: errw,
+				Ready: func(url string) { _, _ = fmt.Fprintln(errw, url) },
+			})
+		},
+	}.ServeCommand(pageserve.Help{
+		Synopsis: "[--port N] [--stop]",
+		Summary:  "run the local server that holds every open document (one per machine), or stop it",
+		Long:     serveHelp,
+	})
+	cmd.Help = serveHelp
+	return cmd
+}
+
+const serveHelp = "Runs the review server in this process until it is stopped: one per machine, holding\n" +
+	"every open document behind one port and token. Open documents and the token are kept in\n" +
+	"its state folder, so a restart brings back each one whose owning session is still live.\n" +
+	"A document leaves when its owning session is gone, or once it is approved and no page\n" +
+	"holds it. Opens no browser and needs no network."

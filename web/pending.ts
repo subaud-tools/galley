@@ -13,7 +13,7 @@
 // `this` IS TYPED AGAINST `AppShell` (web/appshell.ts) — see that file's own
 // header for the this-typing decision this and every other mixin now shares.
 
-import { getJSON } from './net.ts';
+import { getJSON, routes } from './net.ts';
 import { runFor, markElement, runTop } from './runs.ts';
 import { flash } from './card.ts';
 import { verdictLabel } from './verdict.ts';
@@ -74,7 +74,7 @@ export const pendingMethods = {
     // tab that has since been closed, so the counter is read on every poll
     // rather than only after this page's own button was pressed.
     this.readRevise();
-    getJSON<SavedView>('/_galley/saved')
+    getJSON<SavedView>(routes.saved)
       .then((d) => {
         if (d && d.saved && d.saved !== this.savedMs) {
           this.savedMs = d.saved;
@@ -82,7 +82,7 @@ export const pendingMethods = {
         }
       })
       .catch(() => {});
-    getJSON<RevView>('/_galley/rev')
+    getJSON<RevView>(routes.rev)
       .then((d) => {
         if (!d) {
           return;
@@ -106,7 +106,7 @@ export const pendingMethods = {
   },
 
   refreshPending(this: AppShell): Promise<void> {
-    return getJSON<PendingView>('/_galley/pending')
+    return getJSON<PendingView>(routes.pending)
       .then((view) => {
         if (!view) {
           return;

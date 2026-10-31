@@ -150,9 +150,9 @@ jobs:
       - name: Build
         run: just build
 
-      # ONE AT A TIME, and that is not caution — they bind fixed ports (8258 and
-      # neighbours) and running two at once produces failures that look exactly
-      # like regressions. Two agents lost time to that in one day.
+      # ONE AT A TIME: each run has a server and state folder of its own
+      # (web/gateserve.mjs), but the timings are chromium's, and chromium is
+      # sensitive to load.
       #
       # Each names what it protects, so a red check in the PR list says which
       # promise broke without anyone opening the log. That naming is why these
@@ -240,6 +240,14 @@ jobs:
       # the page's pill and Revise button must both show what the step expects.
       - name: Gate — a Revise walks its whole lifecycle
         run: node web/revise.mjs
+        env:
+          GALLEY: ${{ github.workspace }}/bin/galley
+
+      # A SERVER RESTART MID-REVISE LOSES NOTHING. Two pages on the real server:
+      # both tabs reload by themselves, the unsent comment, the hand edit and
+      # the open Revise are all still there, and the agent's answer lands.
+      - name: Gate — a restart mid-Revise loses nothing
+        run: node web/restart.mjs
         env:
           GALLEY: ${{ github.workspace }}/bin/galley
 

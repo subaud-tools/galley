@@ -311,8 +311,7 @@ func TestEditRefusesASymlinkedDirectoryComponent(t *testing.T) {
 
 // The figure route is a GET, so guard — which requires POST and a JSON body —
 // cannot apply to it. But guard's own reasoning ("THE THREAT IS AN ORDINARY
-// WEB PAGE; galley listens on 127.0.0.1 with no authentication") is about
-// reads too, and nothing here reflected it.
+// WEB PAGE") is about reads too, and nothing here reflected it.
 //
 // An attacker cannot read the bytes: there is no CORS header and canvas taint
 // blocks pixel extraction. What they get is a cross-origin EXISTENCE-AND-

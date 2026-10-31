@@ -2,9 +2,8 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/subaud-tools/galley/internal/serve"
 	"github.com/subaud-tools/galley/internal/versions"
+	"github.com/subaud-tools/tools-common/pageserve"
 )
 
 // ONE PROTOCOL, TWO CARRIERS, ONE TEST. The CLI's --changes and the MCP
@@ -22,11 +22,11 @@ import (
 func TestBothCarriersLandTheSameManifest(t *testing.T) {
 	for _, carrier := range []struct {
 		name string
-		send func(t *testing.T, ch *channel, baseURL, doc string, changes []AckChange)
+		send func(t *testing.T, ch *pageserve.Channel, baseURL, doc string, changes []AckChange)
 	}{
 		{
 			name: "cli",
-			send: func(t *testing.T, _ *channel, baseURL, _ string, changes []AckChange) {
+			send: func(t *testing.T, _ *pageserve.Channel, baseURL, _ string, changes []AckChange) {
 				t.Helper()
 				if err := postAck(baseURL, "answered", "bounded the budget", changes); err != nil {
 					t.Fatal(err)
@@ -35,7 +35,7 @@ func TestBothCarriersLandTheSameManifest(t *testing.T) {
 		},
 		{
 			name: "mcp",
-			send: func(t *testing.T, ch *channel, _, doc string, changes []AckChange) {
+			send: func(t *testing.T, ch *pageserve.Channel, _, doc string, changes []AckChange) {
 				t.Helper()
 				args, err := json.Marshal(map[string]any{
 					"doc": doc, "state": "answered", "note": "bounded the budget", "changes": changes,
@@ -43,7 +43,7 @@ func TestBothCarriersLandTheSameManifest(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if _, err := ch.callTool("galley_ack", args); err != nil {
+				if _, err := callTool(context.Background(), ch, "galley_ack", args); err != nil {
 					t.Fatal(err)
 				}
 			},
@@ -53,21 +53,13 @@ func TestBothCarriersLandTheSameManifest(t *testing.T) {
 			t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
 			dir := t.TempDir()
 			doc := writeDoc(t, dir, "doc.md", "# Title\n\nThe budget should stay explicit.\n")
-			srv, err := serve.NewEdit(doc)
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() { _ = srv.Close() })
-			srv.OnRevise = "true"
-			ts := httptest.NewServer(srv.Handler())
-			defer ts.Close()
-			advertise(t, doc, ts.URL, srv.Room)
+			base := openOnServer(t, doc, serve.DocOptions{OnRevise: "true"}).URL
 
 			// The reviewer asks, and presses.
-			postJSON(t, ts.URL+"/_galley/instruct", map[string]any{
+			postJSON(t, base+"/_galley/instruct", map[string]any{
 				"op": "comment", "target": "budget", "text": "bound it", "author": "court",
 			})
-			postJSON(t, ts.URL+"/_galley/revise", map[string]any{})
+			postJSON(t, base+"/_galley/revise", map[string]any{})
 			store := versions.Open(doc)
 			asked := list(t, store)
 			if len(asked) != 2 || len(asked[1].Asks) != 1 {
@@ -81,7 +73,7 @@ func TestBothCarriersLandTheSameManifest(t *testing.T) {
 			}
 			waitForImport(t, doc, "12 attempts")
 
-			carrier.send(t, newChannel(dir, ""), ts.URL, doc, []AckChange{
+			carrier.send(t, sessionChannel("", dir), base, doc, []AckChange{
 				{Quote: "of 12 attempts", Answers: []string{key}, Note: "Bounded the budget."},
 				{Quote: "a sentence nobody wrote", Answers: []string{key}, Note: "Fabricated."},
 			})
@@ -118,26 +110,13 @@ func TestChangesFlagRefusesWhatItCannotParse(t *testing.T) {
 	}
 }
 
-// advertise writes the <doc>.serve.json a local tool finds a running editor
-// through — the door FindRuntime opens, and so the door the MCP carrier takes.
-func advertise(t *testing.T, doc, url, room string) {
-	t.Helper()
-	raw, err := json.Marshal(serve.Runtime{URL: url, Room: room, Page: doc, PID: os.Getpid()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(serve.DefaultRuntimePath(doc), raw, 0o644); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func postJSON(t *testing.T, url string, body any) {
 	t.Helper()
 	raw, err := json.Marshal(body)
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp, err := http.Post(url, "application/json", bytes.NewReader(raw))
+	resp, err := serverClient.Post(url, "application/json", bytes.NewReader(raw))
 	if err != nil {
 		t.Fatal(err)
 	}

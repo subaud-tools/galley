@@ -43,6 +43,7 @@
 // chromium` once, or GALLEY_CHROME=<executable>. There is a `just page`
 // recipe, and it is in `just gates` beside the other four.
 
+import { served } from './gateserve.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import {
   appendFileSync,
@@ -57,7 +58,6 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const GALLEY = process.env.GALLEY || 'bin/galley';
-const PORT = Number(process.env.PORT || 8262);
 const HERE_DIR = dirname(fileURLToPath(import.meta.url));
 
 // The fixture is one of the launch pages (internal/htmlpage/testdata) — a real
@@ -198,14 +198,10 @@ writeFileSync(JOURNAL, '');
 // Shell regions always land as ⟦ shell N ⟧ markers in content.md, so this gate
 // asserts the same shape on any machine: markers in content.md, never
 // screenshots.
-const server = spawn(
-  GALLEY,
-  ['edit', PAGE, '--no-open', '--port', String(PORT)],
-  {
-    stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env },
-  },
-);
+const server = spawn(GALLEY, ['edit', PAGE, '--no-open'], {
+  stdio: ['ignore', 'pipe', 'pipe'],
+  env: { ...process.env },
+});
 let serverSaid = '';
 for (const stream of [server.stdout, server.stderr]) {
   stream.on('data', (b) => {
@@ -213,7 +209,8 @@ for (const stream of [server.stdout, server.stderr]) {
   });
 }
 server.on('exit', (code, signal) => {
-  if (signal === 'SIGTERM') {
+  // A SIGTERM ends `galley edit` gracefully, with code 0: this gate's own shutdown.
+  if (signal === 'SIGTERM' || code === 0) {
     return;
   }
   console.log(
@@ -244,9 +241,7 @@ process.on('exit', () => {
   }
 });
 
-const base = `http://127.0.0.1:${PORT}`;
-if (!(await poll(async () => (await fetch(`${base}/`)).ok, 20000)))
-  throw new Error('server never came up');
+const { base, url } = await served(server);
 
 const journal = () =>
   readFileSync(JOURNAL, 'utf8')
@@ -264,7 +259,7 @@ browser = await launchOrSkip({
 });
 const page = await browser.newPage({ viewport: { width: 1400, height: 1000 } });
 page.on('pageerror', (e) => console.log(`      [page error] ${e.message}`));
-await page.goto(`${base}/`, { waitUntil: 'networkidle' });
+await page.goto(url, { waitUntil: 'networkidle' });
 await page.waitForSelector('.ProseMirror', { timeout: 15000 });
 await page.waitForTimeout(1000);
 await page.click('.ProseMirror');

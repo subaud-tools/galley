@@ -77,6 +77,7 @@
 // livestructure` recipe, it is in `just gates`, and it is a step of its own in
 // ci.yml.
 
+import { served, serverLog } from './gateserve.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import {
   appendFileSync,
@@ -89,7 +90,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const GALLEY = process.env.GALLEY || 'bin/galley';
-const PORT = Number(process.env.PORT || 8268);
 
 // THE FIXTURE IS WRITTEN HERE RATHER THAN COPIED FROM testdata. This gate
 // deletes named regions of it and counts what is left, so it needs a page whose
@@ -314,23 +314,19 @@ const reviewerWrite = (path, body) => {
 reviewerWrite(PAGE, FIXTURE);
 reviewerWrite(JOURNAL, '');
 
-const server = spawn(
-  GALLEY,
-  ['edit', PAGE, '--no-open', '--port', String(PORT)],
-  { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env } },
-);
-// THE WHOLE LOG IS KEPT, NOT A TAIL. galley announces each reload on stderr
-// ("was restructured — the editor reloads on N bytes"), and §5's no-churn claim
-// counts those announcements across the run — a truncated buffer would make the
-// count drift as the run got noisier.
+const server = spawn(GALLEY, ['edit', PAGE, '--no-open'], {
+  stdio: ['ignore', 'pipe', 'pipe'],
+  env: { ...process.env },
+});
 let serverSaid = '';
 for (const stream of [server.stdout, server.stderr]) {
   stream.on('data', (b) => {
-    serverSaid += b;
+    serverSaid = (serverSaid + b).slice(-8000);
   });
 }
 server.on('exit', (code, signal) => {
-  if (signal === 'SIGTERM') {
+  // A SIGTERM ends `galley edit` gracefully, with code 0: this gate's own shutdown.
+  if (signal === 'SIGTERM' || code === 0) {
     return;
   }
   console.log(
@@ -361,9 +357,7 @@ process.on('exit', () => {
   }
 });
 
-const base = `http://127.0.0.1:${PORT}`;
-if (!(await poll(async () => (await fetch(`${base}/`)).ok, 20000)))
-  throw new Error('server never came up');
+const { base, url } = await served(server);
 
 const journal = () =>
   readFileSync(JOURNAL, 'utf8')
@@ -381,7 +375,7 @@ browser = await launchOrSkip({
 });
 const page = await browser.newPage({ viewport: { width: 1400, height: 1000 } });
 page.on('pageerror', (e) => console.log(`      [page error] ${e.message}`));
-await page.goto(`${base}/`, { waitUntil: 'networkidle' });
+await page.goto(url, { waitUntil: 'networkidle' });
 await page.waitForSelector('.ProseMirror', { timeout: 15000 });
 await page.waitForTimeout(1000);
 await page.click('.ProseMirror');
@@ -424,7 +418,7 @@ const pageUntil = async (pred, ms) => {
 };
 // Every reload galley announced so far. The no-churn claim is a delta on this.
 const reloads = () =>
-  (serverSaid.match(/was restructured — the editor reloads on/g) || []).length;
+  (serverLog().match(/was restructured — the editor reloads on/g) || []).length;
 
 const pendingLive = async () =>
   await (await fetch(`${base}/_galley/pending`)).json();
@@ -812,7 +806,7 @@ check(
   check(
     'and the reload was announced once for this round, not per projection',
     reloads() === before + 1,
-    { before, now: reloads(), log: serverSaid.slice(-600) },
+    { before, now: reloads(), log: serverLog().slice(-600) },
   );
 }
 
@@ -854,7 +848,7 @@ check(
   check(
     'the content round reloaded nothing — idempotence, seen from the browser',
     reloads() === before,
-    { before, now: reloads(), log: serverSaid.slice(-600) },
+    { before, now: reloads(), log: serverLog().slice(-600) },
   );
   check(
     'and the shell stand-ins did not renumber under the reviewer',

@@ -64,6 +64,7 @@ import {
 // `pending.instructions` cost. Nothing in this file describes the payload in
 // its own words; describing it twice is how the two copies come to disagree.
 import type { RoundView, ChangeView, DiffView, VersionsView } from './wire';
+import { apiUrl, routes } from './net.ts';
 
 // An ARRIVAL is NOT a round, and this interface is the place that says so. It
 // is assembled in the browser from `GET /_galley/revise` — which carries the
@@ -836,7 +837,7 @@ export class VersionsPanel {
     // contract with a hole in the envelope is a contract about the letters and
     // not the address. `versionsView` is in wireRoots now, so `doc` and
     // `rounds` cannot be renamed on the Go side without this failing to build.
-    return this.getJSON<VersionsView | null>('/_galley/versions')
+    return this.getJSON<VersionsView | null>(routes.versions)
       .then((view) => {
         if (!view) {
           return;
@@ -884,8 +885,8 @@ export class VersionsPanel {
     }
     const reading = this.stage === STAGE_READING;
     const path = reading
-      ? `/_galley/versions/view?to=${this.selected}&view=${this.view}`
-      : `/_galley/versions/view?to=${this.selected}&from=0&view=inplace`;
+      ? `${routes.versionsView}?to=${this.selected}&view=${this.view}`
+      : `${routes.versionsView}?to=${this.selected}&from=0&view=inplace`;
     return this.getJSON<DiffView | null>(path)
       .then((got) => {
         if (!got) {
@@ -1526,7 +1527,7 @@ export class VersionsPanel {
     }
     this.restoring = true;
     this.paintRestore();
-    return fetch('/_galley/versions/restore', {
+    return fetch(apiUrl(routes.versionsRestore), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ version: round.n }),
