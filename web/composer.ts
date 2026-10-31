@@ -566,7 +566,7 @@ export const composerMethods = {
       return true;
     }
     return !el.closest(
-      '.gly-bar, .gly-bottombar, .gly-menu, .gly-verdict-menu, ' +
+      '.kit-bar, .kit-stages, .kit-sendbar, .gly-bottombar, .gly-menu, .gly-verdict-menu, ' +
         '.kit-share-menu, .gly-composer, .gly-bubble, .gly-versions, ' +
         'input, textarea, select, [contenteditable]',
     );

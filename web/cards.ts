@@ -148,7 +148,7 @@ function teachCard(asks: boolean): HTMLElement {
 // link and field. A press on any of these is theirs, not the panel's.
 const PANEL_BUSY =
   '.gly-card, .gly-capture, .gly-menu, .gly-composer, .gly-bubble, ' +
-  '.gly-bar, .gly-bottombar, .gly-sheet, .gly-strip, ' +
+  '.kit-bar, .kit-stages, .kit-sendbar, .gly-bottombar, .gly-sheet, .gly-strip, ' +
   'button, a, input, textarea, select, label, [contenteditable]';
 
 // An empty rail with work outstanding needs a reason, or it reads as a

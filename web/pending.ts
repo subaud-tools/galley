@@ -160,6 +160,7 @@ export const pendingMethods = {
         // census it reads can never disagree for a tick.
         this.verdict = verdictLabel(view);
         this.pendingCount = (view.instructions || []).length;
+        this.editCount = (view.changes || []).length;
         this.paintCensus();
         this.paintRevise();
         this.paintHold();

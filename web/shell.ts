@@ -15,11 +15,13 @@ import {
   indexSection,
   keepElsewhere,
   live,
+  sendBar,
+  stageTrack,
   thread,
   type BarHandle,
-  type Primary,
 } from '/_kit/kit.js';
 import { docHref, pageIdOf, stateWords, switcherItems } from './pagelist.ts';
+import type { GalleyChrome } from './roundbar.ts';
 import type { PageView } from './wire.d.ts';
 
 // The tool's name, for the bar and for what the frame remembers.
@@ -107,19 +109,36 @@ export function connect(o: {
   return b;
 }
 
-/** Builds the page around the editor's shell markup, moving its strip and its
- * <main> into the centre card. Approve asks the editor's own verdict, so a press
- * can't seal over unsent work: with drafts it offers Revise or Revise & Approve. */
+/** The kit's send bar, built once with the ids the editor paints it by. Its Send
+ * is relabelled Revise and takes its label and its state from the editor: the
+ * kit's own would rebuild the buttons on every tick of the counter. */
+function makeSendBar(): HTMLElement {
+  const el = sendBar({
+    count: '',
+    sends: 1,
+    hint: 'Revise sends your instructions and edits together. The agent answers by revising the document.',
+    // verdict.ts listens on the buttons themselves.
+    discard: () => {},
+    send: () => {},
+  });
+  const [discard, send] = el.querySelectorAll('.kit-btn');
+  discard.id = 'gly-discard';
+  send.id = 'gly-revise';
+  el.querySelector('.kit-sendbar-count')!.id = 'gly-drafts';
+  return el;
+}
+
+/** Builds the page around the editor's <main>: the rounds, the centre card and
+ * the send bar. Approve asks the editor's own verdict, so a press can't seal over
+ * unsent work: with drafts it offers Revise & Approve. */
 export function mountShell(verdict: () => void): void {
   const app = document.getElementById('app');
-  const strip = document.querySelector('.gly-bar');
   const main = document.querySelector('main');
-  if (!app || !strip || !main) {
+  if (!app || !main) {
     return;
   }
   const id = pageIdOf(location.pathname);
   const name = document.getElementById('editor')?.dataset.doc ?? '';
-  const approve: Primary = { label: 'Approve', run: verdict };
   const cols = frame({
     name: NAME,
     left: { panel: 'index', label: 'Reviews' },
@@ -127,6 +146,7 @@ export function mountShell(verdict: () => void): void {
     right: { panel: 'thread', label: 'Thread' },
   });
   const crumb = h('span', { class: 'kit-card-crumb' }, name);
+  const stages = h('div', { class: 'gly-stages' });
   const b: BarHandle = connect({
     page: id,
     status: name,
@@ -142,26 +162,46 @@ export function mountShell(verdict: () => void): void {
           empty: 'No reviews open.',
         }),
       );
-      // Only while it is with the reader: there is nothing to approve in a
-      // review that has been approved or is with the agent.
-      const here = pages.find((p) => p.id === id);
       // A page's file under review is its content.md: the list's name is the
       // one it was opened by.
+      const here = pages.find((p) => p.id === id);
       if (here) {
-        b.setStatus(here.name);
         crumb.textContent = here.name;
       }
-      b.setPrimary(here?.state === 'you' ? approve : null);
     },
   });
   const editorCard = card({ head: name, body: h('div') });
   editorCard.querySelector('.kit-card-head')?.replaceChildren(crumb);
   editorCard.classList.add('gly-editor-card');
-  editorCard.querySelector('.kit-card-body')?.replaceChildren(strip, main);
-  cols.centre.append(editorCard);
+  editorCard.querySelector('.kit-card-body')?.replaceChildren(main);
+  cols.centre.append(stages, editorCard, makeSendBar());
   cols.rightBody?.append(
     thread({ empty: 'Select an instruction to see its thread.' }),
   );
   cols.setRightEmpty(true, `${id}/`);
   app.append(b.el, cols.left!, cols.centre, cols.right!);
+  // The editor's one readout is the bar's status.
+  const status = b.el.querySelector('.kit-status');
+  if (status) {
+    status.id = 'gly-status';
+    status.setAttribute('role', 'status');
+    status.setAttribute('aria-live', 'polite');
+  }
+  let drawn = '';
+  const chrome: GalleyChrome = {
+    paintPrimary(label) {
+      b.setPrimary(label ? { label, run: verdict } : null);
+    },
+    paintStages(values, open, door) {
+      const key = JSON.stringify(values);
+      if (key === drawn) {
+        return;
+      }
+      drawn = key;
+      stages.replaceChildren(
+        stageTrack({ stages: values, open, label: 'Rounds', after: [door] }),
+      );
+    },
+  };
+  window.galleyChrome = chrome;
 }

@@ -43,6 +43,13 @@ import {
   stateWords,
   switcherItems,
 } from './pagelist.ts';
+import {
+  agentHolds,
+  draftCountWords,
+  primaryWords,
+  roundStages,
+  sendFace,
+} from './roundbar.ts';
 
 import {
   suggestionPlugin,
@@ -135,7 +142,6 @@ import {
   verdictLabel,
   REVISE_IDLE,
   APPROVE_IDLE,
-  MENU_REVISE,
   MENU_TRUST,
   clockTime,
   VERDICT_ENTRUSTED,
@@ -321,24 +327,9 @@ function paintedRevise({
       if (disabled) {
         return button.disabled;
       }
-      return button.nodes
-        .filter((n) => !n.classList.contains('gly-reserved'))
-        .map(visibleText)
-        .join('|');
+      return button.textContent;
     },
   );
-}
-
-// visibleText is what a painted node reads as on screen: its text without the
-// parts a `.gly-reserved` hides, at any depth.
-function visibleText(n) {
-  if (typeof n === 'string') {
-    return n;
-  }
-  if (n.classList.contains('gly-reserved')) {
-    return '';
-  }
-  return n.nodes.length ? n.nodes.map(visibleText).join('') : n.text;
 }
 
 // pressedRevise is the primary's PRESS as production makes it: makeRevise
@@ -378,6 +369,31 @@ function pressedRevise({ pendingCount = 0, waitedMs = null, message = null }) {
   return { face, did };
 }
 
+// pressedSend is Revise's own press on the send bar, with the post recorded.
+function pressedSend({ pendingCount = 0, waitedMs = null, message = null }) {
+  let did = null;
+  const face = paintedRevise({ pendingCount, waitedMs, message });
+  onFakeRevise(
+    ReviseEl,
+    ReviseButton,
+    {
+      reviseWaiting: waitedMs !== null,
+      reviseStartedAt: Date.now() - (waitedMs ?? 0),
+      pendingCount,
+      reviseMessage: message,
+      closeVerdictMenu() {},
+      postVerdict(body) {
+        did = { post: body };
+      },
+    },
+    (shell) => {
+      verdictMethods.paintRevise.call(shell);
+      verdictMethods.pressSend.call(shell);
+    },
+  );
+  return { face, did };
+}
+
 // onFakeRevise puts a fake document whose elements are FakeEl in place,
 // builds the primary on a shell of the fields makeRevise and paintRevise read
 // (plus `over`), and hands both to read. The globals are restored after.
@@ -389,7 +405,12 @@ function onFakeRevise(FakeEl, FakeButton, over, read) {
   };
   const button = new FakeButton('button');
   globalThis.document = {
-    getElementById: (id) => (id === 'gly-revise' ? button : null),
+    getElementById: (id) => {
+      if (id === 'gly-revise') return button;
+      // The count on the send bar: the pill's cell goes after it.
+      if (id === 'gly-drafts') return { after: (n) => button.before(n) };
+      return null;
+    },
     createElement: (tag) => new FakeEl(tag),
   };
   globalThis.HTMLButtonElement = FakeButton;
@@ -404,6 +425,10 @@ function onFakeRevise(FakeEl, FakeButton, over, read) {
       approveNotBefore: 0,
       verdict: REVISE_IDLE,
       pendingCount: 0,
+      editCount: 0,
+      paintDiscard() {},
+      paintChrome() {},
+      paintMessage() {},
       ...over,
     };
     shell.revise = verdictMethods.makeRevise.call(shell);
@@ -6346,10 +6371,10 @@ function bindsContentField(src) {
     // count is on its own named control beside History, not hidden inside the
     // verdict button's label.
     check(
-      'the built bundle carries the instruction count beside History',
+      'the built bundle carries the count on the bottom bar and History beside the rounds',
       src.includes('Instructions · ') &&
-        src.includes('gly-census-count') &&
-        src.includes('gly-versions-open'),
+        src.includes('gly-versions-open') &&
+        src.includes('gly-discard'),
     );
 
     // THE SEAL. A binary embedding a pre-seal bundle serves a page that keeps
@@ -6425,10 +6450,7 @@ function bindsContentField(src) {
     // which this codebase rates as worse than absent.
     check(
       'the built bundle carries the sealed bar and its dead verbs',
-      src.includes('gly-seal-off') &&
-        src.includes(
-          '.gly-overall-input, .gly-census button:not(.gly-versions-open)',
-        ),
+      src.includes('gly-seal-off') && src.includes('.gly-overall-input, '),
     );
     // AND THE BOX A COMMENT IS TYPED INTO, which is asserted separately because
     // it was added for a reason neither list's tail records: `submitOnEnter`
@@ -6471,9 +6493,8 @@ function bindsContentField(src) {
     // review's own list for the life of the tab.
     check(
       'the built bundle carries the verbs the seal owns in both directions',
-      src.includes(
-        '.gly-census-count, .gly-overall-input, .gly-composer-send, ',
-      ) && src.includes('.gly-comment-button, .gly-composer-text'),
+      src.includes('.gly-overall-input, .gly-composer-send, ') &&
+        src.includes('.gly-comment-button, .gly-composer-text'),
     );
     // And the Strike button is GONE — with its class, its label and its
     // cross-block sentence. Deletion is the keyboard's; a bundle still
@@ -6696,13 +6717,13 @@ function bindsContentField(src) {
       // over a fake DOM just rich enough for the two of them. A pure string
       // helper standing in for the button could agree with itself forever.
       check(
-        'a settled button says Revise and discloses its menu',
-        paintedRevise({ pendingCount: 0 }) === 'Revise ▾',
+        'a settled button says Revise',
+        paintedRevise({ pendingCount: 0 }) === 'Revise',
         paintedRevise({ pendingCount: 0 }),
       );
       check(
         'the composed primary carries the pending count on the verb',
-        paintedRevise({ pendingCount: 4 }) === 'Revise · 4 ▾',
+        paintedRevise({ pendingCount: 4 }) === 'Revise · send 4',
         paintedRevise({ pendingCount: 4 }),
       );
       check(
@@ -6738,44 +6759,37 @@ function bindsContentField(src) {
         );
       }
       check('Revise re-sends after no reply', pressable('no_reply', 0));
-      // AFTER NO REPLY THE FACE AND THE PRESS AGREE. With nothing on the page
-      // the verdict is Approve, and the press used to post it under a face
-      // that read `revising · Ns`, sealing the review. The press re-sends the
-      // round (the server's unansweredAsks) and the face says Revise.
+      // Revise and Approve are two buttons now: Send posts a revise and never an
+      // approve, whatever the document holds, and Approve never sends one.
       const noReply = { state: 'no_reply', line: '', held: false };
-      const after = pressedRevise({ waitedMs: 1500, message: noReply });
+      const after = pressedSend({ waitedMs: 1500, message: noReply });
       check(
-        'a press after no reply with nothing pending posts a revise, not an approve',
-        after.did && after.did.post && after.did.post.verdict === undefined,
+        'Revise after no reply with nothing pending posts a revise, and says so',
+        after.face === 'Revise · send again' &&
+          after.did &&
+          after.did.post &&
+          after.did.post.verdict === undefined,
         after,
       );
+      const waiting = pressedSend({ waitedMs: 1500 });
       check(
-        'after no reply with nothing pending the button says Revise',
-        after.face === 'Revise',
-        after,
-      );
-      const waiting = pressedRevise({ waitedMs: 1500 });
-      check(
-        'a press while a Revise is still waiting asks again, not approves',
-        waiting.did &&
+        'Revise while one is still waiting asks again',
+        waiting.face === 'revising · 1s' &&
+          waiting.did &&
           waiting.did.post &&
-          waiting.did.post.verdict === undefined &&
-          waiting.face === 'revising · 1s',
+          waiting.did.post.verdict === undefined,
         waiting,
       );
       const clean = pressedRevise({});
       check(
-        'with nothing ever asked the press still approves',
-        clean.face === 'Approve' &&
-          clean.did &&
-          clean.did.post &&
-          clean.did.post.verdict === 'approve',
+        'Approve on a clean document approves',
+        clean.did && clean.did.post && clean.did.post.verdict === 'approve',
         clean,
       );
       const more = pressedRevise({ pendingCount: 1, message: noReply });
       check(
-        'after no reply with an instruction pending the press opens the menu',
-        more.face === 'Revise · 1 ▾' && more.did && more.did.menu === true,
+        'Approve with an instruction pending opens the menu',
+        more.did && more.did.menu === true,
         more,
       );
     }
@@ -6786,8 +6800,7 @@ function bindsContentField(src) {
       // reviewer to remember which; it reads the same census the strip does.
       check(
         'an instruction round offers Revise',
-        verdictLabel({ instructions: [{ text: 'tighten this' }] }) ===
-          'Revise ▾',
+        verdictLabel({ instructions: [{ text: 'tighten this' }] }) === 'Revise',
       );
       check(
         'an empty instruction round offers Approve',
@@ -6800,7 +6813,7 @@ function bindsContentField(src) {
       // An open thread holds up Approve.
       check(
         'an open legacy note still offers Revise through its thread',
-        verdictLabel({ comments: [{}] }) === 'Revise ▾',
+        verdictLabel({ comments: [{}] }) === 'Revise',
       );
       // The reviewer's own hand edits are outgoing markup: a pending change
       // offers Revise, or the button reads Approve over unsent edits and the
@@ -6808,14 +6821,14 @@ function bindsContentField(src) {
       check(
         'a reviewer hand edit offers Revise in the rounds-only path',
         verdictLabel({ instructions: [], changes: [{ kind: 'removed' }] }) ===
-          'Revise ▾',
+          'Revise',
       );
       check(
         'a reviewer hand edit offers Revise in the census path',
         verdictLabel({
           comments: [],
           changes: [{ kind: 'removed' }],
-        }) === 'Revise ▾',
+        }) === 'Revise',
       );
       check(
         'no hand edits leaves the clean document on Approve',
@@ -6829,7 +6842,7 @@ function bindsContentField(src) {
       // ENDING now, and the menu names the endings.
       check(
         'the rounds-only label names the direct action',
-        REVISE_IDLE === 'Revise ▾',
+        REVISE_IDLE === 'Revise',
         REVISE_IDLE,
       );
       // The direct path is untouched: a clean document still approves on one press,
@@ -6843,7 +6856,7 @@ function bindsContentField(src) {
       // above them, not a rewrite of the exits.
       check(
         'the menu still names both endings the page can reach',
-        MENU_REVISE === 'Revise' && MENU_TRUST === 'Revise & Approve',
+        MENU_TRUST === 'Revise & Approve',
       );
     }
 
@@ -7247,10 +7260,7 @@ function bindsContentField(src) {
     // /_galley/sweep, a 404, from a button `makeCensus` had already stopped
     // appending — so what the strip carries is the count, and the count is the
     // door to the sheet.
-    check(
-      'the built bundle carries the census strip',
-      src.includes('gly-census') && src.includes('gly-census-count'),
-    );
+
     // AND NONE OF THE TWELVE WORKFLOW ENDPOINTS, asserted as one claim off the
     // one list. internal/serve/rounds_surface_test.go asserts every one of these
     // answers 404; this is the same list read from the other end, so a browser
@@ -7582,11 +7592,7 @@ function bindsContentField(src) {
     // be certifying a reserve on a box with no paint. The claim the reserve was
     // written for is unchanged and is asserted one control over: a number that
     // changes on somebody else's click may move the text and never the button.
-    check(
-      'the pending count sits in a reserved box on the primary itself',
-      /\.gly-revise-count\{[^}]*min-width:5ch/.test(css) &&
-        /\.gly-census-count\{display:none/.test(css),
-    );
+
     // And the three nodes read as the resting label: a clean count composes
     // to exactly REVISE_IDLE, the spelling the verdict compares against.
     check(
@@ -7608,11 +7614,6 @@ function bindsContentField(src) {
     // it read as a noun in a row of verbs. A count that opens the review's
     // whole list has to be dressed as a control, so it takes the strip's own
     // button chrome and adds the hover every other control there has.
-    check(
-      'and it is dressed as the control it became, with a hover of its own',
-      bundle.includes('show the current draft and its instructions') &&
-        /\.gly-census-count:hover:not\(\[disabled\]\)\{border-color/.test(css),
-    );
 
     // --- no proposal card, and therefore no reply box on one ---
     //
@@ -7695,7 +7696,7 @@ function bindsContentField(src) {
     // panel's top is read from the bar itself — and re-read when it changes.
     check(
       'and it hangs off the bar’s MEASURED height, watched for change',
-      bundle.includes('ResizeObserver') && /gly-bar["']\)/.test(bundle),
+      bundle.includes('ResizeObserver') && /kit-bar["']\)/.test(bundle),
     );
     // AND OPENING IT FLOWS IN THE PANEL AND RE-FLOORS THE CARDS, WHICH IS THE
     // FOURTH ANSWER THIS CHECK HAS HAD.
@@ -7731,11 +7732,14 @@ function bindsContentField(src) {
     // laid out at once and the digits have their own reserve inside the
     // counting one.
     check(
-      'Revise reserves both labels, and the counter’s digits inside one',
-      css.includes('.gly-revise-label{grid-area:label') &&
-        /\.gly-revise\{[^}]*grid-template-areas:"label"/.test(css) &&
-        /\.gly-revise-secs\{[^}]*min-width:4ch/.test(css) &&
-        bundle.includes('gly-revise-secs'),
+      'the arrival marks the door in paint only — no geometry on somebody else’s event',
+      /\.gly-versions-open\.is-new\{[^}]*border-color/.test(css) &&
+        !/\.gly-versions-open\.is-new\{[^}]*(padding|margin|width)/.test(css),
+    );
+    check(
+      'Revise and Discard keep their box as their labels change',
+      /#gly-revise\{[^}]*min-width/.test(css) &&
+        /#gly-discard\{[^}]*min-width/.test(css),
     );
   }
 }
@@ -7753,17 +7757,9 @@ function bindsContentField(src) {
     new URL('../internal/serve/edit.html', import.meta.url),
     'utf8',
   );
-  const status = shell.indexOf('id="gly-status"');
-  const spacer = shell.indexOf('class="gly-spacer"');
-  const revise = shell.indexOf('id="gly-revise"');
   check(
-    'the bar’s readouts sit before its one flexible cell, and its controls after',
-    status > 0 &&
-      spacer > 0 &&
-      revise > 0 &&
-      status < spacer &&
-      spacer < revise,
-    { status, spacer, revise },
+    'the shell declares no bar of its own: the kit builds it',
+    !shell.includes('gly-bar') && !shell.includes('id="gly-revise"'),
   );
 }
 
@@ -8096,17 +8092,6 @@ function bindsContentField(src) {
     // under the cursor — so this declaration may not carry width, padding,
     // border-width, font-size or margin. `box-shadow` draws inside the border
     // box and contributes no geometry.
-    const isNew = roundsCss.match(
-      /\.gly-bar \.gly-versions-open\.is-new\{([^}]*)\}/,
-    );
-    check(
-      'the arrival marks the door in paint only — no geometry on somebody else’s event',
-      !!isNew &&
-        !/(^|;)(width|padding|margin|font-size|border-width|border:)/.test(
-          isNew ? isNew[1] : '',
-        ),
-      isNew && isNew[1],
-    );
   }
 }
 
@@ -8288,6 +8273,194 @@ function bindsContentField(src) {
   ]) {
     check(`no pill ${what}`, !!got && got.empty && got.title === '', got);
   }
+}
+
+// --- the send bar and the stage track -------------------------------------
+{
+  check('no drafts says so', draftCountWords(0, 0) === 'No drafts');
+  check('one draft is singular', draftCountWords(1, 0) === '1 draft');
+  check(
+    'hand edits count beside them',
+    draftCountWords(3, 1) === '3 drafts · 1 hand edit',
+  );
+  const face = (o) =>
+    sendFace({
+      drafts: 0,
+      edits: 0,
+      waiting: false,
+      message: null,
+      running: false,
+      cooling: false,
+      seconds: 0,
+      ...o,
+    });
+  check(
+    'nothing to send leaves Revise off',
+    face({}).disabled && face({}).label === 'Revise',
+  );
+  check(
+    'drafts name the count',
+    face({ drafts: 3 }).label === 'Revise · send 3' &&
+      !face({ drafts: 3 }).disabled,
+  );
+  check('a hand edit is something to send', !face({ edits: 1 }).disabled);
+  const noReply = face({ waiting: true, message: { state: 'no_reply' } });
+  check(
+    'after no reply the press sends again',
+    noReply.label === 'Revise · send again' && !noReply.disabled,
+    noReply,
+  );
+  const held = face({
+    waiting: true,
+    seconds: 12,
+    message: { state: 'working' },
+  });
+  check(
+    'the agent has it: counting and nothing to press',
+    held.label === 'revising · 12s' && held.disabled,
+    held,
+  );
+  const lost = face({ waiting: true, seconds: 9 });
+  check(
+    'waiting with no message can ask again',
+    lost.label === 'revising · 9s' && !lost.disabled,
+    lost,
+  );
+  check(
+    'new drafts while the agent has it can go',
+    !face({ drafts: 1, message: { state: 'working' } }).disabled,
+  );
+  check(
+    'a running command refuses a second',
+    face({ drafts: 1, running: true }).disabled,
+  );
+  check(
+    'the second after a send is cooled',
+    face({ drafts: 1, cooling: true }).disabled,
+  );
+
+  const words = (o) =>
+    primaryWords({
+      history: false,
+      sealed: false,
+      handoff: false,
+      waiting: false,
+      message: null,
+      ...o,
+    });
+  check('a review with the reader offers Approve', words({}) === 'Approve');
+  check(
+    'History offers the way back, sealed or not',
+    words({ history: true, sealed: true }) === '← back to draft',
+  );
+  check('an approved review offers nothing', words({ sealed: true }) === null);
+  check(
+    'with the agent offers nothing',
+    words({ waiting: true, message: { state: 'working' } }) === null &&
+      words({ handoff: true }) === null,
+  );
+  check(
+    'after no reply Approve is back',
+    words({ waiting: true, message: { state: 'no_reply' } }) === 'Approve',
+  );
+
+  check(
+    'an open handoff keeps Approve off even after no reply',
+    words({ handoff: true, message: { state: 'no_reply' } }) === null,
+  );
+  check(
+    'and nobody is working on it: not live',
+    !agentHolds({
+      handoff: true,
+      waiting: true,
+      message: { state: 'no_reply' },
+    }),
+  );
+  const opened = { n: 1, reason: 'opened', answers: 0, instructions: [] };
+  const ask = { n: 2, reason: 'revise', answers: 0, instructions: ['a', 'b'] };
+  const ans = { n: 3, reason: 'revised', answers: 2, instructions: ['a', 'b'] };
+  const could = { n: 5, reason: 'could-not', answers: 4, instructions: ['c'] };
+  const ask2 = { n: 4, reason: 'revise', answers: 0, instructions: ['c'] };
+  const stages = (o) =>
+    roundStages({
+      rounds: [],
+      drafts: 0,
+      live: false,
+      sealed: false,
+      verdict: '',
+      reading: 0,
+      history: false,
+      ...o,
+    });
+  const brief = (o) =>
+    stages(o)
+      .map(
+        (s) =>
+          `${s.label}|${s.count ?? ''}|${s.state ?? ''}|${s.live ? 'live' : ''}|${s.opens ?? ''}`,
+      )
+      .join(' > ');
+  check(
+    'a new review is one draft round, then Approved',
+    brief({ rounds: [opened], drafts: 2 }) ===
+      'Round 1|2 drafts|now|| > Approved||||',
+    brief({ rounds: [opened], drafts: 2 }),
+  );
+  check(
+    'a finished round is done and opens at its answer, folded to one stage',
+    brief({ rounds: [opened, ask, ans] }) ===
+      'Round 1|2 instructions|done||3 > Round 2||now|| > Approved||||',
+    brief({ rounds: [opened, ask, ans] }),
+  );
+  check(
+    'the round with the agent is the live one, and no second draft round',
+    brief({ rounds: [opened, ask], live: true }) ===
+      'Round 1|2 instructions|now|live| > Approved||||',
+    brief({ rounds: [opened, ask], live: true }),
+  );
+  check(
+    'live before the asking cut arrives is the current round',
+    brief({ rounds: [opened], drafts: 1, live: true }) ===
+      'Round 1|1 draft|now|live| > Approved||||',
+    brief({ rounds: [opened], drafts: 1, live: true }),
+  );
+  check(
+    'a cannot is flagged and opens',
+    brief({ rounds: [opened, ask2, could] }) ===
+      'Round 1|could not|flagged||5 > Round 2||now|| > Approved||||',
+    brief({ rounds: [opened, ask2, could] }),
+  );
+  check(
+    'an approved review has no draft round, and Approved is done',
+    brief({ rounds: [opened, ask, ans], sealed: true }) ===
+      'Round 1|2 instructions|done||3 > Approved||done||',
+    brief({ rounds: [opened, ask, ans], sealed: true }),
+  );
+  check(
+    "the verdict's own cut is no round on the track",
+    brief({
+      rounds: [opened, ask, ans, { n: 4, reason: 'verdict', answers: 0 }],
+      sealed: true,
+    }) === 'Round 1|2 instructions|done||3 > Approved||done||',
+    brief({
+      rounds: [opened, ask, ans, { n: 4, reason: 'verdict', answers: 0 }],
+      sealed: true,
+    }),
+  );
+  check(
+    'a discarded review says so',
+    stages({ sealed: true, verdict: 'discarded' }).at(-1).label === 'Discarded',
+  );
+  check(
+    'History marks the round read and the draft opens the way back',
+    brief({
+      rounds: [opened, ask, ans],
+      history: true,
+      reading: 3,
+      drafts: 1,
+    }) ===
+      'Round 1|2 instructions|now||3 > Round 2|1 draft|||draft > Approved||||',
+    brief({ rounds: [opened, ask, ans], history: true, reading: 3, drafts: 1 }),
+  );
 }
 
 process.exit(failures === 0 ? 0 : 1);

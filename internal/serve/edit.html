@@ -87,170 +87,11 @@
     color: var(--gly-fg);
     font: 16px/1.6 var(--gly-sans);
   }
-  /* Chrome speaks in mono, the document in sans — the palette patch's rule,
-     so the shell never reads as part of the prose. */
-  /* THE BAR WRAPS, AND THAT IS WHERE THE FIX FOR "REVISE IS OFF SCREEN" LIVES.
-     This row was `nowrap` (flex's default) with one flexible spacer, so when
-     the controls stopped fitting they did not fold — they walked out of the
-     window. Measured on a five-suggestion document: the bar's own content is
-     1159px wide with the rail on screen and 1066px without it, so `Revise`
-     left the window at every width below 1159 — 167px ABOVE the 992px rail
-     breakpoint — and by 900px `.gly-hold` had gone with it, by 768 `.gly-mode`,
-     by 600 the whole census strip. There is no horizontal scroll to bring them
-     back, so `Revise` — the one control that asks an agent for work — was
-     simply unreachable on any laptop window narrower than a wide one.
-
-     `wrap` is here rather than in editor.css because THIS is the rule that
-     made the row: `display: flex` and the nowrap it implies are declared in
-     these six lines, and the answer belongs beside the question. It also means
-     an unbuilt checkout — the whole reason this <style> exists — folds rather
-     than spills. The bar's height is MEASURED and published as `--gly-bar-h`
-     (App.watchBar), so everything hanging off the bottom of the bar follows a
-     bar that has grown a row without being told. */
-  .gly-bar {
-    font-family: var(--gly-mono);
-    position: sticky;
-    top: 0;
-    z-index: 10;
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 8px 12px;
-    padding: 10px 20px;
-    background: var(--gly-bg);
-    border-bottom: 1px solid var(--gly-line);
-  }
-  /* Nothing in the strip may break mid-phrase. Without this the flex items
-     shrink and wrap inside themselves — "2 pending · 3 / threads" across two
-     lines — which reads as a rendering fault rather than as a tight fit. They
-     stay whole; the one readout truncates instead (see .gly-status below),
-     and the sentence it ends with has its full text in the readout's title. */
-  .gly-bar > * { white-space: nowrap; }
-  /* The doc name is now a two-part lockup — the caret, then the title — so it
-     is an inline-flex cell rather than plain text. `min-width: 0` lets the
-     CELL shrink inside the wrapping bar the way the bare span used to; the
-     name's own ellipsis (below the fold breakpoint, see editor.css) now lives
-     on .gly-doc-name specifically, because a flex container cannot truncate
-     its own children as if it were one run of text. */
-  .gly-doc {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    min-width: 0;
-    font-weight: 600;
-  }
-  /* Fixed size, never shrinks: a flex child defaults to shrinking below its
-     own content, and an icon has no smaller legible size to shrink to. */
-  .gly-mark { flex: none; width: 1em; height: 1em; }
-  .gly-doc-name { min-width: 0; }
-  /* THE BAR HAS ONE FLEXIBLE CELL, AND IT SITS BETWEEN THE READOUT AND THE
-     CONTROLS. Everything before it — the name, the census, the ONE readout —
-     is a readout or a count whose width changes as the document does;
-     everything after it is a CONTROL, pinned to the right edge, whose position
-     therefore depends only on the widths of the controls themselves.
-
-     THERE USED TO BE THREE READOUTS in that region and now there is one. The
-     editor appended `#gly-editor-status` for `connected · saved …`, the census
-     strip's neighbour `.gly-census-untracked` carried the standing sentence,
-     and this element carried the reply to a press — three basis-0 cells that
-     yielded together, so what a reviewer actually read was `your edits…`,
-     `connected …`, `revision r…`. `#gly-status` is the survivor because it is
-     the one the SHELL owns: it exists before the bundle runs, it is what the
-     script below writes `editor bundle missing` into, and it carries the
-     live region. The bundle composes all three sentences into it (entry.js's
-     paintReadout) instead of appending boxes beside it.
-
-     The order is load-bearing and was wrong. `#gly-status` used to sit AFTER
-     this spacer, so the one word it prints in reply to a click grew the
-     right-hand group and slid every control left: measured on a 2000px window,
-     one press of Revise put `revision requested` into it and moved
-     `.gly-collapse`, `.gly-mode` and `.gly-hold` 59px toward the cursor. A
-     readout that pushes a button is the same defect as a button that pushes
-     its neighbour, and the layout is where it is fixed once for all of them. */
-  .gly-spacer { flex: 1; }
-  /* The status is the one thing in the bar that yields, because it is the one
-     thing that repeats itself: "saved just now · your edits apply — the agent
-     proposes" is reassurance and standing copy, and a shortened reassurance is
-     still reassuring. Everything else is a count, a verb or a control and means
-     nothing half-shown. The clause ORDER is what makes the yield safe and it is
-     entry.js's (paintReadout): the reply to a press first, then the session's
-     state, then the standing sentence — so the ellipsis at this box's end eats
-     the clause whose loss costs least, and never eats what just happened.
-     min-width 0 is what actually lets it shrink — a flex item defaults to
-     never shrinking below its content, and without it the items to its left
-     spilled out of their own box and drew ON TOP of it. */
-  .gly-status {
-    color: var(--gly-muted);
-    font-size: 13px;
-    flex: 0 1 auto;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  /* THE STATIC BUTTON, AND NOTHING ELSE. This was `.gly-bar button`, which is
-     this block's remit stated one word too widely. The block exists so an
-     unbuilt checkout still renders a legible page — and the only button on an
-     unbuilt page is the one in the markup below. But the selector also matched
-     every button the editor APPENDS into the bar: the census's `✓ all`,
-     `✗ all` and whole-doc handle, plus collapse, hold and mode. Because this
-     <style> loads after /_galley/editor.css it beat their own rules on source
-     order at equal specificity, so all seven rendered at 14px in the accent —
-     the chrome layer painting at the document's size, in the one colour §1 of
-     the handoff reserves for "on, arrived, or here". A button that exists only
-     once the bundle has run cannot need a bundle-less fallback.
-
-     `:where()` rather than a bare `#gly-revise`, and that is the load-bearing
-     part. An id selector is (1,0,0) and would beat editor.css's own
-     `.gly-bar button` outright, which does not narrow the bug so much as
-     concentrate it on one button: Revise would have stayed 14px and amber
-     while the six beside it moved to the chrome layer, and any later change to
-     chrome would have skipped it. `:where()` contributes ZERO specificity, so
-     these declarations apply exactly when nothing else claims the button —
-     which is what "fallback" means. */
-  :where(#gly-revise) {
-    font: inherit;
-    font-size: 14px;
-    padding: 5px 14px;
-    /* THE PRIMARY IS FILLED, BUILT OR NOT. This block exists so an unbuilt
-       checkout renders a legible page, and a page whose one press is
-       indistinguishable from its chrome is not legible in the sense that
-       matters. The filled treatment is editor.css's `.gly-bar .gly-revise`,
-       repeated here at zero specificity, so the built stylesheet's own rule
-       takes over the moment it loads and the two never disagree about what
-       the button looks like. */
-    border: 1px solid var(--gly-signal);
-    border-radius: 6px;
-    background: var(--gly-signal);
-    color: var(--gly-signal-ink);
-    font-weight: 600;
-    cursor: pointer;
-  }
-  :where(#gly-revise):hover { filter: brightness(1.08); }
-  :where(#gly-revise)[disabled] {
-    background: transparent;
-    border-color: var(--gly-line);
-    color: var(--gly-muted);
-    font-weight: inherit;
-    cursor: default;
-    opacity: 0.6;
-  }
   :where(body, .kit-card-body) > main { max-width: 46rem; margin: 0 auto; padding: 32px 20px 40vh; }
 </style>
 </head>
 <body>
 <div class="kit-page"><div id="app" class="kit-app"></div></div>
-<header class="gly-bar">
-  <span class="gly-doc">
-    <svg class="gly-mark" viewBox="0 0 64 64" aria-hidden="true" focusable="false">
-      <rect x="6" y="14" width="52" height="6" rx="3" fill="var(--gly-muted)"/>
-      <path d="M 14 54 L 32 26 L 50 54" fill="none" stroke="var(--gly-mark-amber)" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
-    </svg>
-    <span class="gly-doc-name">{{.Title}}</span>
-  </span>
-  <span id="gly-status" class="gly-status" role="status" aria-live="polite"></span>
-  <span class="gly-spacer"></span>
-  <button id="gly-revise" type="button">Revise</button>
-</header>
 <main>
   <div id="editor" data-room="{{.Room}}" data-doc="{{.Title}}" data-page-mode="{{if .PageMode}}1{{end}}" data-preview="{{.PreviewURL}}" data-can-share="{{if .CanShare}}1{{end}}"></div>
 </main>
@@ -258,7 +99,6 @@
 <script>
 (function () {
   var mount = document.getElementById('editor');
-  var status = document.getElementById('gly-status');
   var room = mount.getAttribute('data-room');
 
   window.addEventListener('load', function () {
@@ -266,22 +106,8 @@
       window.galleyEdit.init({ room: room });
       return;
     }
-    status.textContent = 'editor bundle missing — run `just assets`';
+    mount.textContent = 'editor bundle missing — run `just assets`';
   });
-
-  // THE REVISE BUTTON IS WIRED BY THE EDITOR BUNDLE, NOT HERE.
-  //
-  // It used to be wired here, and that is exactly what R10 complained about:
-  // this script could disable the button for the round trip and re-enable it
-  // the moment the POST returned, which for a notification-style --on-revise
-  // is milliseconds. A six-second revision showed no in-flight state at all.
-  // Counting until the revision LANDS means polling /_galley/revise, and only
-  // the bundle polls. See App.paintRevise in web/entry.js.
-  //
-  // The button is still declared here, because the shell owns its own markup
-  // and an unbuilt checkout should render a legible page. It simply does
-  // nothing until the bundle claims it — which is the same state the status
-  // line above already reports.
 })();
 </script>
 </body>

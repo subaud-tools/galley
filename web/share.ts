@@ -115,7 +115,7 @@ export const shareMethods = {
     }
     const b = document.createElement('button');
     b.type = 'button';
-    b.className = 'gly-share';
+    b.className = 'kit-btn gly-share';
     b.textContent = SHARE_LABEL;
     b.title = 'hand the approved document to a reader';
     b.hidden = true;
@@ -191,10 +191,9 @@ export const shareMethods = {
       );
   },
 
-  // The bar's way to the rendered page, markdown reviews only: a page under
-  // review already has its own preview pane. It sits just before Revise, to
-  // the right of the mode toggle, so the toggle leaving on the seal edge moves
-  // it no more than it moves Revise; the seal does not touch it, because
+  // The send bar's way to the rendered page, markdown reviews only: a page under
+  // review already has its own preview pane. It sits to the right of the mode
+  // toggle; the seal does not touch it, because
   // reading the shared look is as useful after approval as before.
   makePreview(this: AppShell): HTMLButtonElement | null {
     const revise = this.revise;
@@ -203,13 +202,16 @@ export const shareMethods = {
     }
     const b = document.createElement('button');
     b.type = 'button';
-    b.className = 'gly-preview-open';
+    b.className = 'kit-btn gly-preview-open';
     b.textContent = PREVIEW_LABEL;
     b.title = 'the branded page Download HTML saves, refreshed on every save';
     b.addEventListener('click', () => {
       window.open(apiUrl(routes.render), '_blank', 'noopener');
     });
-    revise.parentNode.insertBefore(b, revise);
+    revise.parentNode.insertBefore(
+      b,
+      document.getElementById('gly-discard') ?? revise,
+    );
     return b;
   },
 };

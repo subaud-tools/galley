@@ -10,9 +10,9 @@
 //
 // THE BOTTOM HALF, `verdictMethods`, IS A MIXIN — an object of methods
 // `Object.assign`ed onto `App.prototype` in entry.ts, not a class of its own
-// — and it is the primary button itself: the label vocabulary above painted
-// into `#gly-revise`, the menu the press discloses when work is pending
-// (Revise, or Revise & Approve), the poll response that drives all three
+// — and it is Revise on the kit's send bar (`#gly-revise`), Discard drafts, the
+// bar's primary, the menu Approve discloses when work is pending
+// (Revise & Approve), the poll response that drives all three
 // (readRevise — which also drives History's and the seal's own readers, see
 // its own comment), and hold/release, the browser-side queue over what the
 // rail shows while the mode is live. One file owns one subject — the
@@ -21,32 +21,20 @@
 //
 // `this` IS TYPED AGAINST `AppShell` (web/appshell.ts) — see that file's own
 // header for the this-typing decision.
-//
-// SEVERAL FIELDS THE PRESS BUILDS (`reviseIdle`, `reviseBusy`, `reviseSecs`,
-// `reviseApprove`, `reviseCount`, `reviseBack`) ARE OPTIONAL ON `AppShell`,
-// AND THAT IS NOT DEFENSIVE TYPING. `makeRevise` sets every one of them only
-// inside the branch where `#gly-revise` exists in the DOM (an unbuilt
-// checkout has no such element, and the early `return null` skips the whole
-// block) — entry.ts's constructor calls `this.revise = this.makeRevise()`
-// directly, but nothing in the constructor assigns `reviseIdle` and its
-// siblings UNCONDITIONALLY the way appshell.ts's split asks: only the
-// element that gates the branch (`revise` itself) is a real `AppState`
-// field, and the labels built alongside it are not. In practice all six are
-// set together or none of them are, so a caller that has already checked
-// `this.revise` never actually finds `this.reviseIdle` missing — but tsc
-// cannot see that correlation across two different fields, so `paintRevise`
-// and `postVerdict` below narrow each one with a real (and, given the
-// invariant above, always inert) local check rather than asserting it away.
-// The alternative — typing them required — would be exactly blurDismiss's
-// mistake in the other direction: a claim `strictPropertyInitialization`
-// would refuse at Task 8.
 
 import { censusCounts } from './rail.ts';
 import type { PendingThread } from './rail.ts';
 import { getJSON, postJSON, routes } from './net.ts';
 import { runFor } from './runs.ts';
 import { arrivalMessage, queueArrivals, holdLabel } from './arrivals.ts';
-import { BACK_TO_DRAFT } from './versions.ts';
+import {
+  agentHolds,
+  draftCountWords,
+  primaryWords,
+  roundStages,
+  sendFace,
+} from './roundbar.ts';
+import { STAGE_READING } from './versions.ts';
 import type { AppShell, ArrivalItem } from './appshell.ts';
 import type { ReviseStateView, MessageView } from './wire';
 import { messagePill } from './kit/dom.js';
@@ -79,36 +67,9 @@ export interface ReviseWatchView extends ReviseStateView {
   reopenNote?: string;
 }
 
-/** The idle label, and the two halves the counting one is built from.
- *
- * Split because the counting label is assembled from three DOM nodes rather
- * than written as one string — the seconds need their own box to reserve, or
- * the button changes width on every decade of the counter and drags the whole
- * right-hand end of the bar with it (see makeRevise).
- *
- * A BUTTON NAMES ITS OWN PRESS, AND THIS PRESS OPENS A MENU. The label was
- * `Revise` and the menu it opened led with `→ Revise`, so a reviewer who wanted
- * to revise pressed the same word twice — and, far worse in the other
- * direction, a reviewer who wanted to APPROVE was looking at a button that said
- * Revise and would not press it. The title carried the real meaning
- * ("…or accept everything and approve — the press offers both") and a title is
- * not a label: it appears on hover, after a second or two, and never on touch.
- *
- * `Finish ▾` names the ACT OF ENDING, which is what both of the menu's exits
- * are, and the ▾ says a menu is what the press produces. The DIRECT face is
- * untouched: on a clean document the press posts the approve and the button
- * says `Approve`, because there is nothing to choose between (see askRevise,
- * and verdictLabel, which is what refuses to offer Approve while anything is
- * outstanding).
- *
- * THE MENU NAMES THE ENDINGS THAT ARE REACHABLE FROM THE PAGE, and there are
- * two of them. The third ending the seal can render — a discard, `galley
- * discard`'s verdict — has no control anywhere in the browser; that is audit
- * finding #10, it is a product decision about whether the page is the yes-only
- * surface, and it is Court's. When it lands it is one more item in this menu
- * and this label does not change, which is the point of naming the act rather
- * than one branch of it. */
-export const REVISE_IDLE = 'Revise ▾';
+/** What the verdict is while markup is pending. `verdict` holds it, and a press
+ * of Approve then offers Revise & Approve rather than sealing over the work. */
+export const REVISE_IDLE = 'Revise';
 
 /** The line under a held Revise's pill: the harness is holding the wake
  * because the agent is mid-turn. */
@@ -120,43 +81,9 @@ export const MESSAGE_HELD_LINE =
 function messageLine(m: MessageView): string {
   return m.held ? MESSAGE_HELD_LINE : m.line;
 }
-const REVISE_BUSY_PREFIX = 'revising · ';
-const REVISE_BUSY_SUFFIX = 's';
-
-/** THE COUNT SITS ON THE VERB IT IS A COUNT OF.
- *
- * `Instructions · N` was a chip three controls to the left of the button that
- * sends those instructions, and a reviewer had to read two places to answer one
- * question: how many am I about to send. The chip is deleted at wide widths
- * (paintSurfaces) and the number is here.
- *
- * COMPOSED, NEVER WRITTEN AS ONE LABEL. The clause goes into its own reserved
- * box inside the idle face — see .gly-revise-count for the two width claims
- * that buys — so filing an instruction from a card a thousand pixels away
- * changes the digits and never the button. probe.mjs drives makeRevise and
- * paintRevise and reads back what the three DOM nodes say together.
- *
- * ZERO HAS NO CLAUSE, and that is not a special case dressed up: at zero the
- * verdict is `Approve` (verdictLabel), so this face is not the one on screen.
- * `Revise ▾` is what it says if it ever is. */
-const REVISE_COUNT_JOIN = ' · ';
-
-function reviseCountClause(n: number): string {
-  return n > 0 ? `${REVISE_COUNT_JOIN}${n}` : '';
-}
-
 /**
- * reviseSeconds is R10: the Revise button says how long it has been.
- *
- * It counts until the revision LANDS, not until the request returns. The
- * request returns in milliseconds — the usual --on-revise is a notification
- * that exits at once while the agent works for minutes — so a button that went
- * back to "Revise" when the POST came back showed no in-flight state at all
- * for a six-second revision.
- *
- * Whole seconds, floored: a counter that reads 3s when three seconds have
- * passed is the only reading that cannot be accused of rounding up. A clock
- * that skewed backwards reads 0, never a negative age.
+ * reviseSeconds is R10: Revise says how long it has been, until the revision
+ * LANDS. Whole seconds, floored; a clock that skewed backwards reads 0.
  *
  * @param ms how long since Revise was pressed
  */
@@ -164,121 +91,13 @@ function reviseSeconds(ms: number): number {
   return Math.max(0, Math.floor(ms / 1000));
 }
 
-/** The verdict button's other idle label, and its past tense. `approved` is
- * SHORTER than `Approve`, and the one-grid-cell reserve in makeRevise is what
- * makes that a non-event — no width reservation beyond the cell mechanism. */
+/** What the verdict is on a clean document, and the bar's primary. */
 export const APPROVE_IDLE = 'Approve';
-const APPROVE_DONE = 'approved';
 
-// reviseFace — pure computation of the revise/approve verdict button's face:
-// which case it is in (approve vs. revise), whether it is disabled, and its
-// tooltip. Pulled out of paintRevise because none of it touches `this` or the
-// DOM; the comments below travelled with it from there.
-function reviseFace(
-  history: boolean,
-  reviseWaiting: boolean,
-  noReply: boolean,
-  approved: boolean,
-  verdictIsApprove: boolean,
-  reviseRunning: boolean,
-  agentHasIt: boolean,
-  approveNotBefore: number,
-  now: number,
-): { approve: boolean; busy: boolean; disabled: boolean; title: string } {
-  // AFTER NO REPLY WITH NOTHING NEW THE FACE IS Revise, because that is the
-  // press (see resendsOnPress): the agent's turn ended, nothing is revising,
-  // and the press sends the round's instructions again. The counter face and
-  // the Approve face here once sat over a press that approved the review.
-  const busy = reviseWaiting && !noReply;
-  // HISTORY WINS THE SLOT OUTRIGHT while it is open — a busy counter or an
-  // Approve face under a reading mode would be offering a verb the surface
-  // on screen cannot take.
-  const approve =
-    !history && !busy && !noReply && (approved || verdictIsApprove);
-  // Disabled only while a COMMAND IS RUNNING, which is the only state the
-  // server would refuse a second ask for. Still waiting with nothing running
-  // leaves the button clickable while it keeps counting — which is the
-  // honest rendering of "you asked, nothing has come back, ask again if you
-  // like", and the case where the agent died is exactly when a reviewer
-  // needs that. A landed approve is the exception: the review is over, and
-  // the guard lives HERE, where disabled is re-computed every second — a
-  // guard in askRevise alone would be undone by the next tick. And while the
-  // agent has the Revise with nothing new on the page (agentHasIt), the server
-  // sends nothing for a press, so the button matches the pill.
-  const approveCooling = approve && now < approveNotBefore;
-  // The way out of a reading mode is never disabled. Every other reason this
-  // button goes dead is a reason not to SEND, and leaving History sends
-  // nothing — a disabled exit is the covered-control defect wearing the one
-  // set of clothes CLAUDE.md has not already recorded it in.
-  const disabled =
-    !history && (approved || reviseRunning || agentHasIt || approveCooling);
-  const title = reviseTitle(history, noReply, busy, approve);
-  return { approve, busy, disabled, title };
-}
+// How long Discard stays armed after its first press, as delete and revert do.
+const DISCARD_ARM_MS = 4000;
 
-// reviseTitle is the verdict button's tooltip for the face reviseFace picked.
-// The title follows the verdict the label shows: an Approve button
-// explaining how to hand the document back would be the label and the
-// tooltip disagreeing about what the click does. The Revise face's press
-// DISCLOSES now (see askRevise), so its title says that rather than
-// promising a post the press no longer makes.
-function reviseTitle(
-  history: boolean,
-  noReply: boolean,
-  busy: boolean,
-  approve: boolean,
-): string {
-  if (history) {
-    return 'leave History and go back to the draft — nothing here changed it';
-  }
-  if (noReply) {
-    return 'the agent’s turn ended without an answer — the press sends the same instructions again';
-  }
-  if (busy) {
-    return 'asked, and nothing has landed yet — the counter stops when the document moves';
-  }
-  return approve
-    ? 'approve the document as it stands — the review is over'
-    : 'hand back for revision, or accept everything and approve — the press offers both';
-}
-
-// noReplyResend is whether the last Revise ended with no reply while nothing
-// new is on the page: the press then sends the round again (the server's
-// unansweredAsks), and the face says Revise with no menu.
-function noReplyResend(
-  pendingCount: number,
-  m: MessageView | null | undefined,
-): boolean {
-  return pendingCount === 0 && !!m && m.state === 'no_reply';
-}
-
-// resendsOnPress is whether a press with nothing pending asks again rather
-// than approves: after no reply, or while a Revise is still waiting. Approve
-// is the press only where nothing is outstanding.
-function resendsOnPress(
-  pendingCount: number,
-  reviseWaiting: boolean,
-  m: MessageView | null | undefined,
-): boolean {
-  return (
-    pendingCount === 0 && (reviseWaiting || noReplyResend(pendingCount, m))
-  );
-}
-
-// agentHasRevise is whether the last Revise is still the agent's: sent, with
-// the agent or working. A press then with nothing new sends nothing.
-function agentHasRevise(m: MessageView | null | undefined): boolean {
-  return (
-    !!m &&
-    (m.state === 'sent' || m.state === 'with_agent' || m.state === 'working')
-  );
-}
-
-/** The verdict menu's two exits, over a document with work still pending.
- * Fixed labels on real buttons: neither string ever changes, so the menu
- * cannot resize under the cursor that opened it, and probe.mjs pins both
- * verbatim in the shipped bundle. */
-export const MENU_REVISE = 'Revise';
+/** What Approve offers over a document with work still pending. */
 export const MENU_TRUST = 'Revise & Approve';
 
 /** The verdicts the server can seal a review with that the seal paints apart.
@@ -367,139 +186,153 @@ export const verdictMethods = {
     hold.classList.toggle('gly-on', this.holding);
   },
 
-  // --- Revise, and how long it has been (R10) ---
+  // --- Revise, on the kit's send bar, and how long it has been (R10) ---
   //
-  // The button's wiring lives here rather than in the shell's inline script,
-  // where it started. The shell could say "requesting a revision…" and then
-  // re-enable the button the moment the POST returned, and that is the whole
-  // of R10's complaint: the request returns in milliseconds and the revision
-  // does not. Only the editor polls, so only the editor can count.
-  //
-  // The bundle also takes over the button's CONTENT, and that is not cosmetic.
-  // `Revise` becomes `revising · 0s` on this button's own click and then keeps
-  // counting, so it is the one control in the bar whose width changes twice
-  // over: once on the click, and again on every decade of the counter.
-  // Measured with a real --on-revise: 80.58 → 139.58px, and since Revise is
-  // the rightmost item every control to its left slid 59px. Both labels are
-  // therefore laid out at once in one grid cell, with the seconds reserved
-  // inside the counting one — see .gly-revise. The shell keeps its plain
-  // `Revise` for an unbuilt checkout; this replaces it the moment the bundle
-  // claims the button.
+  // shell.ts builds the bar and gives its buttons ids. Null in a shell without it.
   makeRevise(this: AppShell): HTMLButtonElement | null {
-    // `getElementById` cannot know the tag from a string id — narrowed with
-    // `instanceof` rather than asserted. `#gly-revise` is a real `<button>`
-    // in every shell (internal/serve/edit.html), so this is inert in
-    // practice; it also refuses the same case the old `!el` check refused
-    // (no element at all), plus the case of the id existing on some other
-    // tag, which the untyped form silently built a "button" out of.
     const el = document.getElementById('gly-revise');
     if (!(el instanceof HTMLButtonElement)) {
       return null;
     }
-    el.classList.add('gly-revise');
-    el.textContent = '';
-    const idle = document.createElement('span');
-    idle.className = 'gly-revise-label';
-    // `Revise` · N · `▾`, in three nodes rather than one string, because the
-    // middle one has to be a box that a count cannot resize. See
-    // probe.mjs's paintedRevise for what the three read as together.
-    // THE RESERVED SLOT, AND WHAT USED TO BE IN IT. This box carried the
-    // trail's clause — `Finish ▾ · 6 edits, 2 replies`, what the press would
-    // tell the agent — and the rounds-only workflow has no trail to count, so
-    // paintRevise stopped writing it and left the reserve behind. The claim it
-    // was written for is unchanged and now belongs to the pending count: a
-    // number that changes on SOMEBODY ELSE'S click may move the text and never
-    // the button, because a click moves nothing except the thing that was
-    // clicked.
-    const count = document.createElement('span');
-    count.className = 'gly-revise-count';
-    // The ▾ in a box of its own, so the face after no reply (a press that
-    // sends, no menu) can hide it without the button changing width.
-    const caret = document.createElement('span');
-    caret.textContent = ' ▾';
-    idle.append('Revise', count, caret);
-    this.reviseCount = count;
-    this.reviseCaret = caret;
-    const busy = document.createElement('span');
-    busy.className = 'gly-revise-label';
-    const secs = document.createElement('span');
-    secs.className = 'gly-revise-secs';
-    secs.textContent = '0';
-    busy.append(REVISE_BUSY_PREFIX, secs, REVISE_BUSY_SUFFIX);
-    // The THIRD label in the SAME grid cell: the verdict's Approve face (and,
-    // once one lands, its past tense). The cell technique is the reservation —
-    // the button is exactly as wide as the widest of the three, and nothing in
-    // the bar moves when the verdict flips. Reserved from birth, unlike idle:
-    // Revise is the resting state until the first census answers.
-    const approve = document.createElement('span');
-    approve.className = 'gly-revise-label gly-reserved';
-    approve.textContent = APPROVE_IDLE;
-    // THE FOURTH LABEL IN THE SAME GRID CELL: the way out of History.
-    //
-    // `← back to draft` is not a fifth control somewhere else on the bar. It is
-    // the PRIMARY, wearing its reading-mode face, because the primary's slot is
-    // the one place on this page a reviewer already looks for "the thing to
-    // press next" — and in History there is exactly one such thing. Putting it
-    // in the same cell as the other three is what keeps the swap free: the
-    // button is as wide as the widest of the four at every moment, so entering
-    // and leaving History cannot move `#gly-status` or the census beside it.
-    const back = document.createElement('span');
-    back.className = 'gly-revise-label gly-reserved';
-    back.textContent = BACK_TO_DRAFT;
-    el.append(idle, busy, approve, back);
-    // WHERE THE LAST REVISE STANDS, in its own cell beside the button rather
-    // than in it: the button's width is reserved for its four labels, and the
-    // pill changes on the agent's and the harness's word, not the reviewer's
-    // click. See paintMessage.
+    // WHERE THE LAST REVISE STANDS, beside the draft count: it changes on the
+    // agent's and the harness's word, so nothing to its right is pushed by it.
     const msg = document.createElement('span');
     msg.className = 'gly-msg';
-    el.before(msg);
+    document.getElementById('gly-drafts')?.after(msg);
     this.reviseMsg = msg;
-    this.reviseIdle = idle;
-    this.reviseBusy = busy;
-    this.reviseSecs = secs;
-    this.reviseApprove = approve;
-    this.reviseBack = back;
-    el.addEventListener('click', () => this.askRevise());
+    el.addEventListener('click', () => this.pressSend());
     return el;
   },
 
-  // askRevise is the PRESS, and it only decides. Clean document: the verdict
-  // on offer is Approve and the press posts it directly, exactly as it always
-  // has. Work pending: the press DISCLOSES the two exits — a plain revise, or
-  // the trusted accept-all-and-approve — instead of posting, because a button
-  // whose one label hides two different verbs would be guessing which one the
-  // reviewer meant. The posting itself, with its status lines and its 409
-  // grammar, lives unchanged in postVerdict below.
-  askRevise(this: AppShell) {
+  pressSend(this: AppShell) {
     if (!this.revise || this.revise.disabled) {
       return;
     }
-    // THE READING MODE OWNS THE PRIMARY WHILE IT IS ON SCREEN, and the guard is
-    // before the `approved` one deliberately: an approved review still has a
-    // History to read, and a way out of it that did nothing would strand the
-    // reviewer on a page whose only exit is the browser's back button.
+    this.closeVerdictMenu();
+    this.postVerdict({}, false);
+  },
+
+  // Discard drafts clears the round's unsent instructions, armed in two steps
+  // like the other verbs that throw work away. The armed flag and its clock are
+  // read on the press, and the timer repaints the label back.
+  makeDiscard(this: AppShell): HTMLButtonElement | null {
+    const el = document.getElementById('gly-discard');
+    if (!(el instanceof HTMLButtonElement)) {
+      return null;
+    }
+    el.addEventListener('click', () => {
+      if (el.disabled) {
+        return;
+      }
+      if (Date.now() - this.discardArmedAt >= DISCARD_ARM_MS) {
+        this.discardArmedAt = Date.now();
+        const at = this.discardArmedAt;
+        window.setTimeout(() => {
+          if (this.discardArmedAt === at) {
+            this.discardArmedAt = 0;
+            this.paintDiscard();
+          }
+        }, DISCARD_ARM_MS);
+        this.paintDiscard();
+        return;
+      }
+      this.discardArmedAt = 0;
+      this.discardDrafts();
+    });
+    return el;
+  },
+
+  // One delete per instruction, through the route a card's own delete uses. A
+  // refusal says so and the next read shows what is left.
+  discardDrafts(this: AppShell) {
+    const keys = this.comments.map((c) => c.key).filter(Boolean);
+    this.discarding = true;
+    this.paintDiscard();
+    void Promise.all(
+      keys.map((key) => postJSON(routes.instructionDelete, { key })),
+    )
+      .then((all) => {
+        const refused = all.filter((r) => !r.ok).length;
+        this.say(
+          refused
+            ? `${refused} of ${keys.length} drafts could not be discarded`
+            : 'drafts discarded',
+        );
+      })
+      .catch((err) => this.say(`discard failed: ${err}`))
+      .then(() => {
+        this.discarding = false;
+        return this.refreshPending();
+      });
+  },
+
+  paintDiscard(this: AppShell) {
+    const count = document.getElementById('gly-drafts');
+    if (count) {
+      count.textContent = this.sealed
+        ? ''
+        : draftCountWords(this.pendingCount, this.editCount);
+    }
+    const b = this.discardBtn;
+    if (!b) {
+      return;
+    }
+    const n = this.pendingCount;
+    const armed = n > 0 && Date.now() - this.discardArmedAt < DISCARD_ARM_MS;
+    b.textContent = armed
+      ? `Discard ${n} draft${n === 1 ? '' : 's'}?`
+      : 'Discard drafts';
+    b.classList.toggle('danger', armed);
+    b.disabled = n === 0 || !!this.sealed || this.discarding;
+  },
+
+  // paintChrome draws what the shell owns, from the state the editor reads off
+  // its polls. Absent in a shell without the kit (probe.mjs's).
+  paintChrome(this: AppShell) {
+    const chrome = window.galleyChrome;
+    const panel = this.versionsPanel;
+    if (!chrome || !panel) {
+      return;
+    }
+    const state = {
+      handoff: !!this.handoff,
+      waiting: this.reviseWaiting,
+      message: this.reviseMessage,
+    };
+    const sealed = !!this.sealed || this.approved;
+    chrome.paintPrimary(
+      primaryWords({ ...state, history: panel.open, sealed }),
+    );
+    chrome.paintStages(
+      roundStages({
+        rounds: panel.rounds,
+        drafts: this.pendingCount,
+        live: !sealed && agentHolds(state),
+        sealed,
+        verdict: this.sealVerdict,
+        reading:
+          panel.open && panel.stage === STAGE_READING ? panel.selected : 0,
+        history: panel.open,
+      }),
+      (opens) => this.openStage(opens),
+      this.versionsButton,
+    );
+  },
+
+  // askRevise is the PRIMARY's press, and it only decides. In History it is the
+  // way out. On a clean document it approves. With work pending it DISCLOSES
+  // Revise & Approve instead, so a press can never seal over unsent work; plain
+  // Revise is the send bar's. The posting, with its status lines and its 409
+  // grammar, lives in postVerdict below.
+  askRevise(this: AppShell) {
     if (this.versionsPanel && this.versionsPanel.open) {
       this.toggleVersions();
       return;
     }
-    if (this.approved) {
+    if (this.approved || this.approving) {
       return;
     }
     if (this.verdict === APPROVE_IDLE) {
-      // Nothing on the page, but a Revise is outstanding: the press asks
-      // again, and after no reply the server sends the round's instructions
-      // again. Approving here sealed a review the reviewer meant to resend.
-      if (
-        resendsOnPress(
-          this.pendingCount,
-          this.reviseWaiting,
-          this.reviseMessage,
-        )
-      ) {
-        this.postVerdict({}, false);
-        return;
-      }
       if (Date.now() < this.approveNotBefore) {
         return;
       }
@@ -514,17 +347,12 @@ export const verdictMethods = {
   },
 
   postVerdict(this: AppShell, body: VerdictBody, approving: boolean) {
-    // `this.revise` is genuinely nullable (an unbuilt checkout has no
-    // `#gly-revise`) — narrowed here with a real check rather than asserted,
-    // because every call site above has already checked it on `this.revise`
-    // itself and tsc cannot carry that narrowing across the method boundary.
-    // Inert in practice: this function is reached only from askRevise (which
-    // already refused a null `this.revise`) and from the verdict menu, which
-    // askRevise is the only opener of.
+    // Genuinely nullable: a shell without the send bar has no `#gly-revise`.
     const revise = this.revise;
     if (!revise) {
       return;
     }
+    this.approving = approving;
     if (!approving) {
       // Arm before the request: polling can observe the cleared round and flip
       // this same control to Approve before the response callback runs.
@@ -537,12 +365,6 @@ export const verdictMethods = {
     // reaching it. paintRevise takes over once the state comes back.
     revise.disabled = true;
     this.say(approving ? 'approving…' : 'requesting a revision…');
-    // Captured before the request, so the `.then` closure below narrows
-    // against a local rather than re-reading `this.reviseApprove` — a
-    // closure loses whatever narrowing the outer function had. Genuinely
-    // optional for the reason this file's header states; guarded again
-    // inside the closure rather than assumed.
-    const reviseApprove = this.reviseApprove;
     // Fire-and-forget by design: the chain already ends in a `.catch` that
     // reports failure through `say`, which the reviewer is already looking
     // at because this press just wrote to it ('approving…' / 'requesting a
@@ -552,13 +374,9 @@ export const verdictMethods = {
       .then((res) => {
         if (res.status === 204) {
           if (approving) {
-            // The past tense is EARNED: the label reads `approved` only after
-            // the server took the verdict, and paintRevise keeps the button
-            // disabled from here on — the review is over.
+            // EARNED: only after the server took the verdict does the primary
+            // leave the bar. The review is over.
             this.approved = true;
-            if (reviseApprove) {
-              reviseApprove.textContent = APPROVE_DONE;
-            }
             // The verdict retires the trail: the server wiped its copy in the
             // same act that took the approve, and this page's ghosts,
             // highlights and log go with it.
@@ -631,7 +449,10 @@ export const verdictMethods = {
       .catch((err) => {
         this.say(`${approving ? 'approve' : 'revise'} failed: ${err}`);
       })
-      .then(() => this.readRevise());
+      .then(() => {
+        this.approving = false;
+        return this.readRevise();
+      });
   },
 
   // --- the verdict menu ---
@@ -653,16 +474,6 @@ export const verdictMethods = {
     el.className = 'gly-verdict-menu';
     el.hidden = true;
     el.setAttribute('role', 'menu');
-    const revise = document.createElement('button');
-    revise.type = 'button';
-    revise.className = 'gly-verdict-revise';
-    revise.textContent = MENU_REVISE;
-    revise.title =
-      'hand the document to the agent with everything still pending';
-    revise.addEventListener('click', () => {
-      this.closeVerdictMenu();
-      this.postVerdict({}, false);
-    });
     const trust = document.createElement('button');
     trust.type = 'button';
     trust.className = 'gly-verdict-trust';
@@ -673,7 +484,7 @@ export const verdictMethods = {
       this.closeVerdictMenu();
       this.postVerdict({ approveOnAnswer: true }, false);
     });
-    el.append(revise, trust);
+    el.append(trust);
     document.body.appendChild(el);
     // Outside-click closes, in capture so it runs whatever the click lands
     // on. The button is NOT "outside": askRevise owns the toggle, and closing
@@ -688,9 +499,8 @@ export const verdictMethods = {
           return;
         }
         if (
-          this.revise &&
-          event.target instanceof Node &&
-          this.revise.contains(event.target)
+          event.target instanceof Element &&
+          event.target.closest('.kit-primary')
         ) {
           return;
         }
@@ -719,10 +529,9 @@ export const verdictMethods = {
   },
 
   openVerdictMenu(this: AppShell) {
-    // See postVerdict's own note: genuinely nullable, narrowed rather than
-    // asserted, and inert given the only caller (askRevise) already checked.
-    const revise = this.revise;
-    if (!revise) {
+    // Off the bar's primary, which is what was pressed.
+    const anchor = document.querySelector('.kit-primary');
+    if (!anchor) {
       return;
     }
     if (!this.verdictMenu) {
@@ -733,11 +542,11 @@ export const verdictMethods = {
     // refusal note's discipline: an element unhidden with a stale inline
     // position appears somewhere the button is not. Unhide before measuring
     // the menu's own width, because a hidden box measures zero.
-    const rect = revise.getBoundingClientRect();
+    const rect = anchor.getBoundingClientRect();
     menu.hidden = false;
     menu.style.top = `${rect.bottom + window.scrollY + 4}px`;
-    // Right-aligned under the button: Revise is the rightmost control in the
-    // bar, so the menu grows leftward over the page rather than off its edge.
+    // Right-aligned under the button: the primary is the rightmost control in
+    // the bar, so the menu grows leftward over the page rather than off its edge.
     menu.style.left = `${Math.max(4, rect.right + window.scrollX - menu.offsetWidth)}px`;
     this.verdictOpen = true;
   },
@@ -794,66 +603,26 @@ export const verdictMethods = {
   },
 
   paintRevise(this: AppShell) {
-    // Each of these is genuinely optional on AppShell — see this file's own
-    // header. In practice all five are set together by makeRevise or none of
-    // them are, so this guard never actually trips; it is here because tsc
-    // cannot see that correlation, and the alternative is the wrong half of
-    // blurDismiss's lesson.
     const revise = this.revise;
-    const idle = this.reviseIdle;
-    const busy = this.reviseBusy;
-    const secs = this.reviseSecs;
-    const approveLabel = this.reviseApprove;
-    if (!revise || !idle || !busy || !secs || !approveLabel) {
+    if (!revise) {
       return;
     }
     const ms = this.reviseWaiting ? Date.now() - this.reviseStartedAt : 0;
-    // The digits, and only the digits. All three labels stay laid out and only
-    // their visibility changes, so neither this click nor the tick a second
-    // from now can move the controls beside it — see makeRevise. Busy wins
-    // while a revision is outstanding; otherwise the verdict decides between
-    // Approve (which an earned `approved` keeps hold of) and Revise.
-    secs.textContent = `${reviseSeconds(ms)}`;
-    // THE COUNT NEVER LIES: it is the length of the instruction list the
-    // SERVER handed this page in the same payload the verdict was read from
-    // (refreshPending), never a count of the cards the rail managed to draw.
-    // Written into the reserved box, never as a whole label, so no count can
-    // move the button. See makeRevise and .gly-revise-count.
-    if (this.reviseCount) {
-      this.reviseCount.textContent = reviseCountClause(this.pendingCount);
-    }
-    const history = !!(this.versionsPanel && this.versionsPanel.open);
-    const noReply = noReplyResend(this.pendingCount, this.reviseMessage);
-    const {
-      approve,
-      busy: counting,
-      disabled,
-      title,
-    } = reviseFace(
-      history,
-      this.reviseWaiting,
-      noReply,
-      this.approved,
-      this.verdict === APPROVE_IDLE,
-      this.reviseRunning,
-      this.pendingCount === 0 && agentHasRevise(this.reviseMessage),
-      this.approveNotBefore,
-      Date.now(),
-    );
-    idle.classList.toggle('gly-reserved', history || counting || approve);
-    busy.classList.toggle('gly-reserved', history || !counting);
-    if (this.reviseCaret) {
-      this.reviseCaret.classList.toggle('gly-reserved', noReply);
-    }
-    approveLabel.classList.toggle('gly-reserved', !approve);
-    if (this.reviseBack) {
-      this.reviseBack.classList.toggle('gly-reserved', !history);
-    }
-    revise.classList.toggle('gly-history-out', history);
+    const face = sendFace({
+      drafts: this.pendingCount,
+      edits: this.editCount,
+      waiting: this.reviseWaiting,
+      message: this.reviseMessage,
+      running: this.reviseRunning,
+      cooling: Date.now() < this.approveNotBefore,
+      seconds: reviseSeconds(ms),
+    });
+    revise.textContent = face.label;
+    revise.disabled = face.disabled || this.approved;
+    revise.title = face.title;
+    this.paintDiscard();
     this.paintMessage();
-    revise.disabled = disabled;
-    revise.classList.toggle('gly-on', counting);
-    revise.title = title;
+    this.paintChrome();
   },
 
   // --- hold and release ---

@@ -790,7 +790,6 @@ class App implements AppState {
 
   // --- the bubble, and the census/bar chrome ---
   bubble: SuggestionUI;
-  census: { root: HTMLElement; count: HTMLButtonElement };
   bar: {
     root: HTMLElement;
     count: HTMLButtonElement;
@@ -833,13 +832,11 @@ class App implements AppState {
 
   // --- Revise (web/verdict.ts) ---
   revise: HTMLButtonElement | null;
-  reviseCount?: HTMLElement;
-  reviseCaret?: HTMLElement;
-  reviseIdle?: HTMLElement;
-  reviseBusy?: HTMLElement;
-  reviseSecs?: HTMLElement;
-  reviseApprove?: HTMLElement;
-  reviseBack?: HTMLElement;
+  discardBtn: HTMLButtonElement | null;
+  discardArmedAt: number;
+  discarding: boolean;
+  approving: boolean;
+  editCount: number;
   verdictMenu: HTMLElement | null;
   reviseRunning: boolean;
   approveNotBefore: number;
@@ -947,6 +944,7 @@ class App implements AppState {
     // derived from what got drawn is a count that can disagree with the
     // document the press is about to hand over.
     this.pendingCount = 0;
+    this.editCount = 0;
     // `this.changes` IS DELETED WITH THE TRAIL'S SERVER HALF. It held the
     // SERVER's copy of the trail for one purpose — the count on the verdict
     // button — and `pendingView` is `{instructions, blocks}`: it has no
@@ -1024,7 +1022,6 @@ class App implements AppState {
     this.blocks = [];
 
     this.status = this.makeStatus();
-    this.census = this.makeCensus();
     this.rail = this.makeRail();
     this.composer = this.makeComposer();
     // ONE GRIP BESIDE EVERY BLOCK that takes a whole-block instruction, in a
@@ -1071,6 +1068,7 @@ class App implements AppState {
         this.paintVersionsButton();
         // The readout names the round, so a round landing has to repaint it.
         this.paintReadout();
+        this.paintChrome();
       },
       onRestored: (version, error) => this.didRestore(version, error),
       // The readout says WHICH of History's two stages is on screen, and the
@@ -1155,7 +1153,11 @@ class App implements AppState {
     // shell without the Revise button has nothing to hang it off.
     this.verdictMenu = null;
     this.verdictOpen = false;
+    this.approving = false;
     this.revise = this.makeRevise();
+    this.discardArmedAt = 0;
+    this.discarding = false;
+    this.discardBtn = this.makeDiscard();
 
     // THE HANDOFF. While the agent holds the file the document is read-only
     // and the one control this page gains is the way back — a cancel in a
@@ -2049,15 +2051,14 @@ class App implements AppState {
   // it land in. The hidden one takes the class harmlessly; the visible one
   // shows it. Which is which is the stylesheet's business, not this method's.
   pulseCensus() {
-    for (const el of [this.census.count, this.bar && this.bar.count]) {
-      if (!el) {
-        continue;
-      }
-      el.classList.remove('gly-pulse');
-      void el.offsetWidth;
-      el.classList.add('gly-pulse');
-      window.setTimeout(() => el.classList.remove('gly-pulse'), 900);
+    const el = this.bar && this.bar.count;
+    if (!el) {
+      return;
     }
+    el.classList.remove('gly-pulse');
+    void el.offsetWidth;
+    el.classList.add('gly-pulse');
+    window.setTimeout(() => el.classList.remove('gly-pulse'), 900);
   }
 
   // The "new" badge is a reading aid, not a state: it says "this is the one
@@ -2282,17 +2283,20 @@ class App implements AppState {
   chromeFrame() {
     const view =
       document.documentElement.clientHeight || window.innerHeight || 0;
-    const head = document.querySelector('.gly-bar');
+    const head = document.querySelector('.kit-bar');
     const foot = this.bar && this.bar.root;
-    // Its foot, not its height: the strip is sticky under the kit's bar.
     const top = head ? head.getBoundingClientRect().bottom : 0;
     const bottom =
       foot && !foot.hidden ? foot.getBoundingClientRect().height : 0;
-    return { top, bottom: view - bottom };
+    // The send bar sticks to the window's foot, and History hides it.
+    const send = document.querySelector('.kit-sendbar');
+    const sendTop = send ? send.getBoundingClientRect().top : 0;
+    const floor = sendTop > 0 && sendTop < view ? sendTop : view;
+    return { top, bottom: Math.min(view - bottom, floor) };
   }
 
   watchBar() {
-    const bar = document.querySelector('.gly-bar');
+    const bar = document.querySelector('.kit-bar');
     if (!bar) {
       return;
     }

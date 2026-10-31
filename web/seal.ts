@@ -23,12 +23,7 @@
 // optional rather than required: the current server never sends them.
 
 import { postJSON, routes } from './net.ts';
-import {
-  VERDICT_ENTRUSTED,
-  VERDICT_DISCARDED,
-  clockTime,
-  APPROVE_IDLE,
-} from './verdict.ts';
+import { VERDICT_ENTRUSTED, VERDICT_DISCARDED, clockTime } from './verdict.ts';
 import type { AppShell } from './appshell.ts';
 import type { ReviseWatchView } from './verdict.ts';
 
@@ -175,12 +170,6 @@ export function sealLine(
  * revision receipt's deletion made one entry up, arriving a second time, which
  * is why it is written down rather than re-derived.
  *
- * `.gly-census button` also gained a member in the same change: the census
- * count is a `<button>` now (it opens the sheet). A sealed review hides the
- * whole strip, so covering it here is belt to that braces — but it is built
- * once and never rebuilt, so it needs the OTHER half of the invariant. See
- * SEAL_ONLY_VERBS.
- *
  * THE INVARIANT EVERY ENTRY IN THIS LIST OWES, and the one thing to know
  * before adding another: EVERY SELECTOR HERE EITHER HAS A PAINTER THE UNSEAL
  * EDGE ITSELF RUNS, OR IS IN `SEAL_ONLY_VERBS` AND IS RE-ENABLED EXPLICITLY ON
@@ -234,19 +223,6 @@ export function sealLine(
 // accident; §8's rule is what would have caught them if they had been left
 // named here.
 //
-// AND `.gly-census button` IS NARROWED BY ONE, WHICH IS THE ONE EXEMPTION THIS
-// LIST HAS. The census strip is a group of VIEW DOORS, and a door is not a
-// verb — it was only ever in here because the count beside it is a door to a
-// list of cards whose every verb dies with the seal. History's door leads
-// somewhere READING is the whole point, and reading is all a sealed review has
-// left. `:not(.gly-versions-open)` says that in the selector rather than in a
-// second sweep that would fight this one.
-//
-// Measured before the exemption: the door was shown, on screen and reachable by
-// `elementFromPoint`, and `disabled` — the exact combination that reads as a
-// broken control rather than an absent one, which this codebase already rates
-// as the worse of the two.
-//
 // `.gly-block-grip` IS THE BLOCK GRIP, and it is hidden as well as killed:
 // paintGrips sets `hidden` and `disabled` on every grip while sealed, and the
 // seal edge runs it in both directions, so it needs no entry in
@@ -254,7 +230,7 @@ export function sealLine(
 export const SEALED_VERBS =
   '.gly-thread-delete, ' +
   '.gly-thread-edit, .gly-thread-edit-text, .gly-thread-edit-save, ' +
-  '.gly-overall-input, .gly-census button:not(.gly-versions-open), ' +
+  '.gly-overall-input, ' +
   '.gly-composer button, ' +
   '.gly-composer-text, .gly-capture button, ' +
   '.gly-block-grip';
@@ -328,18 +304,7 @@ export const SEALED_VERBS =
  * `sendComment`'s in-flight `settled`, which now defers to the seal for the same
  * reason `fileNote` does.
  *
- * `.gly-census-count` IS THE SIXTH, AND IT JOINED THE MOMENT IT STOPPED BEING A
- * READOUT. It was a `<span>` — nothing to disable, nothing to re-enable — and
- * it is a button now, because the sheet is the review's whole list at every
- * width and this is how it is opened. It is built ONCE in `makeCensus` and never rebuilt: `paintCensus` writes its
- * TEXT on every poll and re-derives the `disabled` flag of `✓ all` and nothing
- * else. Left out of this list, the first seal would take the way into the
- * settled conversations away for the life of the tab, and Reopen would hand
- * back every verb on the page except the one that reaches the record. It is
- * caught by §8's own rule and not by a fresh one — every selector in
- * SEALED_VERBS either has a painter the unseal edge runs, or is here.
- *
- * `.gly-composer-cancel` IS THE SEVENTH AND IT JOINED WITH ITS OWN BIRTH. It
+ * `.gly-composer-cancel` JOINED IT JOINED WITH ITS OWN BIRTH. It
  * is built once in `makeComposer` beside `.gly-composer-send`, appended to the
  * body with it, and reached by `.gly-composer button` in SEALED_VERBS — so it
  * is disabled by the first seal and there is no painter anywhere that would
@@ -347,13 +312,6 @@ export const SEALED_VERBS =
  * only visible way out was dead for the life of the tab, which is the worse
  * half of the mirror-image bug this list exists for: `Add instruction` dying is
  * a verb you cannot use, `cancel` dying is a surface you cannot leave.
- *
- * AND `.gly-census-overall` HAS LEFT IT, for the reason four selectors left
- * SEALED_VERBS: the whole-document handle was a bar control opening a floating
- * panel, then the rail's own first card, then the bar's `+ Instruction`, and it
- * is no control at all now — blank space in the right-hand panel, which a
- * sealed review leaves inert (see panelDoorAt). Its INPUT kept its class
- * through every move, which is why this list did not have to.
  *
  * `.gly-capture-cancel` IS HERE BECAUSE ITS TWIN IS, AND BECAUSE BORROWING THE
  * TWIN'S CLASS IS WHAT WENT WRONG. The capture card's exit first wore
@@ -372,7 +330,7 @@ export const SEALED_VERBS =
  * requires every selector in it to match something, so a dead entry is a named
  * failure instead of a silent subtraction from a group query. */
 export const SEAL_ONLY_VERBS =
-  '.gly-census-count, .gly-overall-input, .gly-composer-send, ' +
+  '.gly-overall-input, .gly-composer-send, ' +
   '.gly-composer-cancel, .gly-comment-button, .gly-composer-text, ' +
   '.gly-capture-cancel';
 
@@ -417,10 +375,9 @@ export const sealMethods = {
     this.paintReadout();
   },
 
-  // The way back from a handoff: one button, built once, in a reserved box —
-  // `visibility: hidden` PLUS `disabled` when no window is open (a button
-  // hidden in CSS is still a button to the keyboard), so the window opening
-  // moves nothing in the bar.
+  // The way back from a handoff: one button on the send bar, built once, and
+  // `disabled` as well as hidden when no window is open (a button hidden in CSS
+  // is still a button to the keyboard).
   makeHandoffCancel(this: AppShell): HTMLButtonElement | null {
     const anchor = document.getElementById('gly-revise');
     if (!anchor || !anchor.parentNode) {
@@ -428,7 +385,7 @@ export const sealMethods = {
     }
     const b = document.createElement('button');
     b.type = 'button';
-    b.className = 'gly-handoff-cancel';
+    b.className = 'kit-btn gly-handoff-cancel';
     b.textContent = CANCEL_HANDOFF;
     b.title =
       'take the document back from the agent — a parseable draft is kept as its round';
@@ -442,7 +399,9 @@ export const sealMethods = {
         .then(() => this.readRevise())
         .catch(() => {});
     });
-    anchor.parentNode.insertBefore(b, anchor.nextSibling);
+    // First in the row: the row is right-aligned, so its coming and going moves
+    // no other control.
+    anchor.parentNode.insertBefore(b, anchor.parentNode.firstChild);
     this.paintCancelOn(b);
     return b;
   },
@@ -544,12 +503,8 @@ export const sealMethods = {
     this.paintCensus();
     this.paintRail();
     this.releaseSealOnlyVerbs();
-    // A reopened review takes the verdict button back from `approved`: the
-    // label is EARNED by a verdict, and this one has been retired.
+    // A reopened review has its verdict retired.
     this.approved = false;
-    if (this.reviseApprove) {
-      this.reviseApprove.textContent = APPROVE_IDLE;
-    }
     if (was) {
       // THE AGENT'S REOPEN ARRIVES HERE OR NOWHERE. The reviewer is looking
       // at a sealed page; the poll is what notices, and the status readout is
@@ -558,19 +513,11 @@ export const sealMethods = {
     }
   },
 
-  // makeSeal builds the terminal bar's two halves and leaves both off.
-  //
-  // A DIFFERENT SET OF CHILDREN, SWAPPED ON A STATE CHANGE — which is allowed;
-  // what is not is anything moving on a CLICK. So the readout goes BEFORE the
-  // bar's one flexible cell (a readout that pushes a button is the same defect
-  // as a button that pushes its neighbour) and the two buttons go after it,
-  // each carrying both of its labels in one grid cell so neither can resize
-  // under the cursor that pressed it.
+  // makeSeal builds the terminal readout on the send bar, where the draft count
+  // is while the review is live, and leaves it off.
   makeSeal(this: AppShell): { readout: HTMLElement } {
-    const bar = document.querySelector('.gly-bar');
-    const spacer = bar && bar.querySelector('.gly-spacer');
     const readout = document.createElement('span');
-    readout.className = 'gly-seal gly-seal-off';
+    readout.className = 'kit-sendbar-count gly-seal gly-seal-off';
     readout.id = 'gly-seal';
     readout.setAttribute('role', 'status');
     readout.setAttribute('aria-live', 'polite');
@@ -604,62 +551,18 @@ export const sealMethods = {
     // the terminal that started it, which is what `handleStop` itself tells a
     // caller when no hook is installed. Anyone restoring the terminal bar's
     // verbs should restore Done alone.
-    // BEFORE `#gly-status`, which on a sealed page carries only a reply: the
-    // state first and the reply after it, so a reply that comes and goes
-    // never moves `Approved HH:MM`. See paintReadout.
-    const status = bar && bar.querySelector('#gly-status');
-    if (bar && status) {
-      bar.insertBefore(readout, status);
-    } else if (bar && spacer) {
-      bar.insertBefore(readout, spacer);
-    } else if (bar) {
-      bar.append(readout);
-    }
+    document.getElementById('gly-drafts')?.before(readout);
     return { readout };
   },
 
-  // The live controls the seal replaces. The document's NAME stays — it is
-  // what the page is about, sealed or not — and so does THE READOUT, which is
-  // where a reopen's reason lands.
-  //
-  // The readout used to be two elements and this list held one of them: the
-  // editor's `connected · saved …` was hidden and the shell's reply line was
-  // kept. With one element there is nothing to hide, and the half that had to
-  // go is content rather than a box — `paintReadout` prints only what the seal
-  // said while `sealed` is true, so the standing sentence ("your edits apply")
-  // is off a page whose document is not editable. Hiding the element instead
-  // would take the reopen's reason with it.
-  // HISTORY SURVIVES THE SEAL, AND ITS LOSS WAS NEVER ARGUED — it was
-  // collateral. This list held `this.census.root`, the whole strip, and the
-  // History door lives inside that strip because Instructions and History are
-  // peers. So sealing a review took the record of it off the page:
-  // `layers.mjs` measured a `.gly-versions-open` click hanging for thirty
-  // seconds and throwing, on a door that was `display: none`.
-  //
-  // A SEALED REVIEW IS EXACTLY WHEN SOMEBODY WANTS TO READ WHAT HAPPENED. The
-  // reasoning recorded for hiding the strip ended "the single press that
-  // changes that is the press that brings the door back" — and reopen was
-  // deleted afterwards. Hiding was acceptable BECAUSE there was a way back;
-  // there is no way back. This codebase already names that shape: an exemption
-  // whose subject is deleted must be deleted with it.
-  //
-  // THE COUNT GOES AND THE DOOR STAYS, which is why this is a list of CHILDREN
-  // now rather than the container. `.gly-census-count` opens the instruction
-  // list, and on a sealed page every verb on every one of those cards is dead,
-  // so the door leads to a surface nothing can be done on. History is the
-  // opposite: it is a reading surface, and reading is the only thing left.
-  //
-  // The strip's own box stays on the page carrying one live chip. That is
-  // deliberate rather than tolerated: moving the door OUT of the strip was the
-  // other exit, and it would put a view switch among the controls after the
-  // spacer — the placement the old `+ Instruction` was measured into and out
-  // of, four checks red at once. One chip in a group of view doors is a smaller lie
-  // than a view door filed with the verbs.
+  // The live controls the seal replaces. HISTORY SURVIVES THE SEAL, on the stage
+  // track: a sealed review is exactly when somebody wants to read what happened,
+  // and reading is the only thing left.
   sealHides(this: AppShell): (HTMLElement | null)[] {
     return [
-      this.census && this.census.count,
       this.modeUI && this.modeUI.toggle,
       this.modeUI && this.modeUI.hold,
+      this.discardBtn,
       this.revise,
     ];
   },
@@ -669,6 +572,7 @@ export const sealMethods = {
       return;
     }
     const sealed = !!this.sealed;
+    document.body.classList.toggle('gly-sealed', sealed);
     for (const el of this.sealHides()) {
       if (!el) {
         continue;
@@ -701,6 +605,8 @@ export const sealMethods = {
         )
       : '';
     this.applySealedVerbs();
+    this.paintDiscard();
+    this.paintChrome();
   },
 
   // A SEALED REVIEW SHOWS ITS RECORD BUT TAKES NO INPUT. The rail keeps

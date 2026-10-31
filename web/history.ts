@@ -10,8 +10,8 @@
 // header for the this-typing decision.
 //
 // THIS WAS THE PARTITION'S SINGLE BIGGEST OPEN CALL. Most of these methods'
-// DOM writes land on bar-owned elements — the versions chip, the census strip
-// — so a partition by pixels would file them under the bar. They are not bar
+// DOM writes land on chrome — the versions chip, the primary —
+// so a partition by pixels would file them under the bar. They are not bar
 // chrome. web/versions.ts's own header states History "is a READING MODE and
 // not a second application," and a reading mode filed under a module named
 // for the bar buries that distinction exactly where the next reader will not
@@ -29,6 +29,7 @@
 import {
   arrivalSaid,
   arrivedSaid,
+  DEFAULT_VIEW,
   STAGE_ROUNDS,
   VERSIONS_LABEL,
   VERSIONS_NAME,
@@ -54,9 +55,8 @@ export const historyMethods = {
     b.title = `${VERSIONS_NAME} — every round of this document, and what was asked for`;
     b.setAttribute('aria-expanded', 'false');
     b.addEventListener('click', () => this.toggleVersions());
-    // Instructions and History are peers, so they live in one group and read
-    // as view switches rather than unrelated controls at opposite ends.
-    this.census.root.appendChild(b);
+    // The stage track carries it: the record as a whole, beside its rounds.
+    b.classList.add('kit-btn');
     return b;
   },
 
@@ -94,7 +94,6 @@ export const historyMethods = {
     this.paintSheet();
     this.paintSurfaces();
     this.paintVersionsButton();
-    this.census.count.classList.add('is-open');
   },
 
   enterHistory(this: AppShell) {
@@ -109,7 +108,6 @@ export const historyMethods = {
     this.closeCapture();
     this.paintSurfaces();
     this.scheduleGrips();
-    this.census.count.classList.remove('is-open');
     // The primary becomes the way out and the readout says where you are, and
     // both have to be true BEFORE the first frame of the new surface — a bar
     // that still offers Revise over a reading mode is a bar offering a verb the
@@ -127,7 +125,6 @@ export const historyMethods = {
     this.paintVersionsButton();
     this.paintRevise();
     this.paintReadout();
-    this.census.count.classList.add('is-open');
     // ESC RETURNS WITH THE SCROLL PRESERVED, which is the whole reason History
     // is a mode and not a page: the sentence the reviewer was reading is still
     // under the cursor when they come back to it.
@@ -206,6 +203,29 @@ export const historyMethods = {
       arrivedSaid(this.versionsPanel.rounds, this.arrival.n),
       this.arrival,
     );
+  },
+
+  // openStage is a press on the stage track: a finished round opens History at
+  // that round, and while History is open the round in hand is the way back.
+  openStage(this: AppShell, opens: string) {
+    const panel = this.versionsPanel;
+    if (opens === 'draft') {
+      panel.hide();
+      return;
+    }
+    const n = Number(opens);
+    if (this.arrival && this.arrival.n === n) {
+      this.arrival = null;
+    }
+    if (panel.open) {
+      void panel.openRound(n);
+    } else {
+      if (this.sheetOpen) {
+        this.closeSheet();
+      }
+      void panel.showRound(n, DEFAULT_VIEW);
+    }
+    this.paintVersionsButton();
   },
 
   toggleVersions(this: AppShell) {

@@ -1,16 +1,16 @@
-// web/bar.ts owns the bar's chrome: the status readout, the census strip,
-// which surfaces are on screen at this width, and the mode toggle.
+// web/bar.ts owns the readout on the kit's bar, which surfaces are on screen at
+// this width, and the mode toggle on the send bar.
 //
 // It is a MIXIN — an object of methods `Object.assign`ed onto `App.prototype`
 // in entry.ts — not a class of its own, so every method here still reads and
 // writes `this` on the live App instance exactly as it did before the move
-// (`this.status`, `this.census`, `this.bar`, `this.modeUI`, and so on). `this`
+// (`this.status`, `this.bar`, `this.modeUI`, and so on). `this`
 // IS TYPED AGAINST `AppShell` (web/appshell.ts) — see that file's own header
 // for the this-typing decision.
 //
-// THIS IS WHAT REMAINS OF THE BAR once History (web/history.ts), the primary
-// action (makeRevise, now in web/verdict.ts) and the seal have their own homes:
-// the status line, the census, the surfaces decision, and the mode switch.
+// THIS IS WHAT REMAINS once History (web/history.ts), Revise (web/verdict.ts) and
+// the seal have their own homes, and the page's bar is the kit's (web/shell.ts):
+// the status line, the surfaces decision, and the mode switch.
 // paintSurfaces is the second-most behaviour-dense method in the file after
 // paintAnchors — it is the ONLY place any of the three surfaces is shown or
 // hidden, so every other piece of code sets state and calls it rather than
@@ -25,6 +25,7 @@
 
 import { getJSON, postJSON, routes } from './net.ts';
 import { railSurfaces } from './rail.ts';
+import { agentHolds, roundInHand } from './roundbar.ts';
 import { age } from './suggestions.ts';
 import { roundCards, STAGE_READING } from './versions.ts';
 import type { AppShell } from './appshell.ts';
@@ -68,7 +69,7 @@ export function roundPhrase(rounds: number, phase: string): string {
 function paintDiskNotice(text: string) {
   let el = document.getElementById('gly-disk-notice');
   if (!el) {
-    const bar = document.querySelector('.gly-bar');
+    const bar = document.querySelector('.kit-bar');
     if (!bar || !text) {
       return;
     }
@@ -192,15 +193,7 @@ export const barMethods = {
     // No shell (a test harness mounting the editor into a bare page). Make one
     // rather than carrying a null through every painter.
     const made = document.createElement('span');
-    made.className = 'gly-status';
     made.id = 'gly-status';
-    const bar = document.querySelector('.gly-bar');
-    const anchor = bar && bar.querySelector('.gly-spacer');
-    if (bar && anchor) {
-      bar.insertBefore(made, anchor);
-    } else if (bar) {
-      bar.appendChild(made);
-    }
     return made;
   },
 
@@ -298,7 +291,14 @@ export const barMethods = {
     // a timer. The reply goes last — see above.
     parts.push(
       roundPhrase(
-        this.historyCount,
+        roundInHand(
+          this.versionsPanel && this.versionsPanel.rounds,
+          agentHolds({
+            handoff: !!this.handoff,
+            waiting: this.reviseWaiting,
+            message: this.reviseMessage,
+          }),
+        ),
         this.approved
           ? PHASE_SETTLED
           : this.handoff || this.reviseWaiting
@@ -333,90 +333,7 @@ export const barMethods = {
       'your instructions go to the agent as one round when you press Revise';
   },
 
-  // --- the census strip ---
-
-  // The census answers HOW MUCH. It is a separate surface from the rail for one
-  // reason: the rail can only show what is near, and a number that changes with
-  // the scroll position is not a census. Every number here comes from the
-  // /_galley/pending payload — the same projection the document is built from.
-  makeCensus(this: AppShell): { root: HTMLElement; count: HTMLButtonElement } {
-    const root = document.createElement('div');
-    root.className = 'gly-census';
-
-    // THE COUNT IS THE DOOR TO THE WHOLE LIST, and it had to become one.
-    //
-    // It was a `<span>`: a readout, and the only way to the sheet was the
-    // narrow layout's bottom bar (`.gly-bar-count`, `.gly-bar-list`), so above
-    // the breakpoint the sheet could not be opened at all. That was correct
-    // while the sheet was the rail's REPLACEMENT — a surface for the width the
-    // rail does not exist at. It stopped being correct the moment the rail
-    // stopped holding settled conversations: `↺ reopen` is the only way back
-    // from a mis-clicked `✓ resolve`, and it would have lived on a surface no
-    // desktop reviewer could reach. Anchorless conversations went the same way.
-    //
-    // So the sheet is the review's list at every width (railSurfaces), and this
-    // is how it is reached at every width — the same element, in the same
-    // place, saying the same number it always said. A button rather than a new
-    // control beside it, because the bar's fold arithmetic is paid for in
-    // pixels and this one already carries the count somebody would click.
-    //
-    // `.gly-census-count`'s 24ch reserve is unchanged and is still a BOUND: the
-    // label's width varies with the counts, and every control to its right sits
-    // downstream of it.
-    const count = document.createElement('button');
-    count.type = 'button';
-    count.className = 'gly-census-count';
-    count.title = 'show the current draft and its instructions';
-    count.addEventListener('click', () => this.openInstructions());
-
-    // R1'S SURVIVING HALF IS NOT A CELL OF THIS STRIP'S ANY MORE, AND NOT A
-    // CELL OF THE BAR'S EITHER. The sentence — the design, since the
-    // reviewer's-hand cut, rather than an admission of a gap — used to be
-    // appended here as `.gly-census-untracked`, a bar cell beside the strip.
-    // Its journey was: inside the strip (where its full width sat in the
-    // strip's flex basis and decided where the bar folded — 1467px with a
-    // nine-character name), then a basis-0 bar cell of its own beside two other
-    // basis-0 readouts. That last shape is what Court read off the screen as
-    // three truncated fragments. It is the last clause of the ONE readout now;
-    // see paintReadout, which owns the sentence, its order and its title.
-    //
-    // The strip keeps its `flex: 0 0 auto` and everything left in it really is
-    // a count or a control, which is what that declaration has always claimed.
-
-    // `✓ all` IS GONE FROM THIS FUNCTION, NOT MERELY UNAPPENDED. It swept
-    // every proposal and settled every answered thread through POST
-    // /_galley/sweep — one of the twelve endpoints
-    // internal/serve/rounds_surface_test.go asserts are 404 — and it was
-    // already doubly unreachable: `makeCensus` built it and never put it in the
-    // document, and `paintCensus` wrote `disabled = true` over it on every poll.
-    // Neither population it acted on exists any more, so nothing takes its
-    // place: an instruction is not decided in bulk or singly, it is written,
-    // edited or deleted, and then sent as a round. The strip keeps its
-    // `flex: 0 0 auto` and its measured layout; the count beside it is the
-    // census's one verb now, and it opens the sheet.
-    root.append(count);
-    const bar = document.querySelector('.gly-bar');
-    // BEFORE THE READOUT, not merely before the spacer. The census carries
-    // three controls, and the readout after it changes width whenever the
-    // server says something — measured: one press of Revise put
-    // `revision requested` into the status and slid `✓ all`, the since-retired
-    // `✗ all` and the whole-doc handle 140.89px. A readout that pushes a button
-    // is the same defect as a button that pushes its neighbour. The bar reads
-    // left to right: controls, the ONE readout, the one flexible cell,
-    // controls — so every control sits upstream of the only cell that
-    // breathes. There used to be three readouts here and the ordering rule was
-    // the same; consolidating them changed how much has to be said, not what
-    // has to be true.
-    const anchor =
-      document.getElementById('gly-status') ||
-      document.querySelector('.gly-spacer');
-    if (bar && anchor) {
-      bar.insertBefore(root, anchor);
-    } else if (bar) {
-      bar.appendChild(root);
-    }
-    return { root, count };
-  },
+  // --- the count on the narrow layout's bottom bar ---
 
   paintCensus(this: AppShell) {
     const marked = this.comments.length;
@@ -434,8 +351,6 @@ export const barMethods = {
     // A version of this comment claimed the sum WAS what the rail holds; it was
     // written when the anchorless cards were still in the rail and it survived
     // them leaving, which is the shape this file's own entries warn about.
-    this.census.count.textContent = parts.join(' · ');
-    this.census.count.disabled = false;
     if (this.bar) {
       this.bar.count.textContent = parts.join(' · ');
       this.bar.count.disabled = false;
@@ -532,19 +447,10 @@ export const barMethods = {
     toggle.append(track, label);
     toggle.addEventListener('click', () => this.toggleMode());
 
-    // THE BAR DOES NOT MOVE WHEN YOU CLICK IT. Hold used to be `display: none`
-    // on ask, so turning live on INSERTED a button and slid every neighbour
-    // sideways — measured at 92.97px, which put hold itself under the cursor
-    // that had just clicked the switch. A second click there would have held
-    // the arrivals the reviewer was turning on. The general rule is Court's:
-    // a click must never move the thing it landed on, or the thing beside it.
-    //
-    // So the space is RESERVED and only the visibility is toggled — see
-    // paintMode. And because hold's own label changes on its own click
-    // (`⏸ hold` becomes `▶ release · 0`, which is wider), the two labels are
-    // stacked in ONE grid cell: the button is always as wide as the wider of
-    // them, so the swap cannot change its box either. That is exact rather
-    // than a reserved magic number, which is why it is worth two spans.
+    // A click must never move the thing it landed on, or the thing beside it.
+    // Hold's own label changes on its own click (`⏸ hold` becomes `▶ release · 0`,
+    // which is wider), so the two labels are stacked in ONE grid cell and the
+    // swap cannot change its box.
     const hold = document.createElement('button');
     hold.type = 'button';
     hold.className = 'gly-hold';
@@ -555,14 +461,9 @@ export const barMethods = {
     hold.append(holdOff, holdOn);
     hold.addEventListener('click', () => this.toggleHold());
 
-    const bar = document.querySelector('.gly-bar');
-    const anchor = document.getElementById('gly-revise');
-    if (bar && anchor) {
-      bar.insertBefore(toggle, anchor);
-      bar.insertBefore(hold, anchor);
-    } else if (bar) {
-      bar.append(toggle, hold);
-    }
+    // Left of Discard, hold outermost: its box is reserved while it is off, and
+    // there it holds no gap between the controls.
+    document.getElementById('gly-discard')?.before(hold, toggle);
     return { toggle, hold, holdOff, holdOn };
   },
 
@@ -580,12 +481,9 @@ export const barMethods = {
     // is nothing to hold back, and a control that can never do anything in
     // this state is chrome rather than a choice.
     //
-    // It KEEPS ITS BOX in both states and only changes visibility, so that
-    // flipping the switch moves nothing. A RESERVED BOX IS NOT A BUTTON: a
-    // `visibility: hidden` element is out of the tab order and out of hit
-    // testing, and it is `disabled` as well — this codebase already learned
-    // the mirror of this from the fold clusters, where a card hidden in CSS
-    // was still a button to the keyboard.
+    // It sits left of the switch in a right-aligned row (editor.css), so its
+    // coming moves nothing, and it is `disabled` as well as hidden: a card hidden
+    // in CSS was once still a button to the keyboard.
     hold.classList.toggle('gly-reserved', !on);
     hold.disabled = !on;
     this.paintHold();

@@ -27,9 +27,9 @@ Between rounds, galley loads your edits to an open document. If you and the revi
 
 **Editing by hand.** Their typing applies directly. There is nothing to accept and nothing to propose — if a word is easier to fix than to explain, they fix it. Each hand edit collects in the rail beside their instructions, with a `revert` on it if they change their mind.
 
-**The rail is one list.** Instructions and hand edits both, in the right-hand column: everything that will reach you on the next round, and nothing else. It is not a history — `History` in the bar is, and every round is a version there with its own diff.
+**The rail is one list.** Instructions and hand edits both, in the right-hand column: everything that will reach you on the next round, and nothing else. It is not a history — `History` beside the rounds, above the document, is, and every round is a version there with its own diff.
 
-**Sending.** `Revise` sends the round to you. `Revise & Approve` sends it and approves in the same press, for the last few nits they trust you to land without another look. `Approve` alone ends the review with the document as it stands.
+**Sending.** `Revise`, on the bar at the foot of the document, sends the round to you, and `Discard drafts` beside it clears the round's unsent instructions in two presses. `Approve` is on the top bar; with drafts waiting it offers `Revise & Approve`, which sends them and approves in the same press, for the last few nits they trust you to land without another look. `Approve` alone ends the review with the document as it stands.
 
 **Approving in the conversation.** If the reviewer tells you here that they approve the document, call the `galley_approve` tool with its path. It ends the review exactly as their `Approve` button would, and the page locks itself. Call it only on their word; never approve on their behalf because the revision looks done.
 
@@ -93,7 +93,7 @@ An edit you make to the file outside a round is recorded as a version, so the re
 
 ## Sharing an approved document
 
-After approval, the slot Revise leaves holds a filled `Share ▾` button. Its menu, in order:
+After approval, the bar at the foot of the document holds a `Share ▾` button. Its menu, in order:
 
 - **`Download HTML`** renders the document in the project's theme and the browser downloads it as `<name>.html`. The file is self-contained: fonts, logos, Mermaid diagrams and images beside the document are inlined, so it opens offline; an image by `http(s)` address stays a link.
 - **`Download Markdown`** downloads the `.md` as it is on disk, as `<name>.md`.

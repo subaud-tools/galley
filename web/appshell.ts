@@ -316,7 +316,6 @@ export interface AppState {
 
   // --- the bubble, and the census/bar chrome ---
   bubble: SuggestionUI;
-  census: { root: HTMLElement; count: HTMLButtonElement };
   bar: {
     root: HTMLElement;
     count: HTMLButtonElement;
@@ -351,20 +350,12 @@ export interface AppState {
   // `#gly-revise` on an unbuilt checkout), so the field is nullable rather
   // than absent.
   revise: HTMLButtonElement | null;
-  // The five labels makeRevise builds INSIDE the branch where `#gly-revise`
-  // exists — genuinely optional, and not defensively so. See verdict.ts's
-  // own header for why: the constructor's direct assignment is to `revise`
-  // alone, and nothing assigns these five unconditionally the way
-  // `strictPropertyInitialization` (Task 8) will ask for. In practice all
-  // five are set together or none of them are; verdict.ts narrows each one
-  // with a real check rather than asserting the correlation away.
-  reviseCount?: HTMLElement;
-  reviseCaret?: HTMLElement;
-  reviseIdle?: HTMLElement;
-  reviseBusy?: HTMLElement;
-  reviseSecs?: HTMLElement;
-  reviseApprove?: HTMLElement;
-  reviseBack?: HTMLElement;
+  // Discard drafts beside it, and what the two and the primary read.
+  discardBtn: HTMLButtonElement | null;
+  discardArmedAt: number;
+  discarding: boolean;
+  approving: boolean;
+  editCount: number;
   // Where the last Revise stands: the cell makeRevise puts beside the button,
   // and the message readRevise last read (none before the first poll, and
   // none when the server has none).
@@ -523,6 +514,12 @@ export interface AppMethods {
 
   // --- Revise, the verdict menu, and hold/release (web/verdict.ts) ---
   askRevise(): void;
+  pressSend(): void;
+  makeDiscard(): HTMLButtonElement | null;
+  discardDrafts(): void;
+  paintDiscard(): void;
+  paintChrome(): void;
+  openStage(opens: string): void;
   postVerdict(
     body: { verdict?: string; approveOnAnswer?: boolean; trust?: boolean },
     approving: boolean,
@@ -663,7 +660,6 @@ export interface AppMethods {
 
   // --- the bar's own builders (web/bar.ts) ---
   makeStatus(): HTMLElement;
-  makeCensus(): { root: HTMLElement; count: HTMLButtonElement };
   makeMode(): ModeUI;
 
   // --- the bottom bar and the sheet (web/sheet.ts) ---

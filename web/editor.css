@@ -1962,9 +1962,7 @@ html.gly-panel-door {
    — and the census's 12px is meant to come from `.gly-census`'s own font-size
    by inheritance, not from the bar's number happening to agree. Dropping it
    would make changing `.gly-census`'s size stop moving its verbs, silently. */
-.gly-bar button,
 .gly-bottombar button,
-.gly-census button,
 .gly-verdict-menu button {
   font: inherit;
   border: 1px solid var(--gly-line);
@@ -2104,148 +2102,6 @@ html.gly-panel-door {
   .gly-bubble button { min-height: 44px; min-width: 44px; }
 }
 
-/* A FOLDED CONTROL STAYS WITH ITS GROUP. Above the breakpoint the bar reads as
-   a strip with the readouts left and the controls pinned right, and a control
-   that folds onto a second line arrives at the FAR LEFT of it — measured on a
-   1600px window with a 24-character document name, `Revise` landed under the
-   document's own title, half a metre of screen from `⏸ hold` and the switch it
-   belongs beside. It had left its group to look at.
-
-   `flex-end` costs nothing on a line that has the spacer on it: the spacer
-   grows to fill, so there is no free space left for justification to move.
-   It only speaks on the lines the spacer is NOT on, which are exactly the
-   folded ones. Below the breakpoint the bar reads as a stack instead — see
-   the narrow block — and there the default start-alignment is right, so this
-   is scoped to the width where the group exists at all.
-
-   `body >` for the same reason the narrow gap needs it: the shell's `.gly-bar`
-   rule is (0,1,0) in a <style> that loads after this file, so a bare class
-   here loses the tie on source order. */
-@media (min-width: 992px) {
-  .kit-card-body > .gly-bar { justify-content: flex-end; }
-}
-
-/* THE STATUS MAY NOT DECIDE WHERE THE BAR FOLDS.
-
-   `.gly-status` is (0,1,0) in edit.html's inline block, which loads after this
-   file, so this rule is `.gly-bar .gly-status` at (0,2,0) to reach it at all.
-
-   The shell gave the status `flex: 0 1 auto`, which is right for a row that
-   cannot wrap: it takes its content's width and yields first when the row is
-   tight. In a row that CAN wrap it is wrong, because a wrapping flex container
-   breaks lines on each item's flex BASIS — and `auto` means "as wide as
-   whatever the server last said". `#gly-status` carries Revise's replies, so
-   pressing Revise put `requesting a revision…` into a zero-width box and grew
-   its basis by ~190px, which is enough to push the control the reviewer had
-   just pressed onto the next line. That is the readout-pushes-a-button defect
-   the bar's own ordering comment (edit.html) was written to end, arriving
-   again through the new axis.
-
-   `flex-basis: 0` takes the status out of the line-breaking arithmetic
-   entirely — it contributes nothing, so no amount of text in it can move a
-   control. It then grows into whatever space is left, which is what the
-   shell's rule meant all along.
-
-   The other two numbers are what keep wide windows measuring the same as they
-   did before this rule existed.
-
-   `max-width: max-content` caps the growth at the status's own text, so on a
-   window with room to spare the status takes exactly what it needs and the
-   spacer keeps the whole remainder — the controls stay pinned right, which is
-   the spacer's entire job.
-
-   The grow factor of 100 settles who yields when there ISN'T room to spare.
-   Free space is shared in proportion to grow, so a bare `flex: 1 1 0` split a
-   tight window's leftover evenly and handed a share of it to a spacer that has
-   nothing to show: measured at 1600px, the connected-and-saved line rendered
-   61px wide while the spacer took an equal 61px of window to draw nothing in.
-   100-to-1 says the spacer is what is LEFT OVER, not a claimant — the status
-   is served first, up to its cap, and the spacer gets the remainder. Same
-   window, same document, with this factor: status 121px, spacer 1px. Above the
-   cap the two are indistinguishable, because there the cap is what binds. */
-.gly-bar .gly-status {
-  flex: 100 1 0;
-  max-width: max-content;
-}
-/* THE DISK NOTICE IS A WARNING, NOT A STATUS (galley#44), AND IT COVERS, IT
-   DOES NOT DISPLACE. It arrives without the reviewer asking — a save found the
-   file gone — so it may move nothing: as a row of the wrapping bar it grew the
-   bar by its own height and slid the document and the rail down under the
-   reader. So it hangs off the bar's bottom edge the way the verdict menu does,
-   out of flow, and `--gly-bar-h` (measured) never sees it. Where it hangs is
-   the arrival strip's rule: NOT over the text column. Above the breakpoint
-   that is the rail's column, inset to the cards' own edges; below it there is
-   no rail and it spans the bar.
-
-   It WRAPS, overriding the shell's `.gly-bar > * { white-space: nowrap }`,
-   because the sentence is the whole point and its end ("Nothing is being
-   saved.") is the part that matters most. The red is the delete's, the
-   product's one warning colour (see `.gly-thread-delete.gly-armed`), laid on
-   the page ground so what it covers does not show through. */
-.gly-bar .gly-disk-notice {
-  position: absolute;
-  top: calc(100% + 8px);
-  left: var(--gly-gutter);
-  right: var(--gly-gutter);
-  white-space: normal;
-  overflow-wrap: anywhere;
-  padding: 6px 10px;
-  border-left: 3px solid var(--gly-del);
-  border-radius: 6px;
-  background: linear-gradient(var(--gly-del-bg), var(--gly-del-bg)), var(--gly-bg);
-  box-shadow: var(--gly-lift);
-  color: var(--gly-del);
-}
-@media (min-width: 992px) {
-  .gly-bar .gly-disk-notice {
-    left: auto;
-    right: var(--gly-rail-pad);
-    width: calc(var(--gly-rail-w) - var(--gly-rail-gutter) - var(--gly-rail-pad));
-  }
-}
-.gly-bar .gly-disk-notice[hidden] { display: none; }
-
-/* --- the bar's controls, and who owns their chrome ---
-
-   THIS RULE USED TO LIVE IN edit.html'S INLINE <style>, which loads after this
-   file and therefore won every specificity tie. It was written as a
-   bundle-less fallback for the ONE button in the shell's static markup —
-   #gly-revise — and silently captured every button the editor appends into the
-   bar: the census's `✓ all`, `✗ all` and whole-doc handle, plus collapse, hold
-   and mode. Measured in a browser before the fix, all seven computed
-   `font-size: 14px` and `color: var(--gly-accent)`: the chrome layer painting
-   at the document's size, in the one colour §1 of the handoff reserves — "on,
-   arrived, or here" — while sitting there doing nothing.
-
-   A button that only exists once the bundle has run cannot need a bundle-less
-   fallback. So the shell's rule is now scoped to `#gly-revise`, exactly its own
-   static markup, and this rule owns everything the editor appends.
-
-   IT DECLARES NO `display`. `.gly-hold`, `.gly-mode` and `.gly-revise` below
-   are inline-grid or inline-flex so their two labels can share one cell and
-   the bar cannot move when it is clicked. A `display` here would out-specify
-   all three at (0,1,1) and undo every one of them.
-
-   IT SITS ABOVE `.gly-census button`, deliberately. The two tie at (0,1,1), so
-   source order decides, and the census's own tighter `3px 10px` and its 6px
-   radius have to keep winning for the strip's verbs. Moving this block below
-   line ~1440 would take that away from them silently — the same class of
-   accident this rule is here to end.
-
-   The padding is the shell's, unchanged: this task moves ownership and fixes
-   size and colour, and re-cutting the geometry at the same time would leave
-   nobody able to say which change did what. */
-.gly-bar button {
-  font-size: 12px;
-  padding: 5px 14px;
-}
-/* The bar is the action layer, so a bar control under the pointer wears the
-   action colour. This said "amber is for on, arrived, or here — and hover is
-   `here`" back when amber did five jobs; hover is the ACTION about to happen,
-   and arrival is the one thing amber still says. */
-.gly-bar button:hover { border-color: var(--gly-signal); }
-.gly-bar button[disabled] { color: var(--gly-muted); cursor: default; opacity: 0.6; }
-.gly-bar button[disabled]:hover { border-color: var(--gly-line); }
 
 /* --- the mode toggle ---
    `on ask` is the resting state and reads as muted chrome; `● live` is the
@@ -2339,117 +2195,6 @@ html.gly-panel-door {
    hides its labels with it, and a label carrying it hides alone. */
 .gly-reserved { visibility: hidden; }
 
-/* THE HANDOFF CANCEL is a reserved box for the bar's own rule: the agent's
-   window opening and closing must move nothing. One fixed label, so nothing
-   about its own click can resize it; hidden-and-disabled when no window is
-   open, because a button hidden in CSS is still a button to the keyboard.
-   Container-specified (`.gly-bar .gly-handoff-cancel`) so it actually wins
-   against `.gly-bar button` — a bare class here is a rule that does not
-   apply. */
-.gly-bar .gly-handoff-cancel { white-space: nowrap; }
-.gly-bar .gly-handoff-cancel.gly-cancel-hidden { visibility: hidden; }
-
-/* REVISE IS THE SECOND BUTTON WHOSE LABEL CHANGES ON ITS OWN CLICK, and it is
-   the worst of them, because the new label then keeps changing on its own:
-   `Revise` becomes `revising · 0s` and counts. Measured on a 2000px window
-   with a real `--on-revise`: the button went 80.58 → 139.58px, and because it
-   is the rightmost item in the bar every control to its left came with it —
-   `.gly-mode` and `.gly-hold` each slid 59px toward the cursor that had just
-   pressed Revise.
-
-   THREE labels in one grid cell now — the button is the VERDICT and reads
-   `Approve` when nothing is pending (and `approved` once one lands, which is
-   SHORTER, so the cell already covers it) — and the seconds inside the
-   counting one get their own reserve: `Revise`, `revising · 9999s` and
-   `Approve` are all laid out at all times, so neither a click, a tick of the
-   counter, nor the verdict flipping under a fresh census can change the box.
-   Which one is painted is paintRevise toggling `.gly-reserved`, the same
-   mechanism hold uses — no per-state rules here. 4ch is a BOUND —
-   two and three quarter hours of waiting — and past it the button grows
-   again, which is the least of that reviewer's problems. */
-.gly-revise {
-  display: inline-grid;
-  grid-template-areas: "label";
-  place-items: center;
-}
-.gly-revise-label { grid-area: label; white-space: nowrap; }
-.gly-revise-secs { display: inline-block; min-width: 4ch; text-align: left; }
-
-/* THE ONE FILLED BOX ON THE PAGE, AND THAT IS WHAT MAKES IT THE PRIMARY.
-   Nothing else in this stylesheet is filled with --gly-signal, so a reviewer
-   who has never seen this editor can find the press by looking for the one
-   thing that is not outlined chrome.
-
-   CONTAINER-SPECIFIED, and that is not a habit. `.gly-bar button` is (0,1,1)
-   and declares `background`, `border` and `color`; a bare `.gly-revise` is
-   (0,1,0) and would lose every one of them while appearing to set them — the
-   dead-declaration shape this file records under the deleted settled card
-   (see THE RAIL'S SETTLED AND CHANGED SECTIONS). The plain `.gly-revise` block
-   above survives only because that rule deliberately declares no `display`.
-
-   The disabled face is (0,3,0) so it beats `.gly-bar button[disabled]` at
-   (0,2,1): a disabled PRIMARY has to give up its fill, or "dead" reads as
-   "pressable but dim" — the flag-was-set-and-the-control-looked-alive defect,
-   on the one control that hands the document to somebody else. */
-.gly-bar .gly-revise {
-  border-color: var(--gly-signal);
-  background: var(--gly-signal);
-  color: var(--gly-signal-ink);
-  font-weight: 600;
-}
-.gly-bar .gly-revise:hover { border-color: var(--gly-signal); filter: brightness(1.08); }
-.gly-bar .gly-revise[disabled] {
-  background: transparent;
-  border-color: var(--gly-line);
-  color: var(--gly-muted);
-  font-weight: inherit;
-}
-/* WAITING IS NOT PRESSING, so the busy face empties the box: outlined signal
-   while the agent holds the document, filled again the moment it comes back.
-   `.gly-on` is the state class paintRevise toggles (it was `.gly-amber`, and
-   the colour left the name behind).
-
-   IT TIES WITH THE DISABLED FACE ABOVE AT (0,3,0) AND WINS ON SOURCE ORDER,
-   deliberately — a revision that is RUNNING is both disabled and waiting, and
-   `revising · 14s` is a state the reviewer is meant to read, not a dead
-   control. Moving either block past the other greys the counter out in
-   silence, which is exactly the equal-specificity-decided-by-source-order
-   trap this file records. */
-.gly-bar .gly-revise.gly-on {
-  background: transparent;
-  color: var(--gly-signal);
-  border-color: var(--gly-signal);
-}
-
-/* THE PENDING COUNT, IN A RESERVED BOX, ON THE VERB IT IS A COUNT OF.
-   `Instructions · N` used to be a chip of its own three controls to the left;
-   it is deleted at wide widths and the number lives here, because the question
-   it answers — how many am I about to send — is a question about the press.
-
-   TWO WIDTH CLAIMS, AND THEY ANSWER TWO DIFFERENT CLICKS, which is the same
-   pair `.gly-revise-trail` was written for. Inside the grid cell, so this
-   button's OWN press — `Revise · 4 ▾` becoming `revising · 0s` — cannot resize
-   it. And inside this `min-width`, so a click somewhere ELSE that changes the
-   number (filing an instruction from a card is a click) changes the text and
-   not the box.
-
-   5ch is a BOUND and is stated as one: ` · 99` is five units in the bar's
-   mono. Past 99 pending the button grows, and because `.gly-bar` wraps, what
-   that costs is a FOLDED ROW rather than a slide — the same trade the 4ch of
-   seconds beside it makes.
-
-   `white-space: pre` and not `nowrap`, and it is not cosmetic: the clause is
-   composed with its own leading space, an inline-block starts its own line
-   box, and leading COLLAPSIBLE white space at the start of a line box is
-   REMOVED. That is how the button next to this one once printed `Finish ▾·
-   3 edits, 3 replies` while every string check saw the space that was in the
-   DOM. `pre` preserves it and implies no wrapping. */
-.gly-revise-count {
-  display: inline-block;
-  min-width: 5ch;
-  text-align: left;
-  white-space: pre;
-}
 /* THE TRAIL'S CLAUSE AND ITS 23ch RESERVE ARE BOTH GONE, and the deletion is
    named because the reasoning it carried is still true of the count that
    replaced it. `Finish ▾ · 6 edits, 2 replies` said what the press would tell
@@ -2517,64 +2262,6 @@ html.gly-panel-door {
   --share-font: var(--gly-sans);
 }
 
-/* Where the last Revise stands (web/verdict.ts paintMessage): the kit's pill
-   and the agent's line, in one row beside the button so the bar stays one
-   line. The line ellipsizes; the cell's title carries it whole. The kit's
-   colours are galley's: waiting is the live amber, the agent's two states the
-   instruction's indigo, answered the inserted cyan, failed the removed red.
-
-   SIZED LIKE THE STATUS, AND FOR THE STATUS'S REASON (see `.gly-bar
-   .gly-status`): a flex basis of 0 keeps the pill out of the wrapping bar's
-   line-breaking, so a long line can never push Revise onto a second row; the
-   grow factor serves it before the spacer, up to its own width. */
-.gly-bar .gly-msg {
-  --kit-mono: var(--gly-mono);
-  --kit-sans: var(--gly-sans);
-  --kit-wait: var(--gly-live-fg);
-  --kit-agent: var(--gly-hl);
-  --kit-agent-soft: var(--gly-hl-bg);
-  --kit-ok: var(--gly-ins);
-  --kit-danger: var(--gly-del);
-  --kit-muted: var(--gly-muted);
-  flex: 100 1 0;
-  min-width: 0;
-  max-width: max-content;
-  overflow: hidden;
-}
-.gly-bar .gly-msg:empty { display: none; }
-.gly-bar .gly-msg .kit-msg {
-  flex-direction: row;
-  align-items: center;
-  gap: 6px;
-  max-width: 100%;
-}
-.gly-bar .gly-msg .kit-pill { white-space: nowrap; }
-.gly-bar .gly-msg .kit-msg-line {
-  min-width: 0;
-  max-width: 18rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* --- Share: the approved document's way to a reader (web/share.ts) ---
-   FILLED, LIKE REVISE, because it is the slot's primary: after approval it is
-   the one press left. Its width is Revise's (`--gly-verb-w` below) and its
-   padding and font are the bar's, so the swap moves nothing; `[hidden]` needs a real
-   rule because `.gly-bar button` is an author rule the user-agent's loses to. */
-.gly-bar .gly-share {
-  border-color: var(--gly-signal);
-  background: var(--gly-signal);
-  color: var(--gly-signal-ink);
-  font-weight: 600;
-  white-space: nowrap;
-}
-.gly-bar .gly-share:hover { border-color: var(--gly-signal); filter: brightness(1.08); }
-.gly-bar .gly-share[hidden],
-.gly-bar .gly-revise[hidden] { display: none; }
-
-/* The bar's door to the rendered page: an ordinary bar button. */
-.gly-bar .gly-preview-open { white-space: nowrap; }
 
 /* ONE WIDTH FOR THE FOUR VERBS: History, HTML preview, the verdict (Revise /
    Approve) and Share. Sized to the verdict's widest reserved label —
@@ -2585,12 +2272,7 @@ html.gly-panel-door {
    this rule rather than from a measurement on the seal edge. A `width`, not a
    `min-width`: no label the verdict paints is wider, so none can grow it. */
 :root { --gly-verb-w: calc(16ch + 30px); }
-.gly-bar .gly-versions-open,
-.gly-bar .gly-preview-open,
-.gly-bar .gly-revise,
-.gly-bar .gly-share {
-  width: var(--gly-verb-w);
-}
+
 
 /* --- the arrival strip ---
    It says what landed and offers one control that moves the page. It is
@@ -2600,7 +2282,8 @@ html.gly-panel-door {
 .gly-strip {
   position: fixed;
   left: 20px;
-  bottom: 20px;
+  /* Over the send bar's height, so it never covers Revise. */
+  bottom: 124px;
   z-index: 30;
   display: flex;
   align-items: center;
@@ -2688,7 +2371,6 @@ html.gly-panel-door {
    the breakpoint (it is the same string the bottom bar prints, and the strip
    needed the width), so a pulse only on that one would be a trace nobody on a
    narrow window ever sees. */
-.gly-census-count.gly-pulse,
 .gly-bar-count.gly-pulse { animation: gly-pulse 900ms ease-out; }
 @keyframes gly-pulse {
   0% { color: var(--gly-accent); transform: scale(1.12); }
@@ -2699,131 +2381,9 @@ html.gly-panel-door {
    The states stay; only the movement goes. */
 @media (prefers-reduced-motion: reduce) {
   .gly-strip,
-  .gly-bar-count.gly-pulse,
-  .gly-census-count.gly-pulse { animation: none; }
+  .gly-bar-count.gly-pulse{ animation: none; }
 }
 
-/* --- the census strip ---
-   Chrome, so mono, per the palette rule. It sits in the header beside the
-   document's name because "how much is pending" is a fact about the document,
-   not about what is currently on screen. */
-.gly-census {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-family: var(--gly-mono);
-  font-size: 12px;
-  /* The census does NOT shrink. Every child of it is a count, a verb or a
-     control, all nowrap, none of which survives being half shown — so a census
-     narrower than its contents does not truncate, it lets them spill out and
-     paint over whatever sits to its right. That is what put "on trial.md" on
-     top of "connected · saved just now".
-     The bar absorbs tightness in ONE place, and it is the readout directly
-     after this strip: it yields and ellipsizes (see `.gly-bar .gly-status`
-     below and edit.html), and it carries the standing sentence as its last
-     clause so that sentence is what a tight bar gives up first. That nothing
-     which yields is IN here is what keeps this `flex: 0 0 auto` honest:
-     everything left inside really is a count or a control, and none of it may
-     be half shown. */
-  flex: 0 0 auto;
-}
-/* THE COUNT RESERVES ITS WIDTH, for the same reason hold does.
-
-   It is the first item in the strip, so its width is the left edge of every
-   verb after it — and it is the one item in the bar whose text changes as a
-   DIRECT RESULT of a click. Measured: `✓ all` on a document with 12 pending
-   left the count reading `0 pending · 2 threads`, one character narrower, and
-   `✗ all` (since retired — the measurement predates the sweep) slid 7.24px
-   toward the cursor that had just pressed accept. That is the misclick this
-   rule is about, one character at a time. The reserve outlives that button:
-   the bar's one readout still sits downstream of this width.
-
-   24ch, in the strip's own mono, is `999 pending · 99 threads` and then some —
-   a BOUND rather than a proof. Past it the count grows again; a document with a four-digit backlog
-   has bigger problems than a 7px slide.
-
-   IT IS A BUTTON NOW, AND IT HAS TO LOOK LIKE ONE. It was a `<span>` — a pure
-   readout — and the sheet it opens was reachable only from the narrow layout's
-   bottom bar, so above the breakpoint there was no way to the review's whole
-   list at all. That was fine while the sheet merely stood in for a rail that
-   was not there; it stopped being fine when settled and anchorless
-   conversations moved INTO the sheet, because `↺ reopen` would then have lived
-   where no desktop reviewer could reach it. So this is the door, at every
-   width.
-
-   The chrome comes from `.gly-census button` below and is not overridden,
-   which is the point: the whole-document handle that once sat beside it was
-   found only after Court failed to find it, and the diagnosis was that it
-   looked like a readout in a row of controls. A count that opens something has
-   to be dressed as a control or it is a control nobody presses.
-
-   The padding and border are added back to the reserve because the shell sets
-   `box-sizing: border-box` — a bare 24ch would reserve the BORDER box and
-   under-reserve the text. 20px of padding, 2px of border. */
-/* `Instructions · N` IS DELETED FROM THE BAR, AND THE COUNT IS NOT.
-   The number moved onto the primary (see .gly-revise-count) — one number, on
-   the verb it is a number of, instead of a chip three controls away from the
-   button that sends what it counts. Below the breakpoint the count already
-   printed twice and this was already the copy that went (the rule that hid it
-   at 991px is gone from the media query below, absorbed here); the foot's
-   `.gly-bar-count` is still the door to the sheet down there, and phase 6 is
-   where the two doors are put side by side.
-
-   THE BUTTON IS KEPT, HIDDEN, AND THAT IS DELIBERATE. It is one of
-   SEAL_ONLY_VERBS — built once in makeCensus, never rebuilt — and it is what
-   `openInstructions` is reached through from the narrow bottom bar. `display:
-   none` and not a visibility reserve: nothing here is reserving space for a
-   control that is not coming back at this width, and display removes it from
-   the tab order as well as from the paint.
-
-   Its 24ch reserve went with it. The reserve was a BOUND against a label whose
-   width varied with the counts, and a hidden box reserves nothing. */
-/* `color: var(--gly-fg)` WAS HERE AND WAS DEAD, the same shape as `.gly-mode`'s
-   font-family: `.gly-census button` is (0,1,1) and declares `color: inherit`,
-   this class is (0,1,0), and inheriting from a bar that is already `--gly-fg`
-   made the dead value the right one. Shown dead before deleting — set to
-   `rgb(1, 2, 3)`, rebuilt, and the element read back `rgb(26, 29, 39)`. The
-   `display` is the live half and nothing competes for it. */
-.gly-census-count { display: none; }
-.gly-census-count:hover:not([disabled]) { border-color: var(--gly-hl); color: var(--gly-hl); }
-.gly-census-count.is-open,
-.gly-census .gly-versions-open.is-open {
-  border-color: var(--gly-signal);
-  color: var(--gly-signal);
-  background: var(--gly-card);
-}
-/* History is a bar verb, so it wears the bar's padding (and so its height),
-   not the strip's tighter `3px 10px`; its width is the shared verb width
-   (see `--gly-verb-w` at the HTML preview rule). (0,2,0) beats
-   `.gly-census button` at (0,1,1). */
-.gly-census .gly-versions-open {
-  padding: 5px 14px;
-}
-/* `.gly-census-n` IS DELETED WITH THE SWEEP IT COUNTED. It reserved 3ch of
-   digits inside `✓ all` so the number going to zero ON ITS OWN CLICK could not
-   resize the button. Reserving the DIGITS rather than the label is still the
-   answer to that question and is still spelled out — on `.gly-revise-secs` and
-   `.gly-revise-count`, which is where the reserve now lives. */
-/* Chrome caste, 6px (§1 of the visual-layers handoff): full pills are for
-   verbs on cards and passive chips, and every chrome control is 6px.
-   A census control's paint belongs HERE and not on its bare class: a bare
-   class is (0,1,0) and this rule is (0,1,1), so every property the two share
-   is this rule's, and a dead declaration that happens to match reads exactly
-   like a live one.
-   These declarations are LIVE again: they tie `.gly-bar button` at (0,1,1) and
-   win on source order because that rule sits above them in this same file.
-   While the shell owned `.gly-bar button` they were all dead, and the census
-   painted at the shell's `5px 14px` / 14px / accent instead.
-
-   THE 12px THE VERBS RENDER AT IS NOT `.gly-bar button`'s `font-size: 12px`,
-   though it is the same number. `font: inherit` here is the declaration that
-   wins, and what it inherits is `.gly-census { font-size: 12px }` two rules
-   above — so the strip's verbs would still be 12px if the bar's own rule named
-   any other size, and changing `.gly-census`'s size is what moves them. */
-.gly-census button {
-  font: inherit;
-  padding: 3px 10px;
-}
 /* AND THE SWEEP'S HOVER GOES THE SAME WAY. `.gly-census-accept:hover` was the
    last rule naming a bulk verb — the retired `✗ all` took its `--gly-del` hover
    first and `✓ all` took this one — so the strip's live controls are
@@ -2853,44 +2413,7 @@ html.gly-panel-door {
    Deleted rather than left matching nothing: see CLAUDE.md on a dead
    declaration a reader would maintain as live. */
 @media (max-width: 991px) {
-  /* LESS ROOM, LESS AIR — and it buys back a whole row. `body >` is not
-     decoration: the shell's `.gly-bar` rule is (0,1,0) in an inline <style>
-     that loads after this file, so a bare `.gly-bar` here loses the tie on
-     source order and this declaration would never apply. The bar is a direct
-     child of body, so `body >` reaches it at (0,1,1).
 
-     8px rather than 12 across eight items is 32px, and 32px is the difference
-     between the narrow bar folding at 900 and not: measured on this branch's
-     fixture the wrapped row overshot by 3px, which put `Revise` alone on a
-     second line with 700px of nothing beside it and made the sticky bar 91px
-     tall. Everything below a sticky bar moves down with it, and on a short
-     window that is the difference between the first mark being pressable and
-     sitting under the bottom bar. This is a tighter fit, not a guarantee of
-     one — a long enough document name still folds the bar, which is what
-     folding is for. */
-  .kit-card-body > .gly-bar { gap: 8px; }
-
-  /* The strip's copy of the count used to be hidden HERE, because below the
-     breakpoint it printed twice — in this strip and in `.gly-bar-count` at the
-     foot — and the foot's copy is the one that earns it, being the door to the
-     sheet as well as a readout. It is hidden at every width now, above this
-     media query, for a reason that subsumes this one: the count lives on the
-     primary. `pulseCensus` still writes the arrival's pulse to both counts, so
-     the one permanent trace an arrival leaves is not lost with it. */
-
-  /* And the strip itself folds rather than spills. `flex: 0 0 auto` is right
-     above the breakpoint — a census narrower than its contents does not
-     truncate them, it lets them paint over the status line to its right (the
-     bug its own comment records). With `flex-wrap: wrap` that trade goes away:
-     a strip too wide for the window puts its verbs on a second line instead of
-     on top of something, so it can be allowed to shrink to the width it has.
-     Every child still has its own reserved minimum, so none of them shrinks
-     into illegibility — they wrap. */
-  .gly-census {
-    flex: 0 1 auto;
-    min-width: 0;
-    flex-wrap: wrap;
-  }
 
   /* The sealed readout wraps here for the same reason. The trust exit's
      sentence (`Approved 14:32 · 2 notes entrusted · 1 still landing`) is long
@@ -2902,25 +2425,6 @@ html.gly-panel-door {
     white-space: normal;
   }
 
-  /* The document's name truncates here rather than leaving the window. It is a
-     readout, its text never changes, and `doc.md` fits anywhere — but a real
-     filename is not `doc.md`, and the first item in the bar is the one item a
-     wrap cannot rescue: there is no earlier line to fold onto.
-
-     The truncation target moved from `.gly-doc` itself to `.gly-doc-name`
-     when the caret mark joined it in the same cell (see edit.html): `.gly-doc`
-     is now a flex container of icon + name, and `overflow: hidden;
-     text-overflow: ellipsis` on a flex container clips the whole row rather
-     than eliding one run of text inside it. `.gly-doc`'s own `min-width: 0` —
-     needed so the CELL can shrink inside the wrapping bar — now lives
-     unconditionally in edit.html's base rule instead of gated behind this
-     breakpoint, since a flex parent needs it at every width, not only the
-     narrow one. */
-  .gly-bar .gly-doc-name {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
 }
 
 /* --- a comment is one card with one verb --- */
@@ -3031,37 +2535,6 @@ html.gly-panel-door {
 /* The stepped card, so j/k is legible in the rail as well as in the text. */
 .gly-card.gly-stepped { border-color: var(--gly-signal); box-shadow: 0 0 0 1px var(--gly-signal); }
 
-/* --- the seal: the terminal bar ---
-
-   A REVIEW THAT HAS ENDED SAYS SO. When the verdict lands the bar stops being
-   a set of controls and becomes a record: the census, the editor status, the
-   mode switch, hold, collapse and Revise all go, and what is left is one
-   readout naming the verdict and its moment, plus the only two acts that
-   still make sense.
-
-   THE SWAP IS A STATE CHANGE, NOT A CLICK, which is what makes it legal —
-   `just motion`'s rule is that nothing may move when a control is CLICKED,
-   and the seal arrives on a poll. What the rule does bind here is the two
-   buttons themselves: both of their labels change on their own press
-   (`Reopen` → `reopening…`), so both carry BOTH labels in ONE grid cell and
-   the box is exactly as wide as the wider of them. Same primitive as hold and
-   Revise; no reserved magic numbers.
-
-   `display: none` rather than `visibility: hidden`, and the difference is the
-   whole point of the two mechanisms: a RESERVED box is for a control that will
-   come back on the next click and must not move its neighbours meanwhile; a
-   sealed bar is a different bar, and holding sixty percent of a row empty for
-   controls this review will never offer again would be reserving space for
-   nothing.
-
-   THE SELECTOR IS `.gly-bar .gly-seal-off` AND THE DESCENDANT IS LOAD-BEARING.
-   Every control it hides declares its own `display` — `.gly-doc` is
-   inline-flex, `.gly-hold`/`.gly-revise` are inline-grid,
-   `.gly-mode` is inline-flex — and each of those is (0,1,0). A bare
-   `.gly-seal-off` would tie the ones declared later in this file and lose to
-   them on order, hiding some controls and not others. (0,2,0) beats all of
-   them outright. */
-.gly-bar .gly-seal-off { display: none; }
 
 /* The readout sits BEFORE the bar's one flexible cell, with the buttons after
    it — the bar's own order rule, and the reason is that this text changes
@@ -3576,37 +3049,6 @@ body.gly-history-mode .kit-card-body > main {
   padding: 8px 0;
 }
 
-/* THE WAY OUT SITS IN THE PRIMARY'S SLOT, OUTLINED RATHER THAN FILLED. The
-   filled box is what the reviewer presses to move the document forward and
-   History moves nothing — an outlined signal says "this is the important
-   control here, and it does not commit anything". Declared after
-   `.gly-bar .gly-revise[disabled]`, which it ties with at (0,3,0), so source
-   order decides and the History face wins; moving either block past the other
-   reverses it in silence. */
-.gly-bar .gly-revise.gly-history-out {
-  background: transparent;
-  border-color: var(--gly-signal);
-  color: var(--gly-signal);
-  font-weight: 600;
-}
-.gly-bar .gly-revise.gly-history-out:hover {
-  border-color: var(--gly-signal);
-  filter: none;
-  background: var(--gly-card);
-}
-
-/* THE DOOR SAYS A ROUND ARRIVED — IN PAINT, AND ONLY IN PAINT.
-   `.gly-versions-open` sits in a full bar between the mode switch and Revise,
-   and this class is toggled by SOMEBODY ELSE'S event (the agent returning), so
-   anything here that changed the control's box would slide the neighbour the
-   reviewer's cursor is resting on — the bar's oldest rule. A colour and an inset
-   ring: `box-shadow` draws inside the border box and contributes no geometry at
-   all, where a border-width would. Amber is the token for "on, arrived, or
-   here", which is exactly what this is. */
-.gly-bar .gly-versions-open.is-new {
-  color: var(--gly-accent);
-  box-shadow: inset 0 0 0 1px var(--gly-accent);
-}
 
 /* Below the two-column width the rail goes under the paper.
 
@@ -4095,12 +3537,82 @@ body.gly-page .ProseMirror p.gly-shell-marker {
   z-index: 8;
 }
 .kit-app > .kit-mid { overflow: visible; min-width: 0; }
-/* The editor's own strip, until the send bar takes its controls. */
 .gly-editor-card { position: relative; padding-bottom: 0; }
-.gly-editor-card .gly-doc { display: none; }
+
 .gly-editor-card .kit-card-body { margin: 0; }
-.gly-editor-card .kit-card-body > .gly-bar { top: var(--gly-kit-bar); padding: 8px 0; background: var(--kit-card); }
+
 .gly-editor-card .kit-card-body > main { margin: 0 auto; }
 /* With no cards the column widens, and centred in the card it runs under the
    rail's hint: in the window it had the width to clear it, in the card it has not. */
 body.gly-collapsed .gly-editor-card .kit-card-body > main { margin: 0; }
+
+/* The rounds, above the card, with the whole record at the end of the line. */
+.gly-stages .kit-stages { margin: 0 0 12px; }
+.gly-stages .gly-versions-open { margin-left: auto; padding: 0 10px; font-size: 12px; line-height: 18px; }
+.gly-versions-open.is-open, .gly-versions-open.is-new { border-color: var(--kit-signal); color: var(--kit-signal); }
+
+/* The one readout, on the bar: it gives way before the controls do. */
+.kit-bar .kit-status { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The file's own line: hangs below the bar, and arrives moving nothing. */
+.kit-bar .gly-disk-notice {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: var(--gly-rail-pad);
+  width: min(32rem, calc(100vw - 2 * var(--gly-rail-pad)));
+  white-space: normal;
+  overflow-wrap: anywhere;
+  padding: 6px 10px;
+  border-left: 3px solid var(--gly-del);
+  border-radius: 6px;
+  background: linear-gradient(var(--gly-del-bg), var(--gly-del-bg)), var(--gly-bg);
+  box-shadow: var(--gly-lift);
+  color: var(--gly-del);
+}
+.kit-bar .gly-disk-notice[hidden] { display: none; }
+
+/* The send bar stays on screen at the foot of the window while the card scrolls. */
+.kit-sendbar { position: sticky; bottom: 8px; z-index: 9; margin-top: 12px; }
+body.gly-history-mode .kit-sendbar { display: none; }
+.kit-sendbar .kit-sendbar-count { margin-right: 0; }
+.kit-sendbar .kit-btns { align-items: center; justify-content: flex-end; margin-left: auto; }
+/* The two the kit doesn't dress. Hold shows only while live: it sits left of the
+   switch in a right-aligned row, so its coming moves nothing. */
+.kit-sendbar .gly-mode, .kit-sendbar .gly-hold {
+  font: 13px var(--kit-mono);
+  color: var(--kit-fg);
+  background: transparent;
+  border: 1px solid var(--kit-line);
+  border-radius: 6px;
+  padding: 4px 12px;
+  cursor: pointer;
+}
+.kit-sendbar .gly-hold.gly-reserved { display: none; }
+.kit-sendbar .kit-btn { white-space: nowrap; }
+/* Labels that change on a press or a tick keep their box. */
+#gly-revise { min-width: 22ch; }
+#gly-discard { min-width: 21ch; }
+.kit-btn[hidden] { display: none; }
+.gly-seal-off { display: none; }
+.gly-handoff-cancel.gly-cancel-hidden { display: none; }
+body.gly-sealed #gly-drafts, body.gly-sealed .kit-sendbar-hint { display: none; }
+
+/* Where the last Revise stands, beside the count, one line. */
+.gly-msg {
+  --kit-mono: var(--gly-mono);
+  --kit-sans: var(--gly-sans);
+  --kit-wait: var(--gly-live-fg);
+  --kit-agent: var(--gly-hl);
+  --kit-agent-soft: var(--gly-hl-bg);
+  --kit-ok: var(--gly-ins);
+  --kit-danger: var(--gly-del);
+  --kit-muted: var(--gly-muted);
+  margin-right: auto;
+  min-width: 0;
+  max-width: 34ch;
+  display: inline-flex;
+  overflow: hidden;
+}
+.gly-msg .kit-msg { flex-direction: row; align-items: center; gap: 8px; min-width: 0; }
+.gly-msg .kit-pill { white-space: nowrap; }
+.gly-msg .kit-msg-line { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+body.gly-sealed .gly-msg { display: none; }
