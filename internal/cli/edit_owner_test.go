@@ -4,6 +4,8 @@ import (
 	"io"
 	"strings"
 	"testing"
+
+	"github.com/subaud-tools/galley/internal/serve"
 )
 
 // THE OWNER IS AN ARGUMENT, NEVER THE ENVIRONMENT. Under pi, in-process
@@ -54,8 +56,7 @@ func TestEditRefusesADeadOwnerBeforeListening(t *testing.T) {
 	if !strings.Contains(err.Error(), "owner session ghost has no live channel") {
 		t.Fatalf("error = %q", err)
 	}
-	entries, _ := live().List()
-	if len(entries) != 0 {
-		t.Fatalf("a refused editor still advertised: %+v", entries)
+	if _, ok := serve.FindRuntime(doc); ok {
+		t.Fatal("a refused editor still opened the document")
 	}
 }

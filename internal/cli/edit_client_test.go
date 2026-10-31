@@ -134,9 +134,6 @@ func TestEditRegistersAndCtrlCCloses(t *testing.T) {
 	if _, err := serve.Running(); err != nil {
 		t.Fatalf("Ctrl-C took the server with it: %v", err)
 	}
-	if entries, _ := live().List(); len(entries) != 0 {
-		t.Fatalf("still advertised after Ctrl-C: %+v", entries)
-	}
 	files, err := filepath.Glob(filepath.Join(dir, "doc.*"))
 	if err != nil || len(files) != 1 {
 		t.Fatalf("beside the document: %v (%v)", files, err)
@@ -160,19 +157,16 @@ func TestEditExitsWhenTheDocumentCloses(t *testing.T) {
 	}
 }
 
-// A second `galley edit` on the document is refused with the address, not given
-// a second server, and the first carries on.
-func TestSecondEditIsRefused(t *testing.T) {
+// A second `galley edit` on the document is given the same document, not a
+// second server: the two would erase each other.
+func TestSecondEditGetsTheSameDocument(t *testing.T) {
 	isolate(t)
 	doc := writeDoc(t, t.TempDir(), "doc.md", "# T\n")
 	exe := buildGalley(t)
-	startEdit(t, exe, doc)
-	out, err := exec.Command(exe, "edit", "--no-open", doc).CombinedOutput()
-	if err == nil || !strings.Contains(string(out), "already open at") {
-		t.Fatalf("second edit: %v: %s", err, out)
-	}
-	if _, ok := serve.FindRuntime(doc); !ok {
-		t.Fatal("the refusal closed the document")
+	first := startEdit(t, exe, doc)
+	second := startEdit(t, exe, doc)
+	if first.url != second.url {
+		t.Fatalf("two addresses: %s and %s", first.url, second.url)
 	}
 }
 
@@ -201,32 +195,6 @@ func TestPortOnlyReachesAServerThisCommandStarts(t *testing.T) {
 	}
 	if !strings.Contains(other.stderr(), entry.Base) {
 		t.Fatalf("stderr did not say where the server is: %q", other.stderr())
-	}
-}
-
-// galley_open keeps working through `galley edit`: the advert it waits for names
-// the document on the server, and the channel's calls carry the token.
-func TestOpenSpawnsThroughTheServer(t *testing.T) {
-	isolate(t)
-	dir := t.TempDir()
-	doc := writeDoc(t, dir, "doc.md", "# T\n\nHello.\n")
-	if err := live().AnnounceSession("session-me"); err != nil {
-		t.Fatal(err)
-	}
-	c := newChannel(dir, "session-me")
-	c.exe = buildGalley(t)
-	recordOpens(c)
-	c.openPoll = 20 * time.Millisecond
-	r, err := openDoc(t, c, doc)
-	if err != nil {
-		t.Fatalf("galley_open: %v", err)
-	}
-	t.Cleanup(func() { killEditor(t, r.Room) })
-	if !strings.Contains(r.URL, "/api/docs/") {
-		t.Fatalf("URL = %q, want the document on the server", r.URL)
-	}
-	if st, err := reviseState(r.URL); err != nil || st.Sealed {
-		t.Fatalf("revise state: %+v, %v", st, err)
 	}
 }
 
@@ -334,7 +302,7 @@ func TestTheTokenGoesOnlyToTheServer(t *testing.T) {
 		saw <- r.Header.Get(localweb.TokenHeader)
 	}))
 	t.Cleanup(other.Close)
-	resp, err := http.Get(other.URL)
+	resp, err := serverClient.Get(other.URL)
 	if err != nil {
 		t.Fatal(err)
 	}

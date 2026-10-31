@@ -97,37 +97,31 @@ type Runtime struct {
 	URL   string
 	Room  string
 	Page  string // the file under review
-	PID   int    // the `galley edit` holding it, 0 for none
 	Owner string
-}
-
-// AlreadyServing is the refusal: another live `galley edit` holds this
-// document. Typed so a caller can read the address out of it rather than
-// parsing the message.
-type AlreadyServing struct{ Runtime Runtime }
-
-func (e *AlreadyServing) Error() string {
-	return fmt.Sprintf("%s is already open at %s (pid %d) — use that address, or stop that editor first",
-		filepath.Base(e.Runtime.Page), e.Runtime.URL, e.Runtime.PID)
 }
 
 // FindRuntime asks the running server whether it holds this document, by any
 // path that names it: a page's .html or its content.md, in either spelling of
 // a symlinked directory. No server, or one that does not answer, holds nothing.
 func FindRuntime(path string) (Runtime, bool) {
+	return FindOn(context.Background(), pageserve.NewClient(Live(), nil), path)
+}
+
+// FindOn is FindRuntime through client: a channel's, which starts a server that
+// has crashed.
+func FindOn(ctx context.Context, client *pageserve.Client, path string) (Runtime, bool) {
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return Runtime{}, false
 	}
 	var docs []DocView
-	client := pageserve.NewClient(Live(), nil)
-	if _, err := client.Do(context.Background(), http.MethodGet, "/api/docs", nil, &docs); err != nil {
+	if _, err := client.Do(ctx, http.MethodGet, "/api/docs", nil, &docs); err != nil {
 		return Runtime{}, false
 	}
 	want := canonicalPath(abs)
 	for _, d := range docs {
 		if canonicalPath(d.Path) == want || canonicalPath(d.Page) == want {
-			return Runtime{URL: d.URL, Room: d.Room, Page: d.Page, PID: d.Editor, Owner: d.Owner}, true
+			return Runtime{URL: d.URL, Room: d.Room, Page: d.Page, Owner: d.Owner}, true
 		}
 	}
 	return Runtime{}, false

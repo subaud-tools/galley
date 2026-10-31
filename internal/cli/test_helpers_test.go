@@ -98,22 +98,34 @@ func isolate(t *testing.T) {
 	})
 }
 
-// openOnServer runs the server in this process, under an isolated state
-// directory, and opens the document on it: what `galley edit` leaves behind,
-// for a test of what comes after.
-func openOnServer(t *testing.T, doc string, o serve.DocOptions) serve.Runtime {
+// startServer runs the server in this process, under an isolated state
+// directory, and returns what stops it, which cleanup does too.
+func startServer(t *testing.T) (stop func()) {
 	t.Helper()
 	isolate(t)
+	return runServer(t)
+}
+
+// runServer runs the server in this process under the state directory in place,
+// as a restart does.
+func runServer(t *testing.T) (stop func()) {
+	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	ready := make(chan string, 1)
 	go func() {
 		done <- serve.Run(ctx, serve.Options{Sessions: live(), Ready: func(u string) { ready <- u }})
 	}()
-	t.Cleanup(func() {
+	stopped := false
+	stop = func() {
+		if stopped {
+			return
+		}
+		stopped = true
 		cancel()
 		<-done
-	})
+	}
+	t.Cleanup(stop)
 	select {
 	case <-ready:
 	case err := <-done:
@@ -121,6 +133,20 @@ func openOnServer(t *testing.T, doc string, o serve.DocOptions) serve.Runtime {
 	case <-time.After(5 * time.Second):
 		t.Fatal("the server never became ready")
 	}
+	return stop
+}
+
+// openOnServer runs the server and opens the document on it: what `galley edit`
+// leaves behind, for a test of what comes after.
+func openOnServer(t *testing.T, doc string, o serve.DocOptions) serve.Runtime {
+	t.Helper()
+	startServer(t)
+	return openOnRunning(t, doc, o)
+}
+
+// openOnRunning opens the document on the running server.
+func openOnRunning(t *testing.T, doc string, o serve.DocOptions) serve.Runtime {
+	t.Helper()
 	client := pageserve.NewClient(serve.Live(), nil)
 	in := serve.OpenRequest{Path: doc, DocOptions: o}
 	if _, err := client.Do(context.Background(), http.MethodPost, "/api/docs", in, nil); err != nil {
@@ -182,4 +208,17 @@ func galleyCLI(t *testing.T, args ...string) (stdout, stderr string, code int) {
 	var out, errw strings.Builder
 	code = dispatch(args, &out, &errw)
 	return out.String(), errw.String(), code
+}
+
+// postStop presses the page's Done.
+func postStop(baseURL string) error {
+	resp, err := serverClient.Post(baseURL+"/_galley/stop", "application/json", strings.NewReader(`{}`))
+	if err != nil {
+		return err
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("stop: %s", resp.Status)
+	}
+	return nil
 }

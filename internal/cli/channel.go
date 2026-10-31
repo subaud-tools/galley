@@ -1,25 +1,15 @@
-// channel is the listener that starts itself — an MCP channel server inside
-// the galley binary, spawned by the agent harness at session start, before
-// any document exists. It scans the live registry for editors this session
-// owns (or that nobody owns, under its root), holds a long-poll on each, and
-// forwards every wake into the session as notifications/claude/channel.
+// channel.go is galley's part of `galley channel` and `galley watch`: its tools,
+// and how a wait's answer becomes the wake the agent reads. The channel itself
+// is tools-common pageserve's: under pi it holds one long poll on the server for
+// this session (GET /api/agent/wait, which the server answers from every
+// document the session owns, see serve/agent.go) and pushes each wake; under
+// Claude Code the plugin's mod runs `galley watch`, the same loop printing each
+// as a JSON line, and the channel only serves the tools.
 //
-// It is a CLIENT of GET /_galley/wait — the same endpoint `galley wait`
-// speaks — so the wake vocabulary, the --since cursor and the self-wake guard
-// are all the server's, implemented once.
-//
-// RE-ARM BEFORE EMIT. Spike 2 measured a single-digit-millisecond window
-// between a wake and the next registration in which Waiting() reads 0 and a
-// Revise press is refused as unheard. The attach loop therefore re-arms its
-// next poll IMMEDIATELY on wake and emits the notification from a separate
-// goroutine — slow stdio never sits between the wake and the re-arm.
-//
-// THE WINDOW CANNOT BE CLOSED FROM THIS SIDE and no longer has to be: this
-// process has one connection per attach and it is using it to carry the answer,
-// so the gap is a JSON write and a round trip however fast the emit is. The
-// server waits it out instead (serve.awaitReArm) — it is the side that knows
-// a reader was RELEASED rather than lost. Narrowing it here still matters,
-// because the wait is a bound on the reviewer's button and not a promise.
+// PRESENCE IS THE ONE THING GALLEY DOES AROUND IT. The channel announces its
+// session in live(), which is where the server reads it (Options.Sessions), and
+// the record lasts as long as this process: pageserve's loop posts no presence.
+// So a server restart cannot judge a live session gone.
 //
 // NOT LICENSE-GATED, deliberately, agent-prompt's reasoning: this process
 // lives inside an MCP harness where a gate message on stdout corrupts the
@@ -34,23 +24,19 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"syscall"
-	"time"
 
 	"github.com/subaud-tools/galley/internal/debug"
 	"github.com/subaud-tools/galley/internal/serve"
 	"github.com/subaud-tools/galley/internal/version"
 	tools "github.com/subaud-tools/tools-common"
 	"github.com/subaud-tools/tools-common/channelmcp"
-	"github.com/subaud-tools/tools-common/harness"
 	"github.com/subaud-tools/tools-common/pageserve"
 )
 
@@ -66,7 +52,7 @@ Between rounds, galley loads your edits to an open document. If you and the revi
 If you have LOST the round — your context was compacted, or this session restarted mid-review — run galley round <doc> to read it again, with the same instructions and the same keys you were given. A sent round is no longer pending, so do not reach for galley pending instead.
 On "approve", the reviewer approved the document as it stands and the review is over. On "changed", re-read the document before acting. On "closed", the editor is gone and nobody is waiting for more review work.
 If you expect a review and hear nothing, call galley_channel_status. It reports which open documents this session is attached to and why any others are not.
-To review a file, call galley_open with its path: it starts this session's editor, opens it in the reviewer's browser and returns the URL in case they close it; rounds arrive here. Never run galley edit from a shell while this channel is present; an editor opened that way belongs to no session and any channel whose scope covers it may claim it.`
+To review a file, call galley_open with its path: it starts this session's review, opens it in the reviewer's browser and returns the URL in case they close it; rounds arrive here. Never run galley edit from a shell while this channel is present; an editor opened that way belongs to no session and any channel whose scope covers it may claim it.`
 
 // reviseGuidance is the rule set that governs answering a "revise" or
 // "settle" event — see reasonGuidance below.
@@ -171,131 +157,25 @@ var approveSchema = json.RawMessage(`{
   "required": ["doc"]
 }`)
 
-// channelPoll is how long one attach poll is held open — the channel's whole
-// life is re-arming, so minutes-long polls cost nothing and a short one would
-// turn a quiet review into a stream of requests. The server bounds every poll
-// (maxWaitPoll), so no client-side timeout backs this up.
-const channelPoll = 5 * time.Minute
-
-// channel holds the scan loop's state: which rooms are already attached, so a
-// rescan is idempotent.
-type channel struct {
-	scope string // absolute root; limits only the editors this session does not own
-	// scopeReal is the scope with every symlink resolved, kept BESIDE the
-	// spelling the caller gave rather than replacing it. On macOS /tmp is a
-	// symlink to /private/tmp, so one directory has two names and a channel
-	// scoped at one of them compared raw-string prefixes against adverts
-	// written with the other — and attached to nothing, silently. Court's own
-	// demo harness lives at a path with both spellings. Both are kept because
-	// the caller's spelling is what a diagnostic must print back (`--scope
-	// /tmp/x` has to read as `/tmp/x`) and the resolved one is what a
-	// comparison must use.
-	scopeReal string
-	self      string // this session's id; "" matches only unowned entries
-	scanEvery time.Duration
-	// galley_open's knobs. exe is the binary the tool spawns `edit` from —
-	// this process's own, so the editor is always the channel's version.
-	// openPoll and openTimeout bound the wait for the new editor's advert;
-	// fields, like scanEvery, so a test runs them at millisecond speed.
-	exe         string
-	openPoll    time.Duration
-	openTimeout time.Duration
-	// shutdownWait bounds the wait for an ended or unanswering editor to go
-	// before a fresh one is spawned in its place. openPage opens a review's
-	// page in the reviewer's browser on the reuse path; a field so tests
-	// record the URL instead of opening a tab.
-	shutdownWait time.Duration
-	openPage     func(url string)
-	srv          *channelmcp.Server
-	// push is where emit sends each wake: the MCP server for `galley
-	// channel`, a JSON line on stdout for `galley watch`. One loop, two
-	// outputs.
-	push channelmcp.Pusher
-	// serveOnly is `galley channel` under Claude Code: the plugin's mod runs
-	// `galley watch`, which takes the rounds, so this process serves the
-	// tools and never attaches. Two takers would split a session's rounds.
-	serveOnly bool
-	// reports is pi's harness reports, waiting for postReports to deliver
-	// them to this session's editors in the order sent. The read loop only
-	// hands them over, so a slow editor never holds up a tool call.
-	reports  chan harnessReport
-	mu       sync.Mutex
-	attached map[string]bool
-	// The diagnostic's state — the answer to "why am I not attached?", which
-	// until now no surface in this process could give. Rebuilt on every scan,
-	// except `gone`, which is a short history: an advert that was reaped or an
-	// editor that went away is no longer in the registry to be described.
-	pages      map[string]string // attached room -> document, for the status text
-	unattached map[string]string // live advert -> why this channel is not on it
-	// stopped is every room whose editor answered "closed" or stopped
-	// answering while its advert was still up. THE ADVERT OUTLIVES THE
-	// EDITOR by seconds on an orderly shutdown — ReleaseWaiters runs before
-	// http.Server.Shutdown, and withdrawEdit only after the flush — and
-	// EditServer.waitClosed is terminal, so a re-attach in that window gets
-	// `closed` again instantly and would announce the same lost review once
-	// per scan. Cleared when the advert finally goes, which is the only thing
-	// that could make attaching sensible again.
-	stopped   map[string]bool
-	problems  []pageserve.Problem
-	gone      []string
-	announced map[string]bool // stderr dedupe: one line per room per reason
-	// ended is every room this channel DETACHED from on a terminal ending —
-	// an approve or a discard. It is what makes a scan-loop re-attach
-	// distinguishable from a cold start, which is the whole of the reopen fix:
-	// the only thing that re-advertises an entry a verdict withdrew is
-	// OnReopen, so a room turning up here again is a review that came back.
-	// See announceReopen.
-	ended map[string]bool
-	// listErrOnce guards the one diagnostic scanOnce is allowed: a registry
-	// that cannot be listed means the channel silently does nothing forever,
-	// which has to be said somewhere — once, on stderr where the startup line
-	// goes, not once per 100ms scan.
-	listErrOnce sync.Once
-}
-
-func newChannel(scope, self string) *channel {
-	abs, err := filepath.Abs(scope)
-	if err != nil {
-		abs = scope
-	}
-	c := &channel{
-		scope:        abs,
-		scopeReal:    resolveSymlinks(abs),
-		self:         self,
-		scanEvery:    100 * time.Millisecond,
-		openPoll:     200 * time.Millisecond,
-		openTimeout:  10 * time.Second,
-		shutdownWait: 10 * time.Second,
-		openPage:     openBrowser,
-		attached:     map[string]bool{},
-		ended:        map[string]bool{},
-		pages:        map[string]string{},
-		unattached:   map[string]string{},
-		stopped:      map[string]bool{},
-		announced:    map[string]bool{},
-		reports:      make(chan harnessReport, 64),
-	}
-	// os.Executable can fail only in exotic setups; an empty exe makes
-	// galley_open report "cannot locate the galley binary" rather than spawn
-	// something else that happens to be on PATH.
-	c.exe, _ = os.Executable()
-	c.srv = channelmcp.New(channelmcp.Handler{
-		Name:         "galley",
-		Version:      version.String(),
-		Instructions: channelInstructions,
+// channelSpec is galley's channel for pageserve. Root makes the session's folder
+// the root its wait names, which unowned documents are claimed from; there is no
+// presence route, since the server reads presence from live().
+func channelSpec() pageserve.Spec {
+	return pageserve.Spec{
+		Tool: "galley", Version: version.String(), Instructions: channelInstructions,
 		Tools: []channelmcp.Tool{{
 			Name:        "galley_ack",
 			Description: "Acknowledge a galley review: tell the reviewer where their ask stands.",
 			InputSchema: ackSchema,
 		}, {
 			Name: "galley_channel_status",
-			Description: "Why is galley attached, or not? Lists every live editor on this machine, " +
+			Description: "Why is galley attached, or not? Lists every open document on this machine, " +
 				"which ones this session receives wakes from, and the reason for each one it does not. " +
 				"Call it when a reviewer says they pressed Revise and nothing arrived.",
 			InputSchema: statusSchema,
 		}, {
 			Name: "galley_open",
-			Description: "Put a document under review: start its editor for THIS session and open the page in the reviewer's browser. " +
+			Description: "Put a document under review: add it to galley's server for THIS session and open the page in the reviewer's browser. " +
 				"Returns the URL too, to give the reviewer if they closed the tab. " +
 				"A document this session already has open returns the same URL, and opens its page again only when no tab shows it; " +
 				"calling it on a document whose review has ended (approved or discarded) starts a fresh review. " +
@@ -307,56 +187,33 @@ func newChannel(scope, self string) *channel {
 				"It ends the review exactly like the page's Approve button: the document is sealed as it stands and the page locks itself.",
 			InputSchema: approveSchema,
 		}},
-		Call: c.callTool,
-		// pi's channels.tools reports here; a serve-only channel (Claude
-		// Code) never receives one, since `galley report` carries those.
-		OnReport: c.queueReport,
-	})
-	c.push = c.srv
-	return c
-}
-
-// harnessReport is one report from the harness, waiting to be delivered.
-type harnessReport struct {
-	event channelmcp.ReportEvent
-	token string
-}
-
-// queueReport hands a report to postReports and returns at once: it runs on
-// the MCP read loop, and delivering waits on the network.
-func (c *channel) queueReport(event channelmcp.ReportEvent, token string) {
-	if c.serveOnly || c.self == "" {
-		return
-	}
-	select {
-	case c.reports <- harnessReport{event, token}:
-	default:
-		fmt.Fprintf(os.Stderr, "[galley channel] dropped report %s %s: too many waiting\n", event, token)
+		Call:       callTool,
+		Root:       func(cwd string) (string, error) { return cwd, nil },
+		Wake:       channelWake,
+		Answers:    "review rounds",
+		NoPresence: true,
+		OnServe:    reannounce,
 	}
 }
 
-// postReports delivers each queued report to this session's editors, in the
-// order sent, until ctx ends. A failed post is logged, not retried.
-func (c *channel) postReports(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case r := <-c.reports:
-			if err := deliverReport(c.self, r.event, r.token); err != nil && ctx.Err() == nil {
-				fmt.Fprintf(os.Stderr, "[galley channel] %v\n", err)
-			}
+// reannounce is a new server reached: it reads presence from live(), so says the
+// session is here if the record has gone, and otherwise leaves the record alone.
+// Under Claude Code this is `galley watch`, whose record would replace the
+// channel's, and a session must not stop being live when watch restarts.
+func reannounce(_ context.Context, ch *pageserve.Channel, _ pageserve.Entry) {
+	if !live().SessionLive(ch.ID.Session) {
+		if err := live().AnnounceSession(ch.ID.Session); err != nil {
+			_, _ = fmt.Fprintf(ch.Log, "galley channel: cannot record this session's presence: %v\n", err)
 		}
 	}
 }
 
-// channelFromEnv is the channel `galley channel` runs: this session's id, and
-// serve-only when the session is Claude Code's (see serveOnly).
-func channelFromEnv(scope string) *channel {
-	h := harness.FromEnv()
-	c := newChannel(scope, h.SessionID)
-	c.serveOnly = h.IsClaude()
-	return c
+// newClient is the channel's client: it finds the server, else starts it from
+// this binary. Its Passive copy is what the wait loop and reports use.
+func newClient() *pageserve.Client {
+	return pageserve.NewClient(serve.Live(), func() (pageserve.Entry, error) {
+		return serve.Process().Ensure(pageserve.Executable())
+	})
 }
 
 // errNeedsDoc is a tool call that named no document: said as that, rather
@@ -365,55 +222,39 @@ func errNeedsDoc(tool string) error {
 	return fmt.Errorf("%s needs the document path (doc)", tool)
 }
 
-func (c *channel) callTool(name string, args json.RawMessage) (string, error) {
-	switch name {
-	case "galley_ack":
-	case "galley_channel_status":
-		return c.status(), nil
-	case "galley_open":
-		var p struct {
-			Doc string `json:"doc"`
-		}
-		if err := json.Unmarshal(args, &p); err != nil {
-			return "", err
-		}
-		return c.open(p.Doc)
-	case "galley_approve":
-		var p struct {
-			Doc string `json:"doc"`
-		}
-		if err := json.Unmarshal(args, &p); err != nil {
-			return "", err
-		}
-		if p.Doc == "" {
-			return "", errNeedsDoc(name)
-		}
-		rt, ok := serve.FindRuntime(p.Doc)
-		if !ok {
-			return "", fmt.Errorf("no running editor for %s", p.Doc)
-		}
-		if err := postApprove(rt.URL); err != nil {
-			return "", err
-		}
-		return "approved: the review of " + p.Doc + " is over and the page is locked", nil
-	default:
-		return "", fmt.Errorf("unknown tool %q", name)
-	}
+func callTool(ctx context.Context, ch *pageserve.Channel, name string, args json.RawMessage) (string, error) {
 	var p struct {
 		Doc     string      `json:"doc"`
 		State   string      `json:"state"`
 		Note    string      `json:"note"`
 		Changes []AckChange `json:"changes"`
 	}
-	if err := json.Unmarshal(args, &p); err != nil {
-		return "", err
+	if name != "galley_channel_status" {
+		if err := json.Unmarshal(args, &p); err != nil {
+			return "", err
+		}
+	}
+	switch name {
+	case "galley_channel_status":
+		return status(ctx, ch), nil
+	case "galley_open":
+		return open(ctx, ch, p.Doc)
+	case "galley_ack", "galley_approve":
+	default:
+		return "", fmt.Errorf("unknown tool %q", name)
 	}
 	if p.Doc == "" {
 		return "", errNeedsDoc(name)
 	}
-	rt, ok := serve.FindRuntime(p.Doc)
+	rt, ok := serve.FindOn(ctx, ch.Client, p.Doc)
 	if !ok {
 		return "", fmt.Errorf("no running editor for %s", p.Doc)
+	}
+	if name == "galley_approve" {
+		if err := postApprove(rt.URL); err != nil {
+			return "", err
+		}
+		return "approved: the review of " + p.Doc + " is over and the page is locked", nil
 	}
 	if err := postAck(rt.URL, p.State, p.Note, p.Changes); err != nil {
 		return "", err
@@ -421,14 +262,11 @@ func (c *channel) callTool(name string, args json.RawMessage) (string, error) {
 	return "acknowledged: " + p.State, nil
 }
 
-// --- who this channel may attach to, and why it may not ---
+// --- why a document does or does not reach this session ---
 
 // resolveSymlinks answers what a path REALLY is, and answers it for a path
 // that does not exist yet: EvalSymlinks fails outright on a missing leaf, so
-// the deepest existing ancestor is resolved and the rest re-joined. A scope
-// directory always exists; a document may have been deleted while its editor
-// still serves it, and "the file is gone" must not silently become "out of
-// scope".
+// the deepest existing ancestor is resolved and the rest re-joined.
 func resolveSymlinks(p string) string {
 	if p == "" {
 		return p
@@ -444,537 +282,101 @@ func resolveSymlinks(p string) string {
 	return filepath.Join(resolveSymlinks(dir), base)
 }
 
-// underRoot is the containment test the scan used to spell inline as a raw
-// string prefix. Both spellings of the pair are compared by inScope; this one
-// only decides containment, on paths already in one spelling.
-func underRoot(page, root string) bool {
-	if page == "" || root == "" {
-		return false
-	}
-	return page == root ||
-		filepath.Dir(page) == root ||
-		strings.HasPrefix(page, root+string(filepath.Separator))
-}
-
-// inScope compares the document against the root in BOTH spellings, because
-// one directory can have two names and the reviewer's editor and this
-// channel's scope are typed by different hands at different times. Measured:
-// a channel scoped at /tmp/…/work and an editor page at /private/tmp/…/work —
-// the same directory — attached to nothing, with no diagnostic.
-//
-// The raw comparison is kept and tried FIRST. Resolution is a syscall per
-// path, it can fail, and on the overwhelmingly common path the two spellings
-// are already identical; the resolved comparison is the fallback that makes
-// the uncommon one work rather than a replacement that makes every scan pay.
-func (c *channel) inScope(page string) bool {
-	if underRoot(page, c.scope) || underRoot(page, c.scopeReal) {
-		return true
-	}
-	if real := resolveSymlinks(page); real != page {
-		return underRoot(real, c.scope) || underRoot(real, c.scopeReal)
-	}
-	return false
-}
-
-// claim decides ownership: an editor belongs to the ONE session that opened it,
-// and no other session ever attaches to it — whether that session is alive or
-// gone.
-//
-// THIS FILE ONCE ADOPTED ORPHANS, and that adoption was the misroute. `--continue`
-// draws a fresh session id, so a restart orphaned every document the previous
-// session opened; adoption let the NEXT session pick the review back up instead
-// of hearing silence. The intent was "re-home a document to ITS session after a
-// restart." The behaviour, once every session shares one whole-workspace scope,
-// was "re-home it to whichever unrelated session scans the orphan first" — a
-// Revise meant for the agent you were working with fell into a stranger's lap.
-// Measured, live, more than once. That is what this rule now refuses.
-//
-// THE RULE NOW: attach ONLY to an advert this session owns — its Owner is this
-// session's id — or one that is UNOWNED (Owner "", a plain-terminal `galley
-// edit` that belongs to no session; claimForAttach then stamps this session so
-// exactly one channel takes it). An advert owned by ANOTHER session is never
-// this channel's, live or dead. A dead owner is not an invitation to adopt: the
-// editor is bound to its session's life (see runEdit's session watcher) and
-// shuts itself down when that session ends, so a live advert owned by a dead
-// session is a transient the channel reports and leaves alone. If a restart
-// stranded a review, the fix is to reopen it — galley_open starts the editor
-// from inside the channel and stamps this session as owner — never to have a
-// bystander answer for it.
-func (c *channel) claim(e pageserve.Entry) (bool, string) {
-	switch {
-	case e.Owner == "" || e.Owner == c.self:
-		return true, ""
-	case live().SessionLive(e.Owner):
-		return false, fmt.Sprintf("owned by session %s, whose channel is still running — "+
-			"its wakes go to that session, not this one", e.Owner)
-	default:
-		return false, fmt.Sprintf("opened by session %s, which is no longer running — "+
-			"its editor is shutting down; open it again with galley_open to review it in this session — "+
-			"if it is still there, stop it (pid %d)", e.Owner, e.PID)
-	}
-}
-
-// claimForAttach takes EXCLUSIVE ownership of an UNOWNED advert on
-// the first attach, by stamping this session's id on it, so no other channel
-// under whose root it also falls attaches to it too and its wakes fan out to
-// both sessions. live().Claim is a compare-and-set under an advisory lock, so
-// of two channels racing one advert exactly one wins.
-//
-// It returns ok=false with a reason only when another LIVE session claimed it
-// first — the loser leaves it alone. ok=true means proceed: the advert is
-// already ours, we just claimed it, or a registry error made us attach through
-// (a possible duplicate beats silence, the trade this file makes wherever
-// presence cannot be proven). Claiming is skipped when there is nothing to
-// stamp: a channel with no session id attaches to unowned adverts as before,
-// and stamping "" would leave the advert unowned.
-func (c *channel) claimForAttach(e pageserve.Entry) (bool, string) {
-	c.mu.Lock()
-	already := c.attached[e.Room]
-	c.mu.Unlock()
-	if already || c.self == "" || e.Owner == c.self {
-		return true, ""
-	}
-	claimed, err := live().Claim(e.Room, c.self)
-	switch {
-	case err != nil:
-		fmt.Fprintf(os.Stderr, "[galley channel] could not claim %s (%v) — attaching without exclusive ownership\n", e.Page, err)
-		return true, ""
-	case !claimed:
-		return false, fmt.Sprintf("%s is open, but another live session claimed it first — its wakes go there", e.Page)
-	default:
-		return true, ""
-	}
-}
-
-// run serves MCP until the reader closes, and runs the scan loop unless the
-// channel is serve-only. The scan lives HERE rather than in runChannel so the
-// test's newChannel(...).run(pipes) exercises the same lifecycle the real
-// command does. The context cancels every held long-poll when the reader
-// closes — without it, an attach parked on a five-minute poll outlives the
-// session that wanted its wakes.
-func (c *channel) run(r io.Reader, w io.Writer) error {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	// THIS SESSION IS NOW HERE, and saying so is what lets every OTHER channel
-	// tell an orphaned document from one that is still spoken for — see claim.
-	// Best-effort in both directions: a channel that cannot write its presence
-	// still attaches to everything it owns, and one that dies without
-	// withdrawing is reaped by PID on the next read. A serve-only channel
-	// still says so: galley_open's editor binds to this presence.
-	if c.self != "" {
-		if err := live().AnnounceSession(c.self); err != nil {
-			fmt.Fprintf(os.Stderr, "[galley channel] cannot record this session's presence: %v — "+
-				"editors this session opens cannot bind to its lifetime and may keep serving after it ends\n", err)
-		}
-		defer func() { _ = live().WithdrawSession(c.self) }()
-	}
-	if !c.serveOnly {
-		go c.watch(ctx)
-		if c.self != "" {
-			go c.postReports(ctx)
-		}
-	}
-	return c.srv.Run(r, w)
-}
-
-// watch is the scan loop: scan, wait scanEvery, scan again, until ctx ends.
-// `galley channel` runs it beside the MCP server; `galley watch` runs only it.
-func (c *channel) watch(ctx context.Context) {
-	for {
-		c.scanOnce(ctx)
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(c.scanEvery):
-		}
-	}
-}
-
-// scanOnce attaches to everything this channel may attach to, AND RECORDS WHY
-// IT DID NOT ATTACH TO THE REST. That second half is new and is the point: an
-// advert skipped in silence is indistinguishable from no advert at all, and
-// the two call for opposite actions from whoever is waiting.
-func (c *channel) scanOnce(ctx context.Context) {
-	entries, problems, err := live().Inspect()
-	if err != nil {
-		c.listErrOnce.Do(func() {
-			fmt.Fprintf(os.Stderr, "[galley channel] cannot read the live registry: %v — no editors will be attached\n", err)
-		})
-		return
-	}
-	unattached := map[string]string{}
-	// An out-of-scope advert, or one another live session owns, can never wake
-	// THIS session, so its unattached reason is recorded for status() but kept
-	// off stderr — the startup line exists to break in-scope silence, and
-	// neither of those is that.
-	quiet := map[string]bool{}
-	listed := map[string]bool{}
-	for _, e := range entries {
-		listed[e.Room] = true
-		c.mu.Lock()
-		stopped := c.stopped[e.Room]
-		c.mu.Unlock()
-		if stopped {
-			unattached[e.Room] = fmt.Sprintf("%s was open, but its editor stopped answering — "+
-				"the advert is still up and has not been withdrawn", e.Page)
-			continue
-		}
-		// OWNERSHIP DECIDES FIRST (#68): an editor this session owns attaches
-		// wherever its file is. The scope governs only the rest.
-		mine := c.self != "" && e.Owner == c.self
-		if !mine && !c.inScope(e.Page) {
-			unattached[e.Room] = fmt.Sprintf("%s is open, but outside this channel's scope (%s)", e.Page, c.scope)
-			quiet[e.Room] = true
-			continue
-		}
-		ok, why := c.claim(e)
-		if !ok {
-			unattached[e.Room] = fmt.Sprintf("%s is open, %s", e.Page, why)
-			// Another LIVE session's document is that session's business: the
-			// refusal is the ownership rule working, and the harness turns this
-			// stderr into a notification that reads like the misroute it
-			// prevents. A dead owner's stranded review is still said.
-			if live().SessionLive(e.Owner) {
-				quiet[e.Room] = true
-			}
-			continue
-		}
-		// CLAIM-ON-ATTACH: take exclusive ownership of an unowned/orphaned advert
-		// so no other channel under whose root it also falls attaches to it too.
-		// See claimForAttach.
-		if okc, reason := c.claimForAttach(e); !okc {
-			unattached[e.Room] = reason
-			continue
-		}
-		c.mu.Lock()
-		seen := c.attached[e.Room]
-		if !seen {
-			c.attached[e.Room] = true
-			c.pages[e.Room] = e.Page
-		}
-		c.mu.Unlock()
-		if !seen {
-			// WHETHER AN AGENT WAS ATTACHED AT A GIVEN MOMENT. `say` answers
-			// this once per room per reason and is deliberately deduplicated,
-			// so it cannot be read as a timeline; this can.
-			debug.Log(debug.Event{
-				Kind: debug.KindAttached, Where: "channel", Doc: e.Page, Room: e.Room,
-				Note: "the channel attached to this editor",
-			})
-			go c.attach(ctx, e)
-		}
-	}
-	c.mu.Lock()
-	c.unattached = unattached
-	c.problems = problems
-	for room := range c.stopped {
-		if !listed[room] {
-			delete(c.stopped, room)
-		}
-	}
-	c.mu.Unlock()
-	for room, why := range unattached {
-		if quiet[room] {
-			continue
-		}
-		c.say(room, why, why)
-	}
-	for _, p := range problems {
-		c.say(p.File, p.Reason, "ignoring "+p.String())
-	}
-}
-
-// say writes one diagnostic line to stderr — where the startup line goes, and
-// where the harness debug log (~/.claude/debug/<session>.txt) picks it up —
-// AT MOST ONCE per room per reason. The scan runs every two seconds and most
-// of what it reports is a standing state, so an undeduplicated line would be a
-// log nobody reads, which is the same as no diagnostic at all.
-func (c *channel) say(key, reason, line string) {
-	c.mu.Lock()
-	k := key + "\x00" + reason
-	said := c.announced[k]
-	c.announced[k] = true
-	c.mu.Unlock()
-	if !said {
-		fmt.Fprintf(os.Stderr, "[galley channel] %s\n", line)
-	}
-}
-
-// remember keeps a short history of adverts that stopped being attachable —
-// an editor that went away, an advert that answered nothing. They are gone
-// from the registry by the time anyone asks, so the scan cannot rebuild them
-// and the status would otherwise report a clean slate over a review that
-// ended badly. Bounded: this process lives as long as the session does.
-func (c *channel) remember(line string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.gone = append(c.gone, line)
-	if len(c.gone) > 8 {
-		c.gone = c.gone[len(c.gone)-8:]
-	}
+// inFolder is the containment test status reports, in one spelling of each path:
+// one directory can have two names (/tmp is /private/tmp on macOS).
+func inFolder(page, folder string) bool {
+	page, folder = resolveSymlinks(page), resolveSymlinks(folder)
+	return page == folder || strings.HasPrefix(page, strings.TrimSuffix(folder, string(filepath.Separator))+string(filepath.Separator))
 }
 
 // status is galley_channel_status: the answer to "I pressed Revise and nothing
-// happened — why?", which no surface in this process could give.
+// happened — why?".
 //
 // THE THREE SILENCES IT TELLS APART are the ones that look identical from
 // inside a session and call for different actions: nothing is open (open
 // something), something is open that another live session owns (that session
 // is answering, not this one), and something is open outside this channel's
-// root (the scope is wrong, or the document is).
-func (c *channel) status() string {
-	c.mu.Lock()
-	attached := make([]string, 0, len(c.pages))
-	for _, page := range c.pages {
-		attached = append(attached, "  "+page)
-	}
-	unattached := make([]string, 0, len(c.unattached))
-	for _, why := range c.unattached {
-		unattached = append(unattached, "  "+why)
-	}
-	problems := make([]string, 0, len(c.problems))
-	for _, p := range c.problems {
-		problems = append(problems, "  "+p.String())
-	}
-	gone := append([]string(nil), c.gone...)
-	c.mu.Unlock()
-	sort.Strings(attached)
-	sort.Strings(unattached)
-
+// root (the scope is wrong, or the document is). A fourth is new with one
+// server: this session's documents are open and nothing of it is waiting on
+// them, so a Revise has nobody to wake.
+func status(ctx context.Context, ch *pageserve.Channel) string {
+	self := ch.ID.Session
+	scope := ch.ID.CWD
 	var b strings.Builder
-	self := c.self
 	if self == "" {
 		fmt.Fprintf(&b, "galley channel — scope %s, no session id "+
-			"(neither CLAUDE_CODE_SESSION_ID nor AGENT_SESSION_ID was set, so this channel attaches to unowned documents only)\n", c.scope)
+			"(neither CLAUDE_CODE_SESSION_ID nor AGENT_SESSION_ID was set, so no wake reaches this channel)\n", scope)
 	} else {
-		fmt.Fprintf(&b, "galley channel — scope %s, session %s\n", c.scope, self)
+		fmt.Fprintf(&b, "galley channel — scope %s, session %s\n", scope, self)
 	}
-	if c.serveOnly {
-		b.WriteString("This is a Claude Code session: rounds reach it through `galley watch`, which the galley plugin starts, " +
-			"not through this process, so it attaches to no editor. If a Revise never arrived, check that the galley plugin is installed and enabled (/plugin).")
-		return b.String()
+	var st serve.AgentStatus
+	if _, err := ch.Client.Do(ctx, http.MethodGet, "/api/agent/status?"+pageserve.Query("session", self), nil, &st); err != nil {
+		fmt.Fprintf(&b, "cannot reach galley serve: %v\n", err)
+		return strings.TrimRight(b.String(), "\n")
 	}
-	if len(attached) > 0 {
-		fmt.Fprintf(&b, "attached (%d) — a Revise here reaches this session:\n%s\n",
+	var attached, unattached []string
+	for _, d := range st.Docs {
+		switch {
+		case self != "" && d.Owner == self:
+			attached = append(attached, "  "+d.Page)
+		case d.Owner == "" && inFolder(d.Page, scope):
+			unattached = append(unattached, fmt.Sprintf("  %s is open and no session owns it; the next session waiting under its folder takes it", d.Page))
+		case d.Owner == "":
+			unattached = append(unattached, fmt.Sprintf("  %s is open, but outside this channel's scope (%s)", d.Page, scope))
+		case live().SessionLive(d.Owner):
+			unattached = append(unattached, fmt.Sprintf("  %s is open, owned by session %s, whose channel is still running — "+
+				"its wakes go to that session, not this one", d.Page, d.Owner))
+		default:
+			unattached = append(unattached, fmt.Sprintf("  %s is open, opened by session %s, which is no longer running — "+
+				"it is closing; open it again with galley_open to review it in this session", d.Page, d.Owner))
+		}
+	}
+	sort.Strings(attached)
+	sort.Strings(unattached)
+	switch {
+	case len(attached) > 0 && st.Waiting:
+		fmt.Fprintf(&b, "attached (%d) — a Revise here reaches this session:\n%s\n", len(attached), strings.Join(attached, "\n"))
+	case len(attached) > 0:
+		fmt.Fprintf(&b, "this session's documents (%d), and NOTHING of this session is waiting on them, so a Revise has nobody to wake:\n%s\n",
 			len(attached), strings.Join(attached, "\n"))
-	} else {
-		b.WriteString("attached (0) — no editor is currently sending wakes to this session.\n")
+	default:
+		b.WriteString("attached (0) — no document is currently sending wakes to this session.\n")
+	}
+	if ch.ServeOnly && !st.Waiting {
+		b.WriteString("This is a Claude Code session: rounds reach it through `galley watch`, which the galley plugin starts, " +
+			"not through this process. If a Revise never arrived, check that the galley plugin is installed and enabled (/plugin).\n")
 	}
 	if len(unattached) > 0 {
 		fmt.Fprintf(&b, "open but NOT attached (%d):\n%s\n", len(unattached), strings.Join(unattached, "\n"))
 	}
-	if len(attached) == 0 && len(unattached) == 0 && len(problems) == 0 {
-		b.WriteString("no live editor is advertising itself: nothing on this machine is running `galley edit`, " +
+	if len(st.Docs) == 0 {
+		b.WriteString("no live editor is open: the server holds no document, " +
 			"so there is no review to hear from. Call galley_open with a document to start one.\n")
 	}
-	if len(problems) > 0 {
-		fmt.Fprintf(&b, "adverts this channel refused (%d):\n%s\n", len(problems), strings.Join(problems, "\n"))
-	}
-	if len(gone) > 0 {
-		fmt.Fprintf(&b, "recently gone (%d):\n  %s\n", len(gone), strings.Join(gone, "\n  "))
+	if len(st.Gone) > 0 {
+		fmt.Fprintf(&b, "recently gone (%d):\n  %s\n", len(st.Gone), strings.Join(st.Gone, "\n  "))
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
 
-// waitWire is the part of GET /_galley/wait's body the channel reads — the
-// reason, the cursor, and the captured instructions. The handoff clears the
-// live pending marks, so this response is the only place the channel can read
-// the quote that anchors each instruction.
-type waitWire struct {
-	Reason      string `json:"reason"`
-	Fingerprint string `json:"fingerprint"`
-	// Note is the reopen's reason — the one thing in a wake that the model
-	// cannot read back out of `galley pending`.
-	Note string `json:"note,omitempty"`
-	// Pending IS the server's own view, not a narrower re-declaration of it.
-	// This used to be an inline anonymous struct carrying Instructions alone —
-	// a THIRD spelling of the wait envelope beside `waitResult` and the
-	// server's `waitReply` — and a narrower copy is how a field goes missing
-	// on one side for a phase with every gate green. It cost us the
-	// instruction key once already.
-	Pending pendingPayload `json:"pending"`
-	// Report is the revise or settle wake's report token, which emit sets as
-	// channelmcp.MetaReport for the harness to name in its reports.
-	Report string `json:"report,omitempty"`
-}
-
-// attach holds one editor's long-poll until the editor goes away — AND SAYS SO
-// WHEN IT DOES. Every return from this loop used to be silent, which left the
-// agent unable to tell "the reviewer is still reading" from "the review is
-// gone"; both are silence, and only one of them means stop waiting.
-func (c *channel) attach(ctx context.Context, e pageserve.Entry) {
-	defer func() {
-		c.mu.Lock()
-		delete(c.attached, e.Room)
-		delete(c.pages, e.Room)
-		c.mu.Unlock()
-		// THE DETACH IS THE DEFER, because this function has seven exits and a
-		// line at each of them is six chances to miss one — which is how a
-		// session comes to believe it is attached to a review that ended.
-		debug.Log(debug.Event{
-			Kind: debug.KindDetached, Where: "channel", Doc: e.Page, Room: e.Room,
-			Note: "the channel stopped polling this editor",
-		})
-	}()
-	// answered separates the two silences this function can end in. Once ONE
-	// poll has come back, there was an editor there and its disappearance is
-	// news the session must have. Before that, the advert pointed at nothing
-	// from the start — a recycled PID, or an editor killed without
-	// withdrawing — and announcing a review that ended would be announcing a
-	// review that never began. That case is reaped and recorded instead.
-	answered := false
-	client := &http.Client{} // no client timeout: the server bounds every poll
-	c.mu.Lock()
-	delete(c.ended, e.Room)
-	c.mu.Unlock()
-	since := ""
-	for {
-		q := url.Values{}
-		if since != "" {
-			q.Set("since", since)
-		}
-		q.Set("timeout", channelPoll.String())
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, e.URL+"/_galley/wait?"+q.Encode(), nil)
-		if err != nil {
-			return
-		}
-		resp, err := client.Do(req)
-		if err != nil {
-			if ctx.Err() != nil {
-				return // this session is shutting down; nothing to tell it
-			}
-			if !answered {
-				c.reapStaleAdvert(e, err)
-				return
-			}
-			c.emitGone(e, "the editor stopped answering")
-			return
-		}
-		answered = true
-		if resp.StatusCode == http.StatusServiceUnavailable {
-			// The document was being written to throughout the poll —
-			// retriable by design, same backoff as `galley wait`.
-			_ = resp.Body.Close()
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(waitBusyBackoff):
-			}
-			continue
-		}
-		var reply waitWire
-		err = json.NewDecoder(resp.Body).Decode(&reply)
-		_ = resp.Body.Close()
-		if err != nil {
-			if ctx.Err() != nil {
-				return
-			}
-			c.emitGone(e, "the editor's answer could not be read")
-			return
-		}
-		switch reply.Reason {
-		case reasonRevise, reasonSettle, reasonChanged, reasonApprove:
-			// RE-ARM BEFORE EMIT: update the cursor and let the loop issue the
-			// next poll; the emission rides its own goroutine so stdio latency
-			// never widens the unregistered window.
-			since = reply.Fingerprint
-			go c.emit(e, reply.Reason, reply.Fingerprint, reply.Note,
-				reply.Pending, len(reply.Pending.Instructions), reply.Report)
-			// THE TWO TERMINAL ENDINGS DETACH; THE REOPEN DOES NOT. Approve and
-			// discard both end the review and both withdraw the registry entry
-			// server-side, so there is nothing left to poll and this attach
-			// returns. A reopen says the opposite — the review is LIVE again —
-			// so the loop keeps polling, and the reopen's own re-advertise is
-			// what brings a channel that had already detached back through the
-			// scan loop.
-			if reply.Reason == reasonApprove {
-				// REMEMBERED, not merely dropped. The room is what tells the
-				// next attach that this is a re-attach and not a cold start —
-				// see announceReopen for why that distinction is the reopen
-				// event's only carrier once there is no waiter left to wake.
-				c.mu.Lock()
-				c.ended[e.Room] = true
-				c.mu.Unlock()
-				return // the review is over; the registry entry is withdrawn server-side
-			}
-		case reasonTimeout:
-			since = reply.Fingerprint
-		case reasonClosed:
-			// THE EDITOR RELEASED ITS WAITERS, which is what `galley edit`
-			// does on its way out (shutdownEdit releases before it shuts the
-			// listener down, so a held poll gets an honest answer rather than
-			// a torn connection). `galley wait` prints {"reason":"closed"} and
-			// exits; the channel used to return in silence, leaving the agent
-			// waiting on a review that no longer exists.
-			if ctx.Err() == nil {
-				c.emitGone(e, "the editor stopped")
-			}
-			return
-		default:
-			if ctx.Err() == nil {
-				c.emitGone(e, fmt.Sprintf("the editor answered with an unknown reason %q", reply.Reason))
-			}
-			return
-		}
+// channelWake reads one answer of the server's wait into the wake the agent
+// gets. ok is false for nothing to push.
+func channelWake(body json.RawMessage) (text string, meta map[string]string, ok bool) {
+	var w serve.AgentWake
+	if err := json.Unmarshal(body, &w); err != nil || w.Reason == "" {
+		return "", nil, false
 	}
+	text, meta = renderWake(w)
+	return text, meta, true
 }
-
-// emitGone is the wake the server can never send, for the same structural
-// reason announceReopen exists: the editor is not there to send it. A review
-// that ends by the editor going away ends with no verdict — no approve, no
-// discard, no entrusted handoff — and the agent's correct response is to stop
-// waiting, which it can only choose if it is told.
-//
-// COUNTS ARE UNKNOWN, NEVER ZERO, exactly as in announceReopen: there is
-// nothing left to read them from, and "0 suggestions" would say the document
-// is clean at the moment the whole review was lost.
-//
-// `why` rides the note field, which is the same slot the reopen's reason uses
-// and for the same reason: it is the one fact in this wake that the model
-// cannot recover from anywhere else.
-func (c *channel) emitGone(e pageserve.Entry, why string) {
-	c.mu.Lock()
-	c.stopped[e.Room] = true
-	c.mu.Unlock()
-	c.remember(fmt.Sprintf("%s — %s (no verdict was given)", e.Page, why))
-	c.say(e.Room, "gone", fmt.Sprintf("%s: %s — the review ended without a verdict", e.Page, why))
-	c.emit(e, reasonClosed, "", why, pendingPayload{}, countUnknown, "")
-}
-
-// reapStaleAdvert handles the advert that answered nothing on its very first
-// poll: the registry says an editor is at that URL and nothing is. registry
-// .List reaps an advert whose PID is dead, but a PID the operating system has
-// RECYCLED answers signal 0 from whatever now holds it, so the advert survives
-// every scan and this channel would re-attach to nothing forever, believing
-// itself attached.
-//
-// THE PROBE IS THE PROOF, and it is one this channel makes anyway. No wake is
-// emitted — nothing was ever attached, so there is no review to have ended —
-// but the advert comes down and the reason is recorded where a session can
-// read it back.
-func (c *channel) reapStaleAdvert(e pageserve.Entry, cause error) {
-	_ = live().Remove(e.Room)
-	line := fmt.Sprintf("%s — unreachable: its advert points at %s and nothing answered there (%v); "+
-		"the advert has been withdrawn. A process that died without withdrawing, or a recycled PID.",
-		e.Page, e.URL, cause)
-	c.remember(line)
-	c.say(e.Room, "unreachable", line)
-}
-
-// The four ENDING sentences — approveContent, discardContent, goneContent and
-// reopenContent — used to live here, beside the one carrier that had been
-// taught the trust exit's branch. They live in wake.go now, with the branch
-// itself, because the OTHER carrier was never taught it: see wake.go's header
-// for what a parked `galley wait` printed during an open handoff.
 
 // countUnknown is what a caller passes for a count it could not read, and
 // countMeta is what the meta says about one: `unknown`, never a digit.
 //
-// Only announceReopen can produce it — every other wake carries the counts in
-// the same response that carried the reason, so a wake that arrived at all
-// arrived with its numbers. There the count is a second request that can fail
-// on its own, and reporting a failed read as `0` would tell the agent the
-// document is clean at the exact moment a fresh round opens on it.
+// A closed document produces it: every other wake carries the counts in the
+// same answer that carried the reason, and with the document gone there is
+// nothing to read them from. `0` would say the document is clean at the moment
+// the whole review was lost.
 const countUnknown = -1
 
 func countMeta(n int) string {
@@ -984,12 +386,14 @@ func countMeta(n int) string {
 	return strconv.Itoa(n)
 }
 
-// emit renders one wake as a channel notification. `note` is the reopen's
-// reason and is empty on every other wake — a single parameter rather than two
-// entry points, because a wrapper nothing called was dead code the linter
-// caught immediately. `report` is the wake's report token, set as
-// channelmcp.MetaReport when there is one.
-func (c *channel) emit(e pageserve.Entry, reason, fp, note string, pending pendingPayload, instructions int, report string) {
+// renderWake renders one wake as a channel event.
+func renderWake(w serve.AgentWake) (string, map[string]string) {
+	var pending pendingPayload
+	instructions := countUnknown
+	if w.Pending != nil {
+		pending, instructions = *w.Pending, len(w.Pending.Instructions)
+	}
+	reason, fp, note, report := w.Reason, w.Fingerprint, w.Note, w.Report
 	// THE FOUR ENDINGS COME FROM wake.go, which is the ONE place either
 	// carrier turns a wake into a meaning. This switch used to hold them, and
 	// `galley wait` held its own four — which is how the pull carrier came to
@@ -999,13 +403,13 @@ func (c *channel) emit(e pageserve.Entry, reason, fp, note string, pending pendi
 	// those two are this switch: they name galley_ack, an MCP tool a shell
 	// loop cannot call, so there is nothing here for the other carrier to
 	// agree or disagree with. See wake.go's header.
-	content := wake{reason: reason, page: e.Page, note: note, instructions: instructions}.sentence()
+	content := wake{reason: reason, page: w.Page, note: note, instructions: instructions}.sentence()
 	if content == "" {
 		switch reason {
 		case reasonSettle:
-			content = fmt.Sprintf("%s settled in live mode — %d instruction(s).", e.Page, instructions)
+			content = fmt.Sprintf("%s settled in live mode — %d instruction(s).", w.Page, instructions)
 		default:
-			content = fmt.Sprintf("Revision requested on %s — %d instruction(s).", e.Page, instructions)
+			content = fmt.Sprintf("Revision requested on %s — %d instruction(s).", w.Page, instructions)
 		}
 		if len(pending.Instructions) > 0 {
 			// THE REVIEWER'S OWN EDITS LEAD THE ROUND. An agent reads in
@@ -1017,9 +421,9 @@ func (c *channel) emit(e pageserve.Entry, reason, fp, note string, pending pendi
 				strings.TrimRight(formatInstructions(pending.Instructions), "\n")
 		}
 	}
-	content = composeWake(reason, content, pageBackedDoc(e.Page))
+	content = composeWake(reason, content, pageBackedDoc(w.Page))
 	meta := map[string]string{
-		"doc":          e.Page,
+		"doc":          w.Page,
 		"reason":       reason,
 		"fingerprint":  fp,
 		"instructions": countMeta(instructions),
@@ -1040,8 +444,8 @@ func (c *channel) emit(e pageserve.Entry, reason, fp, note string, pending pendi
 	debug.Log(debug.Event{
 		Kind:         debug.KindRoundSent,
 		Where:        "channel",
-		Doc:          e.Page,
-		Room:         e.Room,
+		Doc:          w.Page,
+		Room:         w.Room,
 		Reason:       reason,
 		Fingerprint:  fp,
 		Note:         note,
@@ -1049,7 +453,7 @@ func (c *channel) emit(e pageserve.Entry, reason, fp, note string, pending pendi
 		Instructions: debug.Int(instructions),
 		Asks:         debugAsks(pending.Instructions),
 	})
-	_ = c.push.Notify(content, meta)
+	return content, meta
 }
 
 // debugAsks copies the captured round into the debug record's own type. It is
@@ -1073,13 +477,10 @@ type channelFlags struct {
 	scope *string
 }
 
-func newChannelFlags() (*flag.FlagSet, *channelFlags) { return newScopeFlags("channel") }
-
-// newScopeFlags is the one flag `channel` and `watch` share.
-func newScopeFlags(name string) (*flag.FlagSet, *channelFlags) {
-	fs := flag.NewFlagSet(name, flag.ContinueOnError)
+func newChannelFlags() (*flag.FlagSet, *channelFlags) {
+	fs := flag.NewFlagSet("channel", flag.ContinueOnError)
 	v := &channelFlags{
-		scope: fs.String("scope", ".", "root directory; editors no session owns are attached only under it"),
+		scope: fs.String("scope", "", "the session's folder, unowned documents under which reach it (default: its working directory)"),
 	}
 	return fs, v
 }
@@ -1092,60 +493,60 @@ func runChannel(args []string, out, errw io.Writer) error {
 	if err := tools.ParseFlags(fs, args, out); err != nil {
 		return err
 	}
-	scope := v.scope
-	self := sessionID()
-	cwd, _ := os.Getwd()
+	refreshSkill(errw)
+	ch := pageserve.ForSession(channelSpec(), newClient())
+	ch.Log = errw
+	if *v.scope != "" {
+		abs, err := filepath.Abs(*v.scope)
+		if err != nil {
+			return err
+		}
+		ch.ID.CWD = abs
+	}
 	// The three measurements from the design spec, answered on every start and
 	// visible in the harness debug log (~/.claude/debug/<session>.txt).
-	fmt.Fprintf(os.Stderr, "[galley channel] cwd=%s session_id_present=%t scope=%s\n", cwd, self != "", *scope)
-
-	refreshSkill(errw)
-
-	c := channelFromEnv(*scope)
-	if c.serveOnly {
-		fmt.Fprintln(os.Stderr, "[galley channel] Claude Code session: serving tools only; the galley plugin's `galley watch` delivers the rounds")
-	}
-	// AND THE ROOT AS IT WILL ACTUALLY BE COMPARED. A scope typed one way and
-	// an editor opened the other way round a symlink is the most likely way a
-	// launch silently attaches to nothing — /tmp is /private/tmp on macOS —
-	// so when the two spellings differ, both are on the record from the first
-	// line of the log.
-	if c.scopeReal != c.scope {
-		fmt.Fprintf(os.Stderr, "[galley channel] scope %s resolves to %s; documents under either spelling attach\n",
-			c.scope, c.scopeReal)
-	}
-	c.scanEvery = 2 * time.Second
-	return c.run(os.Stdin, os.Stdout)
-}
-
-// runWatch is `galley watch`: the channel's scan and attach loop, printing
-// each wake as one JSON line on stdout for the Claude Code plugin's mod, which
-// starts a turn with it. stdout carries only those lines; every diagnostic
-// goes to stderr. It runs until it is signalled.
-func runWatch(args []string, out, errw io.Writer) error {
+	cwd, _ := os.Getwd()
+	_, _ = fmt.Fprintf(errw, "[galley channel] cwd=%s session_id_present=%t scope=%s\n", cwd, ch.ID.Session != "", ch.ID.CWD)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	return watchUntil(ctx, args, out, errw)
+	return runSession(ctx, ch, os.Stdin, os.Stdout)
 }
 
-// watchUntil is runWatch until ctx ends, so a test can stop it.
-func watchUntil(ctx context.Context, args []string, out, errw io.Writer) error {
-	fs, v := newScopeFlags("watch")
-	if err := tools.ParseFlags(fs, args, out); err != nil {
-		return err
+// runSession serves the channel until the reader closes, with the session
+// announced throughout: a document leaves with its owner's presence, and
+// galley_open's owner must be live. Under Claude Code too, where the channel
+// only serves tools: it is the process that lasts the session. Best-effort in
+// both directions: one that dies without withdrawing is reaped by PID on the
+// next read.
+func runSession(ctx context.Context, ch *pageserve.Channel, r io.Reader, w io.Writer) error {
+	if id := ch.ID.Session; id != "" {
+		if err := live().AnnounceSession(id); err != nil {
+			_, _ = fmt.Fprintf(ch.Log, "[galley channel] cannot record this session's presence: %v — "+
+				"documents it opens cannot bind to its lifetime\n", err)
+		}
+		defer func() { _ = live().WithdrawSession(id) }()
 	}
-	// In a bridge child this prints the stop line and the mod never restarts
-	// watch: the hosting pi session's channel delivers the rounds.
-	lines, run, err := channelmcp.StartWatch(out, "galley")
-	if !run || err != nil {
-		return err
-	}
-	self := sessionID()
-	cwd, _ := os.Getwd()
-	_, _ = fmt.Fprintf(errw, "[galley watch] cwd=%s session_id_present=%t scope=%s\n", cwd, self != "", *v.scope)
-	c := newChannel(*v.scope, self)
-	c.push = lines
-	c.scanEvery = 2 * time.Second
-	c.watch(ctx)
-	return nil
+	return ch.Run(ctx, r, w)
+}
+
+// shell is galley's watch and report: pageserve's, over galley's channel.
+func shell() pageserve.Commands {
+	return pageserve.Commands{Spec: channelSpec(), Process: serve.Process(), Group: "agent"}
+}
+
+// watchCommand is `galley watch`: the channel's wait loop, printing each wake as
+// one JSON line on stdout for the Claude Code plugin's mod.
+func watchCommand() tools.Command {
+	const help = "Waits on the server for this session and prints each Revise, settle, Approve — and\n" +
+		"its document going away — as one JSON line {\"text\": ..., \"content\": ..., \"meta\":\n" +
+		"{...}} on stdout. The galley plugin's mod runs it for a Claude Code session and starts a\n" +
+		"turn with each line's text. Diagnostics go to stderr. Runs until signalled. It never\n" +
+		"starts the server. In a session pi's claude-bridge runs, it prints {\"stop\": ...} and\n" +
+		"exits 0."
+	cmd := shell().WatchCommand(pageserve.Help{
+		Summary: "print review wakes as JSON lines — the Claude Code plugin's feed",
+		Long:    help,
+	})
+	cmd.Synopsis, cmd.Help = "watch", help
+	return cmd
 }

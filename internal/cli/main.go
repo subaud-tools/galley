@@ -45,8 +45,8 @@ the room, push can spawn one — with the document and nothing else — and
 'galley agent-prompt' is the text that tells it what to do:
   galley edit doc.md --on-revise 'claude -p "$(galley agent-prompt doc.md)"'
 
-The channel is pull, packaged: it starts with the session, attaches to every
-editor this session opens — and any unowned one under its root — and delivers
+The channel is pull, packaged: it starts with the session, waits on every
+document this session opens — and any unowned one under its root — and delivers
 each Revise, settle and Approve into the session as an event. No listener to
 remember. In Claude Code it comes from galley's plugin; install it once, then
 start claude as usual:
@@ -284,32 +284,18 @@ func newApp() *tools.App {
 		Group:    "agent",
 		Summary:  "MCP channel server — pushes review wakes into the session",
 		Synopsis: "channel [--scope <dir>]",
-		Help: "An MCP channel server on stdio. It opens editors for this session through\n" +
-			"its galley_open tool and serves galley's other tools. Under pi it also\n" +
-			"attaches to every editor this session owns, plus\n" +
-			"any editor under --scope that no session owns at all, and pushes each\n" +
-			"Revise, settle, Approve — and the editor going away —\n" +
-			"into the session as an event. Every editor it does NOT attach to\n" +
-			"is reported with its reason, on stderr and through the\n" +
-			"galley_channel_status tool. Under Claude Code it serves the tools only:\n" +
-			"`galley watch`, which the galley plugin runs, delivers the events.\n",
+		Help: "An MCP channel server on stdio. It opens documents for this session through\n" +
+			"its galley_open tool, starting the server if needed, and serves galley's other\n" +
+			"tools. Under pi it also waits on the server for every document this session owns,\n" +
+			"plus any under --scope that no session owns at all, and pushes each Revise,\n" +
+			"settle, Approve — and a document going away — into the session as an event.\n" +
+			"The galley_channel_status tool says why any other open document does not reach it.\n" +
+			"Under Claude Code it serves the tools only: `galley watch`, which the galley plugin\n" +
+			"runs, delivers the events.\n",
 		NewFlags: func() *flag.FlagSet { fs, _ := newChannelFlags(); return fs },
 		Run:      runChannel,
 	})
-	app.Register(tools.Command{
-		Name:     "watch",
-		Group:    "agent",
-		Summary:  "print review wakes as JSON lines — the Claude Code plugin's feed",
-		Synopsis: "watch [--scope <dir>]",
-		Help: "Attaches to the editors `galley channel` would and prints each\n" +
-			"Revise, settle, Approve — and the editor going away — as one JSON line\n" +
-			"{\"text\": ..., \"content\": ..., \"meta\": {...}} on stdout. The galley plugin's\n" +
-			"mod runs it for a Claude Code session and starts a turn with each line's text.\n" +
-			"Diagnostics go to stderr. Runs until signalled. In a session pi's claude-bridge\n" +
-			"runs, it prints {\"stop\": ...} and exits 0.",
-		NewFlags: func() *flag.FlagSet { fs, _ := newScopeFlags("watch"); return fs },
-		Run:      runWatch,
-	})
+	app.Register(watchCommand())
 	app.Register(tools.Command{
 		Name:        "skills",
 		Group:       "agent",

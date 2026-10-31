@@ -1,388 +1,191 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/subaud-tools/galley/internal/serve"
 	"github.com/subaud-tools/tools-common/pageserve"
 )
 
-// galley_open IS HOW A SESSION PUTS A DOCUMENT UNDER REVIEW. The channel is
-// the session's presence inside galley, so it is the one thing that knows,
-// with certainty, which session an editor should belong to. These tests cover
-// the resolution order for a document that is ALREADY open; open_spawn_test.go
-// covers the spawn.
+// galley_open is how a session puts a document under review. Refusal and take-up
+// are in channel_session_test.go, beside the wakes they decide.
 
-// plantAdvert writes an advert for page whose URL is a stand-in editor that
-// answers GET /_galley/revise with a review still open, which is all
-// galley_open asks of an editor it already has.
-func plantAdvert(t *testing.T, page, owner string) pageserve.Entry {
-	t.Helper()
-	ed := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/_galley/revise" && r.Method == http.MethodGet {
-			_, _ = w.Write([]byte(`{"sealed":false}`))
-			return
-		}
-		http.NotFound(w, r)
-	}))
-	t.Cleanup(ed.Close)
-	return plantAdvertAt(t, page, owner, ed.URL, os.Getpid())
-}
-
-func plantAdvertAt(t *testing.T, page, owner, url string, pid int) pageserve.Entry {
-	t.Helper()
-	e := pageserve.Entry{
-		URL: url, Room: "room-" + pageserve.Token(page)[:8],
-		Page: page, PID: pid, Owner: owner,
-	}
-	if err := live().Write(e); err != nil {
-		t.Fatal(err)
-	}
-	return e
-}
-
-func openDoc(t *testing.T, c *channel, doc string) (openResult, error) {
-	t.Helper()
-	text, err := c.callTool("galley_open", json.RawMessage(`{"doc":`+strconvQuote(doc)+`}`))
-	if err != nil {
-		return openResult{}, err
-	}
-	var r openResult
-	if err := json.Unmarshal([]byte(text), &r); err != nil {
-		t.Fatalf("galley_open returned non-JSON %q: %v", text, err)
-	}
-	return r, nil
-}
-
-func strconvQuote(s string) string {
-	b, _ := json.Marshal(s)
-	return string(b)
-}
-
-func TestOpenReturnsTheEditorThisSessionAlreadyOwns(t *testing.T) {
-	t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
+// It hands back an address that signs in a browser with no cookie, opens the
+// page, and a second call returns the same document.
+func TestOpenReturnsASignedInAddress(t *testing.T) {
+	startServer(t)
 	dir := t.TempDir()
-	doc := writeDoc(t, dir, "doc.md", "# T\n")
-	e := plantAdvert(t, doc, "session-me")
-
-	c := newChannel(dir, "session-me")
-	opened := recordOpens(c)
-	r, err := openDoc(t, c, doc)
+	doc := writeDoc(t, dir, "doc.md", "# T\n\nHello.\n")
+	r := newRig(t, "session-me", dir)
+	first := r.open(doc)
+	if first.Page != doc || first.Room == "" {
+		t.Fatalf("incomplete result %+v", first)
+	}
+	entry, err := serve.Running()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.URL != e.URL || r.Room != e.Room || r.Page != doc {
-		t.Fatalf("got %+v, want the existing advert %+v", r, e)
+	if !strings.Contains(first.URL, "/api/docs/") || !strings.HasSuffix(first.URL, "t="+entry.Token) {
+		t.Fatalf("URL = %q", first.URL)
 	}
-	// NO PAGE HOLDS THE ROOM (this stand-in has no /_galley/pages, as an
-	// editor from before it), so galley_open opens one: the review comes back
-	// in front of the reviewer rather than leaving only a link.
-	if got := *opened; len(got) != 1 || got[0] != e.URL {
-		t.Fatalf("browser opened %v, want exactly [%s]", got, e.URL)
+	for _, u := range []string{first.URL, first.Preview} {
+		resp, err := noCookieGet(u)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("a browser with no cookie got %d at %s", resp.StatusCode, u)
+		}
+	}
+	if got := <-r.opened; got != first.URL {
+		t.Fatalf("opened %q, want %q", got, first.URL)
+	}
+	if again := r.open(doc); again.URL != first.URL || again.Room != first.Room {
+		t.Fatalf("second open: %+v, then %+v", first, again)
+	}
+	if rt, ok := serve.FindRuntime(doc); !ok || rt.Owner != "session-me" {
+		t.Fatalf("the server says %+v (found %v), want owner session-me", rt, ok)
 	}
 }
 
-// A SECOND galley_open ON A DOCUMENT ALREADY IN FRONT OF THE REVIEWER OPENS
-// NO SECOND TAB: the reuse path asks the editor how many pages hold its room
-// and opens the browser only when none does.
-func TestOpenReuseOpensThePageOnlyWhenNoneIsConnected(t *testing.T) {
+// noCookieGet follows the sign-in redirect as a browser would, with a jar and no
+// token header: what someone gets from the address alone.
+func noCookieGet(u string) (*http.Response, error) {
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		return nil, err
+	}
+	return (&http.Client{Jar: jar}).Get(u)
+}
+
+// The reuse path opens a page only when none holds the review, so one already in
+// front of the reviewer gets no second tab: the server's count decides.
+func TestOpenOpensAPageOnlyWhenNoneHoldsTheReview(t *testing.T) {
 	for _, tc := range []struct {
 		pages int
 		opens bool
 	}{{0, true}, {1, false}} {
 		t.Run(fmt.Sprintf("pages=%d", tc.pages), func(t *testing.T) {
-			t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
-			dir := t.TempDir()
-			doc := writeDoc(t, dir, "doc.md", "# T\n")
-			ed := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				switch r.URL.Path {
-				case "/_galley/revise":
-					_, _ = w.Write([]byte(`{"sealed":false}`))
-				case "/_galley/pages":
-					_, _ = fmt.Fprintf(w, `{"pages":%d}`, tc.pages)
-				default:
-					http.NotFound(w, r)
-				}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_ = json.NewEncoder(w).Encode(serve.OpenAnswer{URL: "http://x/api/docs/a/?t=1", Pages: tc.pages})
 			}))
-			t.Cleanup(ed.Close)
-			e := plantAdvertAt(t, doc, "session-me", ed.URL, os.Getpid())
-
-			c := newChannel(dir, "session-me")
-			opened := recordOpens(c)
-			r, err := openDoc(t, c, doc)
-			if err != nil {
+			t.Cleanup(server.Close)
+			client := pageserve.NewClient(serve.Live(), nil)
+			client.Find = func() (pageserve.Entry, error) { return pageserve.Entry{Base: server.URL}, nil }
+			ch := pageserve.New(channelSpec(), pageserve.Identity{Session: "s"}, client)
+			var opened []string
+			ch.Open = func(u string) error { opened = append(opened, u); return nil }
+			if _, err := open(context.Background(), ch, "doc.md"); err != nil {
 				t.Fatal(err)
 			}
-			if r.URL != e.URL {
-				t.Fatalf("got %+v, want the existing advert %+v", r, e)
-			}
-			if got := len(*opened) == 1; got != tc.opens {
-				t.Fatalf("with %d page(s) connected the browser opened %v; want opened=%t", tc.pages, *opened, tc.opens)
+			if got := len(opened) == 1; got != tc.opens {
+				t.Fatalf("with %d page(s) it opened %v", tc.pages, opened)
 			}
 		})
 	}
 }
 
-// recordOpens swaps the channel's browser opener for one that records the
-// URLs it was asked to open, so no test opens a real tab.
-func recordOpens(c *channel) *[]string {
-	var opened []string
-	c.openPage = func(url string) { opened = append(opened, url) }
-	return &opened
-}
-
-// AN EDITOR THAT DOES NOT ANSWER IS SHUTTING DOWN, and handing back its URL
-// gives the reviewer a dead page. Its entry is waited out and a fresh editor
-// takes its place.
-func TestOpenWaitsOutAnEditorThatDoesNotAnswer(t *testing.T) {
-	isolate(t)
+// A review that has ended is not handed back: a fresh one takes its place.
+func TestOpenStartsAFreshReviewWhenTheLastOneEnded(t *testing.T) {
+	startServer(t)
 	dir := t.TempDir()
-	doc := writeDoc(t, dir, "doc.md", "# T\n")
-	if err := live().AnnounceSession("session-me"); err != nil {
+	doc := writeDoc(t, dir, "doc.md", "# T\n\nHello.\n")
+	r := newRig(t, "session-me", dir)
+	first := r.open(doc)
+	if err := postApprove(baseOf(first.URL)); err != nil {
 		t.Fatal(err)
 	}
-	dying := exec.Command("sleep", "30")
-	if err := dying.Start(); err != nil {
-		t.Fatal(err)
-	}
-	old := plantAdvertAt(t, doc, "session-me", "http://127.0.0.1:1", dying.Process.Pid)
-
-	c := newChannel(dir, "session-me")
-	c.exe = buildGalley(t)
-	recordOpens(c)
-	c.openPoll = 20 * time.Millisecond
-	go func() {
-		time.Sleep(300 * time.Millisecond)
-		_ = dying.Process.Kill()
-		_ = dying.Wait()
-	}()
-	r, err := openDoc(t, c, doc)
-	if err != nil {
-		t.Fatalf("galley_open: %v", err)
-	}
-	t.Cleanup(func() { killEditor(t, r.Room) })
-	if r.Room == old.Room || r.URL == old.URL {
-		t.Fatalf("handed back the dying editor: %+v", r)
-	}
-}
-
-func TestOpenReportsAnEditorThatNeitherAnswersNorExits(t *testing.T) {
-	t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
-	dir := t.TempDir()
-	doc := writeDoc(t, dir, "doc.md", "# T\n")
-	plantAdvertAt(t, doc, "session-me", "http://127.0.0.1:1", os.Getpid())
-
-	c := newChannel(dir, "session-me")
-	recordOpens(c)
-	c.openPoll = 10 * time.Millisecond
-	c.shutdownWait = 100 * time.Millisecond
-	_, err := openDoc(t, c, doc)
-	if err == nil || !strings.Contains(err.Error(), fmt.Sprintf("pid %d", os.Getpid())) {
-		t.Fatalf("expected an error naming pid %d, got %v", os.Getpid(), err)
-	}
-}
-
-// AN ENDED REVIEW IN AN EDITOR STARTED FROM A TERMINAL cannot be stopped from
-// here: it has no stop hook, so the reviewer is told to stop it.
-func TestOpenRefusesAnEndedReviewItCannotStop(t *testing.T) {
-	t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
-	dir := t.TempDir()
-	doc := writeDoc(t, dir, "doc.md", "# T\n")
-	ed := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/_galley/revise":
-			_, _ = w.Write([]byte(`{"sealed":true}`))
-		case "/_galley/stop":
-			http.Error(w, "this server was started without a stop hook", http.StatusNotImplemented)
-		}
-	}))
-	t.Cleanup(ed.Close)
-	plantAdvertAt(t, doc, "", ed.URL, os.Getpid())
-
-	c := newChannel(dir, "session-me")
-	opened := recordOpens(c)
-	_, err := openDoc(t, c, doc)
-	if err == nil || !strings.Contains(err.Error(), "review there has ended") {
-		t.Fatalf("expected an ended-review error, got %v", err)
-	}
-	if len(*opened) != 0 {
-		t.Fatalf("opened %v for a review that has ended", *opened)
-	}
-}
-
-// THE PREVIEW ADDRESS RIDES BESIDE THE REVIEW ADDRESS for a markdown review,
-// so the agent can hand the reviewer the branded page; a page under review has
-// no preview route, so its result carries none.
-func TestOpenReturnsThePreviewForAMarkdownReview(t *testing.T) {
-	t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
-	dir := t.TempDir()
-	doc := writeDoc(t, dir, "doc.md", "# T\n")
-	e := plantAdvert(t, doc, "session-me")
-
-	r, err := openDoc(t, newChannel(dir, "session-me"), doc)
+	second := r.open(doc)
+	st, err := reviseState(baseOf(second.URL))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := e.URL + "/_galley/render"; r.Preview != want {
-		t.Fatalf("preview = %q, want %q", r.Preview, want)
+	if st.Sealed {
+		t.Fatal("the fresh review is already sealed")
 	}
 }
 
-func TestOpenReturnsNoPreviewForAPageReview(t *testing.T) {
-	t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
+// An ended review that is another live session's is left alone: reported as
+// theirs, never stopped.
+func TestOpenDoesNotStopAnotherSessionsEndedReview(t *testing.T) {
 	dir := t.TempDir()
-	page := writeDoc(t, dir, "index.html", "<html><body><p>Hi</p></body></html>\n")
-	plantAdvert(t, serve.AdvertisedPath(page), "session-me")
-
-	text, err := newChannel(dir, "session-me").callTool("galley_open",
-		json.RawMessage(`{"doc":`+strconvQuote(page)+`}`))
-	if err != nil {
+	doc := writeDoc(t, dir, "doc.md", "# T\n")
+	startServer(t)
+	theirs := newRig(t, "session-other", dir)
+	opened := theirs.open(doc)
+	if err := postApprove(baseOf(opened.URL)); err != nil {
 		t.Fatal(err)
+	}
+	text, bad := newRig(t, "session-me", dir).call("galley_open", `{"doc":`+strconvQuote(doc)+`}`)
+	if !bad || !strings.Contains(text, "open in session session-other") {
+		t.Fatalf("answered %v %q", bad, text)
+	}
+	if st, err := reviseState(baseOf(opened.URL)); err != nil || !st.Sealed {
+		t.Fatalf("another session's review was replaced: %+v, %v", st, err)
+	}
+}
+
+// The preview address rides beside the review address for a markdown review; a
+// page under review has no preview route, and is opened by its content.md.
+func TestOpenOfAPageReturnsItsContentFileAndNoPreview(t *testing.T) {
+	startServer(t)
+	dir := t.TempDir()
+	page := writeDoc(t, dir, "post.html", minimalHTML)
+	r := newRig(t, "session-me", dir)
+	text, bad := r.call("galley_open", `{"doc":`+strconvQuote(page)+`}`)
+	if bad {
+		t.Fatal(text)
 	}
 	if strings.Contains(text, `"preview"`) {
 		t.Fatalf("a page review's open result carries a preview: %s", text)
 	}
-}
-
-func TestOpenClaimsAnUnownedEditor(t *testing.T) {
-	t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
-	dir := t.TempDir()
-	doc := writeDoc(t, dir, "doc.md", "# T\n")
-	e := plantAdvert(t, doc, "")
-
-	c := newChannel(dir, "session-me")
-	r, err := openDoc(t, c, doc)
-	if err != nil {
+	var res openResult
+	if err := json.Unmarshal([]byte(text), &res); err != nil {
 		t.Fatal(err)
 	}
-	if r.URL != e.URL {
-		t.Fatalf("got %+v, want the unowned advert's URL %s", r, e.URL)
+	if !strings.HasSuffix(res.Page, string(filepath.Separator)+"content.md") {
+		t.Fatalf("Page = %q, want the content.md it serves", res.Page)
 	}
-	if got := advertOwner(t, e.Room); got != "session-me" {
-		t.Fatalf("owner after open = %q, want session-me", got)
-	}
-}
-
-func TestOpenRefusesADocumentAnotherLiveSessionOwns(t *testing.T) {
-	t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
-	dir := t.TempDir()
-	doc := writeDoc(t, dir, "doc.md", "# T\n")
-	plantAdvert(t, doc, "session-other")
-	if err := live().AnnounceSession("session-other"); err != nil {
-		t.Fatal(err)
-	}
-
-	c := newChannel(dir, "session-me")
-	_, err := openDoc(t, c, doc)
-	if err == nil {
-		t.Fatal("opened a document a live session owns")
-	}
-	if got, want := err.Error(), "open in session session-other; its wakes go there"; got != want {
-		t.Fatalf("error = %q, want %q", got, want)
+	if again := r.open(page); again.Room != res.Room {
+		t.Fatalf("second open: %s then %s", res.Room, again.Room)
 	}
 }
 
-func TestOpenReportsADocumentADeadSessionStillHolds(t *testing.T) {
-	t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
-	dir := t.TempDir()
-	doc := writeDoc(t, dir, "doc.md", "# T\n")
-	plantAdvert(t, doc, "session-gone")
-
-	c := newChannel(dir, "session-me")
-	_, err := openDoc(t, c, doc)
-	if err == nil {
-		t.Fatal("opened a document whose editor is still shutting down")
-	}
-	want := fmt.Sprintf("opened by session session-gone, which has stopped; its editor is shutting down, retry in a few seconds — if it is still there, stop it (pid %d)", os.Getpid())
-	if got := err.Error(); got != want {
-		t.Fatalf("error = %q, want %q", got, want)
-	}
-}
-
-// THE SCOPE DOES NOT LIMIT galley_open (#68). The path is this session's
-// explicit ask for this document, so a file outside the folder the session
-// started in is opened like any other — here, one this session already has
-// open, which is returned rather than refused.
-func TestOpenAcceptsADocumentOutsideItsScope(t *testing.T) {
-	t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
+// A file outside the session's folder is opened like any other: the path is this
+// session's explicit ask (#68). A relative one is resolved against the channel's
+// working directory.
+func TestOpenTakesAnyPathTheSessionNames(t *testing.T) {
+	startServer(t)
 	scope := t.TempDir()
 	elsewhere := t.TempDir()
+	r := newRig(t, "session-me", scope)
 	doc := writeDoc(t, elsewhere, "doc.md", "# T\n")
-	e := plantAdvert(t, doc, "session-me")
-
-	c := newChannel(scope, "session-me")
-	r, err := openDoc(t, c, doc)
-	if err != nil {
-		t.Fatalf("refused a document outside the channel's scope: %v", err)
+	if res := r.open(doc); res.Page != doc {
+		t.Fatalf("Page = %q", res.Page)
 	}
-	if r.Room != e.Room {
-		t.Fatalf("room = %q, want %q", r.Room, e.Room)
-	}
-}
-
-// A relative path is resolved against the channel's working directory, which
-// is the session's cwd — the same directory `--scope .` names.
-func TestOpenResolvesARelativePath(t *testing.T) {
-	t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
-	dir := t.TempDir()
-	doc := writeDoc(t, dir, "doc.md", "# T\n")
-	e := plantAdvert(t, doc, "session-me")
-	t.Chdir(dir)
-
-	c := newChannel(dir, "session-me")
-	r, err := openDoc(t, c, "doc.md")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if r.Room != e.Room {
-		t.Fatalf("relative path did not resolve to the open editor: %+v", r)
+	t.Chdir(elsewhere)
+	writeDoc(t, elsewhere, "rel.md", "# R\n")
+	res := r.open("rel.md")
+	if rt, ok := serve.FindRuntime(filepath.Join(elsewhere, "rel.md")); !ok || rt.Room != res.Room {
+		t.Fatalf("relative path did not resolve: %+v, %+v", res, rt)
 	}
 }
 
-func TestSamePageComparesBothSpellings(t *testing.T) {
-	real := t.TempDir()
-	link := filepath.Join(t.TempDir(), "work")
-	if err := os.Symlink(real, link); err != nil {
-		t.Skipf("no symlinks here: %v", err)
-	}
-	if !samePage(filepath.Join(link, "d.md"), filepath.Join(real, "d.md")) {
-		t.Fatal("one file under two spellings was read as two files")
-	}
-	if samePage(filepath.Join(real, "d.md"), filepath.Join(real, "e.md")) {
-		t.Fatal("two files were read as one")
-	}
-}
-
-// AN ENDED REVIEW THAT IS NOT THIS SESSION'S IS LEFT ALONE. With no registry
-// entry, the runtime file is the only record of the editor; one owned by
-// another session is reported as open, never stopped.
-func TestOpenDoesNotStopAnotherSessionsEndedReview(t *testing.T) {
-	dir := t.TempDir()
-	doc := writeDoc(t, dir, "doc.md", "# T\n")
-	rt := openOnServer(t, doc, serve.DocOptions{Owner: "session-other"})
-	if err := live().AnnounceSession("session-other"); err != nil {
-		t.Fatal(err)
-	}
-	if err := postApprove(rt.URL); err != nil {
-		t.Fatal(err)
-	}
-
-	c := newChannel(dir, "session-me")
-	opened := recordOpens(c)
-	_, err := openDoc(t, c, doc)
-	if err == nil || !strings.Contains(err.Error(), "already open") {
-		t.Fatalf("expected an already-open error, got %v", err)
-	}
-	if _, ok := serve.FindRuntime(doc); !ok || len(*opened) != 0 {
-		t.Fatalf("still open %v, opened %v; another session's editor must be left alone", ok, *opened)
+func TestOpenWithNoPathSaysSo(t *testing.T) {
+	startServer(t)
+	text, bad := newRig(t, "session-me", t.TempDir()).call("galley_open", `{}`)
+	if !bad || !strings.Contains(text, "needs a document path") {
+		t.Fatalf("answered %v %q", bad, text)
 	}
 }

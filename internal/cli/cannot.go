@@ -64,7 +64,7 @@ func runCannot(args []string, out, errw io.Writer) error {
 		return offlineCannot(doc, *why)
 	}
 	body, _ := json.Marshal(map[string]string{"why": *why})
-	resp, err := http.Post(rt.URL+"/_galley/cannot", "application/json", bytes.NewReader(body))
+	resp, err := serverClient.Post(rt.URL+"/_galley/cannot", "application/json", bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("the editor did not answer: %w", err)
 	}

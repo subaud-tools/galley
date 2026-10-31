@@ -318,7 +318,7 @@ func waitFor(baseURL, since string, timeout time.Duration) (waitResult, error) {
 	// NO client-side timeout. The server bounds every poll; a client that gave
 	// up first would report a perfectly live editor as a dead one, which is the
 	// one answer a waiting loop must never get wrong.
-	client := &http.Client{}
+	client := serverClient
 
 	// The last fingerprint the editor reported, carried into the timeout
 	// message. A caller that set --timeout and got nothing still needs a cursor

@@ -125,7 +125,7 @@ func runEdit(args []string, out, errw io.Writer) error {
 
 	var doc serve.OpenAnswer
 	if _, err := client.Do(ctx, http.MethodPost, "/api/docs", serve.OpenRequest{
-		Path: abs, Editor: os.Getpid(),
+		Path: abs,
 		DocOptions: serve.DocOptions{
 			Owner: *v.owner, OnRevise: *v.onRevise, OnSettle: *v.onSettle, Quiet: *v.quiet, Root: *v.root, Dir: dir,
 		},
@@ -137,14 +137,6 @@ func runEdit(args []string, out, errw io.Writer) error {
 		}
 		return err
 	}
-
-	base, _, _ := strings.Cut(doc.URL, "/?")
-	if err := live().Write(pageserve.Entry{
-		URL: base, Room: doc.Room, Page: doc.Page, PID: os.Getpid(), Owner: *v.owner,
-	}); err != nil {
-		_, _ = fmt.Fprintf(errw, "galley: live registry: %v\n", err)
-	}
-	defer func() { _ = live().Remove(doc.Room) }()
 
 	_, _ = fmt.Fprintf(out, "document  %s\n", doc.Page)
 	_, _ = fmt.Fprintf(out, "room      %s\n", doc.Room)
@@ -586,7 +578,7 @@ type reviseStateView struct {
 }
 
 func reviseState(baseURL string) (reviseStateView, error) {
-	resp, err := http.Get(baseURL + "/_galley/revise")
+	resp, err := serverClient.Get(baseURL + "/_galley/revise")
 	if err != nil {
 		return reviseStateView{}, err
 	}
@@ -620,11 +612,11 @@ func errNoServer(doc string) error {
 // same division runReply/runResolve in main.go already use. ---
 
 func getPendingHTTP(baseURL string) (*http.Response, error) {
-	return http.Get(baseURL + "/_galley/pending")
+	return serverClient.Get(baseURL + "/_galley/pending")
 }
 
 func postReviseHTTP(baseURL string) (*http.Response, error) {
-	return http.Post(baseURL+"/_galley/revise", "application/json", nil)
+	return serverClient.Post(baseURL+"/_galley/revise", "application/json", nil)
 }
 
 // decodeOK reads a 200 response's JSON body into v; a non-200 response is

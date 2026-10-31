@@ -3,13 +3,10 @@ package serve
 import (
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/subaud-tools/tools-common/pageserve"
 )
 
 // isolated gives a test its own state directory and presence.
@@ -94,64 +91,6 @@ func TestOneDocumentByTwoSpellingsIsOneServer(t *testing.T) {
 	}
 	if rt, ok := FindRuntime(filepath.Join(link, "doc.md")); !ok || !strings.HasSuffix(rt.URL, a.ID) {
 		t.Fatalf("the other spelling found %+v, %v", rt, ok)
-	}
-}
-
-// A second `galley edit` on a document another one holds is refused with the
-// address; one whose holder has gone takes the document up.
-func TestOpenIsRefusedWhileAnotherEditorHoldsTheDocument(t *testing.T) {
-	r := isolated(t)
-	doc := writeTestFile(t, filepath.Join(t.TempDir(), "doc.md"), "# T\n")
-
-	holder := exec.Command("sleep", "60")
-	if err := holder.Start(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = holder.Process.Kill(); _ = holder.Wait() })
-	in := OpenRequest{Path: doc, Editor: holder.Process.Pid}
-	var a OpenAnswer
-	if code := r.call(t, http.MethodPost, "/api/docs", in, &a); code != http.StatusOK {
-		t.Fatalf("first editor answered %d", code)
-	}
-	if rt, ok := FindRuntime(doc); !ok || rt.PID != holder.Process.Pid {
-		t.Fatalf("the holder is not reported: %+v", rt)
-	}
-	second := OpenRequest{Path: doc, Editor: os.Getpid()}
-	if code := r.call(t, http.MethodPost, "/api/docs", second, nil); code != http.StatusConflict {
-		t.Fatalf("second editor answered %d, want 409", code)
-	}
-	if code := r.call(t, http.MethodPost, "/api/docs", in, nil); code != http.StatusOK {
-		t.Fatalf("the holder itself answered %d", code)
-	}
-	_ = holder.Process.Kill()
-	_ = holder.Wait()
-	if code := r.call(t, http.MethodPost, "/api/docs", second, nil); code != http.StatusOK {
-		t.Fatalf("after the holder went, the document was refused: %d", code)
-	}
-}
-
-// Approving withdraws the registry entry the channel attaches through, at the
-// moment of the verdict: a later scan must not attach and hear it again.
-func TestApproveWithdrawsTheAdvert(t *testing.T) {
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	sessions := presence(t)
-	r := startServe(t, Options{Sessions: sessions})
-	doc := writeTestFile(t, filepath.Join(t.TempDir(), "doc.md"), "# T\n\nHi.\n")
-	a := r.open(t, doc, DocOptions{})
-	rt, _ := FindRuntime(doc)
-	if err := sessions.Write(pageserve.Entry{URL: rt.URL, Room: rt.Room, Page: rt.Page, PID: os.Getpid()}); err != nil {
-		t.Fatal(err)
-	}
-	if code := r.call(t, http.MethodPost, "/api/docs/"+a.ID+"/_galley/revise",
-		map[string]string{"verdict": "approve"}, nil); code != http.StatusNoContent {
-		t.Fatalf("approve answered %d", code)
-	}
-	entries, err := sessions.List()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) != 0 {
-		t.Fatalf("still advertised after approve: %+v", entries)
 	}
 }
 

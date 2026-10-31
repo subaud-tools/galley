@@ -2,8 +2,8 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
-	"net/http"
 	"os"
 	"strings"
 	"testing"
@@ -11,6 +11,7 @@ import (
 
 	"github.com/subaud-tools/galley/internal/serve"
 	"github.com/subaud-tools/galley/internal/versions"
+	"github.com/subaud-tools/tools-common/pageserve"
 )
 
 // ONE PROTOCOL, TWO CARRIERS, ONE TEST. The CLI's --changes and the MCP
@@ -21,11 +22,11 @@ import (
 func TestBothCarriersLandTheSameManifest(t *testing.T) {
 	for _, carrier := range []struct {
 		name string
-		send func(t *testing.T, ch *channel, baseURL, doc string, changes []AckChange)
+		send func(t *testing.T, ch *pageserve.Channel, baseURL, doc string, changes []AckChange)
 	}{
 		{
 			name: "cli",
-			send: func(t *testing.T, _ *channel, baseURL, _ string, changes []AckChange) {
+			send: func(t *testing.T, _ *pageserve.Channel, baseURL, _ string, changes []AckChange) {
 				t.Helper()
 				if err := postAck(baseURL, "answered", "bounded the budget", changes); err != nil {
 					t.Fatal(err)
@@ -34,7 +35,7 @@ func TestBothCarriersLandTheSameManifest(t *testing.T) {
 		},
 		{
 			name: "mcp",
-			send: func(t *testing.T, ch *channel, _, doc string, changes []AckChange) {
+			send: func(t *testing.T, ch *pageserve.Channel, _, doc string, changes []AckChange) {
 				t.Helper()
 				args, err := json.Marshal(map[string]any{
 					"doc": doc, "state": "answered", "note": "bounded the budget", "changes": changes,
@@ -42,7 +43,7 @@ func TestBothCarriersLandTheSameManifest(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if _, err := ch.callTool("galley_ack", args); err != nil {
+				if _, err := callTool(context.Background(), ch, "galley_ack", args); err != nil {
 					t.Fatal(err)
 				}
 			},
@@ -72,7 +73,7 @@ func TestBothCarriersLandTheSameManifest(t *testing.T) {
 			}
 			waitForImport(t, doc, "12 attempts")
 
-			carrier.send(t, newChannel(dir, ""), base, doc, []AckChange{
+			carrier.send(t, sessionChannel("", dir), base, doc, []AckChange{
 				{Quote: "of 12 attempts", Answers: []string{key}, Note: "Bounded the budget."},
 				{Quote: "a sentence nobody wrote", Answers: []string{key}, Note: "Fabricated."},
 			})
@@ -115,7 +116,7 @@ func postJSON(t *testing.T, url string, body any) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp, err := http.Post(url, "application/json", bytes.NewReader(raw))
+	resp, err := serverClient.Post(url, "application/json", bytes.NewReader(raw))
 	if err != nil {
 		t.Fatal(err)
 	}
