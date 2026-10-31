@@ -23,7 +23,7 @@
 // to seed `this.mode`, and imports it back from here — the same shape as
 // every other mixin wiring, not a cycle: bar.ts never imports from entry.ts.
 
-import { getJSON, postJSON } from './net.ts';
+import { getJSON, postJSON, routes } from './net.ts';
 import { railSurfaces } from './rail.ts';
 import { age } from './suggestions.ts';
 import { roundCards, STAGE_READING } from './versions.ts';
@@ -592,7 +592,7 @@ export const barMethods = {
   },
 
   readMode(this: AppShell) {
-    getJSON<{ mode?: Mode }>('/_galley/mode')
+    getJSON<{ mode?: Mode }>(routes.mode)
       .then((d) => {
         if (!d || !d.mode) {
           return;
@@ -609,7 +609,7 @@ export const barMethods = {
   // which is exactly the thing that must not be guessed at.
   toggleMode(this: AppShell) {
     const want = nextMode(this.mode);
-    postJSON('/_galley/mode', { mode: want })
+    postJSON(routes.mode, { mode: want })
       .then((res) => (res.ok ? res.json() : null))
       .then((d: { mode?: Mode } | null) => {
         if (d && d.mode) {

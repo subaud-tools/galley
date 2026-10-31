@@ -1,8 +1,8 @@
 // web/preview.ts — the split-pane live preview, PAGE MODE ONLY.
 //
 // `galley edit page.html` runs the editor in "page mode": the shell tags the
-// #editor mount with data-page-mode="1" and data-preview="/_galley/preview/…"
-// (internal/serve/editmode.go), and init() (web/entry.ts) hands both to
+// #editor mount with data-page-mode="1" and data-preview naming the preview
+// under the document's base (internal/serve/editmode.go), and init() (web/entry.ts) hands both to
 // mountPreview below. In markdown mode the mount carries neither, so init()
 // never reaches this file and the markdown editor renders exactly as it did
 // before this pass — the airtight guard the design (change 5) asks for, drawn
@@ -15,7 +15,7 @@
 // The iframe reloads when a projection lands, which we learn from the same
 // /_galley/saved stamp the App's own poll already reads.
 
-import { getJSON } from './net.ts';
+import { getJSON, routes } from './net.ts';
 import type { Editor } from '@tiptap/core';
 import { headingAlignKey, normHeading, alignKey } from './headingalign.ts';
 
@@ -374,7 +374,7 @@ function pollSaved(
   iframe: HTMLIFrameElement,
   dataPreview: string,
 ): Promise<void> {
-  return getJSON<SavedView>('/_galley/saved')
+  return getJSON<SavedView>(routes.saved)
     .then((d) => {
       if (!d || !d.saved) {
         return;

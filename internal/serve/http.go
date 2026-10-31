@@ -53,7 +53,7 @@ func serveAssetHint(name, contentType, hint string) http.HandlerFunc {
 // plain auto-submitting <form> is a "simple request", exempt from preflight,
 // and the attacker never has to read the response to have done the damage.
 //
-// Three checks, each closing a different door:
+// Two checks here, and a third where no token stands in front of the route:
 //
 //   - POST ONLY, and the Allow header says exactly that. The previous code
 //     also accepted PUT while advertising "Allow: POST"; a method the 405
@@ -62,11 +62,13 @@ func serveAssetHint(name, contentType, hint string) http.HandlerFunc {
 //     text/plain, application/x-www-form-urlencoded or multipart/form-data.
 //     Requiring anything else forces an attacker onto fetch/XHR, which needs a
 //     preflight this server never answers. This is the load-bearing half.
-//   - SAME-SITE ONLY. Origin (sent by every browser on POST) must match the
-//     host being addressed, and an explicit cross-site Sec-Fetch-Site is
-//     refused outright. A request with NO Origin is allowed: that is the CLI
-//     and anything else that is not a browser, and it is not something a page
-//     can produce.
+//   - SAME-SITE ONLY, in refuseOtherSites, on a document served at the root.
+//     Under Host every route is behind localweb's token, which refuses a
+//     cookie sent with another Origin. Origin (sent by every browser on POST)
+//     must match the host being addressed, and an explicit cross-site
+//     Sec-Fetch-Site is refused outright. A request with NO Origin is allowed:
+//     that is the CLI and anything else that is not a browser, and it is not
+//     something a page can produce.
 func guard(w http.ResponseWriter, r *http.Request) bool {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
@@ -78,14 +80,22 @@ func guard(w http.ResponseWriter, r *http.Request) bool {
 			http.StatusUnsupportedMediaType)
 		return false
 	}
-	if !sameSite(r) {
-		http.Error(w,
-			"refused: this request came from another site. galley serves your own machine "+
-				"with no authentication, so it only accepts requests from its own page or a local tool.",
-			http.StatusForbidden)
-		return false
-	}
 	return true
+}
+
+// refuseOtherSites is the same-site check for a document with no token in front
+// of it. See guard.
+func refuseOtherSites(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && !sameSite(r) {
+			http.Error(w,
+				"refused: this request came from another site. galley serves your own machine "+
+					"with no authentication, so it only accepts requests from its own page or a local tool.",
+				http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // isJSONContentType reports whether ct is application/json, ignoring

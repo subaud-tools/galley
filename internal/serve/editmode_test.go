@@ -65,6 +65,7 @@ func TestEditShellTemplateDirectly(t *testing.T) {
 		Title      string
 		Room       string
 		PageMode   bool
+		Base       string
 		PreviewURL string
 		CanShare   bool
 	}

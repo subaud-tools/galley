@@ -32,7 +32,7 @@
 // keep importing them from this file. Which items, in what order, and what
 // each does stay galley's.
 
-import { postJSON } from './net.ts';
+import { apiUrl, postJSON, routes } from './net.ts';
 import type { AppShell } from './appshell.ts';
 import {
   SHARE_LABEL,
@@ -58,7 +58,6 @@ export {
 export type { ShareMenu };
 
 export const PREVIEW_LABEL = 'HTML preview ↗';
-const PREVIEW_HREF = '/_galley/render';
 
 type ShareAct = 'download-html' | 'download-md' | 'share-html' | 'share-md';
 
@@ -87,8 +86,8 @@ export function shareItems(pageMode: boolean, canShare: boolean): ShareItem[] {
 }
 
 const DOWNLOADS: Record<string, string> = {
-  'download-html': '/_galley/render?download=1',
-  'download-md': '/_galley/download/md',
+  'download-html': `${routes.render}?download=1`,
+  'download-md': routes.downloadMd,
 };
 
 // download starts the browser's download of href; the server's
@@ -158,10 +157,10 @@ export const shareMethods = {
   runShare(this: AppShell, act: ShareAct) {
     const href = DOWNLOADS[act];
     if (href) {
-      download(href);
+      download(apiUrl(href));
       return;
     }
-    const route = act === 'share-md' ? 'md' : 'html';
+    const route = act === 'share-md' ? routes.shareMd : routes.shareHtml;
     clearTimeout(replyClear);
     this.say('copying…');
     // The copied line clears itself, but only if it is still the line: any
@@ -175,7 +174,7 @@ export const shareMethods = {
         }
       }, SHARE_REPLY_MS);
     };
-    postJSON(`/_galley/share/${route}`, {})
+    postJSON(route, {})
       .then((res) =>
         res.ok
           ? res.json().then((v: { path: string }) => copied(v.path))
@@ -208,7 +207,7 @@ export const shareMethods = {
     b.textContent = PREVIEW_LABEL;
     b.title = 'the branded page Download HTML saves, refreshed on every save';
     b.addEventListener('click', () => {
-      window.open(PREVIEW_HREF, '_blank', 'noopener');
+      window.open(apiUrl(routes.render), '_blank', 'noopener');
     });
     revise.parentNode.insertBefore(b, revise);
     return b;

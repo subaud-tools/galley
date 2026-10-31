@@ -13,9 +13,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<base href="{{.Base}}/">
 <title>{{.Title}} — galley</title>
-<link rel="icon" type="image/svg+xml" href="/_galley/favicon.svg">
-<link rel="stylesheet" href="/_galley/editor.css">
+<link rel="icon" type="image/svg+xml" href="{{.Base}}/_galley/favicon.svg">
+<link rel="stylesheet" href="{{.Base}}/_galley/editor.css">
 <style>
   /* The shell's own chrome only. The document's typography is editor.css's
      business; these are the few rules that must hold even if the bundle has
@@ -249,19 +250,16 @@
 <main>
   <div id="editor" data-room="{{.Room}}" data-doc="{{.Title}}" data-page-mode="{{if .PageMode}}1{{end}}" data-preview="{{.PreviewURL}}" data-can-share="{{if .CanShare}}1{{end}}"></div>
 </main>
-<script src="/_galley/editor.js" defer></script>
+<script src="{{.Base}}/_galley/editor.js" defer></script>
 <script>
 (function () {
   var mount = document.getElementById('editor');
   var status = document.getElementById('gly-status');
   var room = mount.getAttribute('data-room');
-  // y-websocket appends the room to this base, and the server routes
-  // /yjs/{room} — so the base is the path WITHOUT the room.
-  var wsURL = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/yjs';
 
   window.addEventListener('load', function () {
     if (window.galleyEdit && typeof window.galleyEdit.init === 'function') {
-      window.galleyEdit.init({ room: room, wsURL: wsURL });
+      window.galleyEdit.init({ room: room });
       return;
     }
     status.textContent = 'editor bundle missing — run `just assets`';

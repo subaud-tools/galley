@@ -17,6 +17,7 @@ import (
 	"github.com/reearth/ygo/encoding"
 	ygsync "github.com/reearth/ygo/sync"
 	"github.com/subaud-tools/galley/internal/ydoc"
+	"github.com/subaud-tools/tools-common/localweb"
 	"github.com/subaud-tools/tools-common/pageserve"
 )
 
@@ -303,5 +304,144 @@ func TestHostCloseLeavesTheOtherDocumentSyncing(t *testing.T) {
 	}
 	if docs := f.host.List(); len(docs) != 1 || docs[0].ID != idB {
 		t.Fatalf("List = %+v, want only %s", docs, idB)
+	}
+}
+
+// get fetches a path with the browser's cookie and returns the status and body.
+func (f *hostFixture) get(t *testing.T, path string) (int, string) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, f.base+path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Cookie", f.cookie)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp.StatusCode, string(body)
+}
+
+// A relative figure resolves against the shell's <base>, so the same name in
+// two documents is two files.
+func TestHostFiguresResolveUnderTheirOwnBase(t *testing.T) {
+	f := startHost(t)
+	idA, pathA := f.open(t, "a", "# A\n\n![fig](fig.png)\n")
+	idB, pathB := f.open(t, "b", "# B\n\n![fig](fig.png)\n")
+	for path, data := range map[string]string{pathA: "figure of A", pathB: "figure of B"} {
+		if err := os.WriteFile(filepath.Join(filepath.Dir(path), "fig.png"), []byte(data), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for id, want := range map[string]string{idA: "figure of A", idB: "figure of B"} {
+		base := "/api/docs/" + id + "/"
+		code, shell := f.get(t, base)
+		if code != http.StatusOK || !strings.Contains(shell, `<base href="`+base+`">`) {
+			t.Fatalf("shell at %s: %d, no <base href=%q>", base, code, base)
+		}
+		if code, got := f.get(t, base+"fig.png"); code != http.StatusOK || got != want {
+			t.Errorf("%sfig.png: %d %q, want %q", base, code, got, want)
+		}
+	}
+}
+
+// The shell names nothing at the root: its own assets come from the base.
+func TestHostShellLoadsItsAssetsFromTheBase(t *testing.T) {
+	f := startHost(t)
+	id, _ := f.open(t, "a", "# A\n")
+	base := "/api/docs/" + id
+	_, shell := f.get(t, base+"/")
+	for _, want := range []string{
+		`href="` + base + `/_galley/favicon.svg"`,
+		`href="` + base + `/_galley/editor.css"`,
+		`src="` + base + `/_galley/editor.js"`,
+	} {
+		if !strings.Contains(shell, want) {
+			t.Errorf("shell has no %s", want)
+		}
+	}
+}
+
+// A page under review previews from its base, and the preview stays same-origin
+// so the alignment can read it through contentDocument.
+func TestHostPagePreviewIsUnderTheBase(t *testing.T) {
+	f := startHost(t)
+	page := filepath.Join(t.TempDir(), "page.html")
+	if err := os.WriteFile(page, []byte("<!doctype html><html><body><h1>Page</h1></body></html>\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := NewEditPage(page)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const id = "pagedoc"
+	s.Base = "/api/docs/" + id
+	// Host.Open takes markdown only until `galley serve` brings the options.
+	f.host.mu.Lock()
+	f.host.docs[id] = hostedDoc{server: s, handler: http.StripPrefix(s.Base, s.Handler())}
+	f.host.mu.Unlock()
+
+	_, shell := f.get(t, s.Base+"/")
+	preview := s.Base + "/_galley/preview/page.html"
+	if !strings.Contains(shell, `data-preview="`+preview+`"`) {
+		t.Fatalf("shell has no data-preview=%q", preview)
+	}
+	if code, got := f.get(t, preview); code != http.StatusOK || !strings.Contains(got, "<h1>Page</h1>") {
+		t.Fatalf("preview: %d %q", code, got)
+	}
+}
+
+// Under Host the token stands in front of every write, so the guard is method
+// and content type only; a cookie from another site is localweb's to refuse.
+func TestHostWritesRestOnTheTokenNotTheSameSiteGuard(t *testing.T) {
+	f := startHost(t)
+	id, _ := f.open(t, "a", "# A\n")
+	token := strings.SplitN(f.cookie, "=", 2)[1]
+	post := func(contentType string, set func(*http.Request)) int {
+		t.Helper()
+		req, err := http.NewRequest(http.MethodPost, f.base+"/api/docs/"+id+"/_galley/mode", strings.NewReader(`{"mode":"live"}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", contentType)
+		set(req)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		return resp.StatusCode
+	}
+	if code := post("application/json", func(r *http.Request) {
+		r.Header.Set(localweb.TokenHeader, token)
+		r.Header.Set("Origin", "https://elsewhere.example")
+	}); code != http.StatusOK && code != http.StatusNoContent {
+		t.Errorf("token holder with another Origin: %d, want it to reach the handler", code)
+	}
+	if code := post("application/json", func(r *http.Request) {
+		r.Header.Set("Cookie", f.cookie)
+		r.Header.Set("Origin", "https://elsewhere.example")
+	}); code != http.StatusForbidden {
+		t.Errorf("cookie with another Origin: %d, want 403", code)
+	}
+	if code := post("text/plain", func(r *http.Request) {
+		r.Header.Set(localweb.TokenHeader, token)
+	}); code != http.StatusUnsupportedMediaType {
+		t.Errorf("text/plain: %d, want 415", code)
+	}
+}
+
+// The preview tab polls its own document's save stamp, not the root's.
+func TestHostRenderPollsUnderTheBase(t *testing.T) {
+	f := startHost(t)
+	id, _ := f.open(t, "a", "# A\n")
+	base := "/api/docs/" + id
+	if _, page := f.get(t, base+"/_galley/render"); !strings.Contains(page, "fetch('"+base+"/_galley/saved'") {
+		t.Errorf("render does not poll %s/_galley/saved", base)
 	}
 }

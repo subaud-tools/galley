@@ -22,7 +22,7 @@
 // `entrusted`/`outstanding`/`landing`/`reopenBy`/`reopenNote` are typed
 // optional rather than required: the current server never sends them.
 
-import { postJSON } from './net.ts';
+import { postJSON, routes } from './net.ts';
 import {
   VERDICT_ENTRUSTED,
   VERDICT_DISCARDED,
@@ -438,7 +438,7 @@ export const sealMethods = {
         return;
       }
       this.say('cancelling the handoff…');
-      postJSON('/_galley/handoff/cancel', {})
+      postJSON(routes.handoffCancel, {})
         .then(() => this.readRevise())
         .catch(() => {});
     });

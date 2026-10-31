@@ -1383,6 +1383,9 @@ func (s *EditServer) Handler() http.Handler {
 	mux.HandleFunc("/_galley/share/html", s.handleShareHTML)
 	mux.HandleFunc("/_galley/share/md", s.handleShareMD)
 	mux.HandleFunc("/", s.handleEditRoot)
+	if s.Base == "" {
+		return refuseOtherSites(mux)
+	}
 	return mux
 }
 
@@ -1416,15 +1419,17 @@ func (s *EditServer) handleEditRoot(w http.ResponseWriter, r *http.Request) {
 	var buf bytes.Buffer
 	previewURL := ""
 	if s.pageMode {
-		previewURL = "/_galley/preview/" + s.previewRel
+		previewURL = s.Base + "/_galley/preview/" + s.previewRel
 	}
 	if err := editShell.Execute(&buf, struct {
+		Base       string
 		Title      string
 		Room       string
 		PageMode   bool
 		PreviewURL string
 		CanShare   bool
 	}{
+		Base:       s.Base,
 		Title:      filepath.Base(s.MdPath),
 		Room:       s.Room,
 		PageMode:   s.pageMode,
