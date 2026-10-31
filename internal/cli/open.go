@@ -52,18 +52,12 @@ func previewOf(docURL string) (string, error) {
 // serve.Host.openFor): this session's own is handed back, an unowned one or one
 // whose session has gone becomes this session's, and another live session's is
 // refused as theirs. One whose review has ended is replaced with a fresh review.
-//
-// A new install takes effect here (Client.Fresh): this is the one call that is
-// about to open a page anyway, and a restart brings every document back.
 func open(ctx context.Context, ch *pageserve.Channel, doc string) (string, error) {
 	if doc == "" {
 		return "", fmt.Errorf("galley_open needs a document path")
 	}
 	abs, err := filepath.Abs(doc)
 	if err != nil {
-		return "", err
-	}
-	if err := ch.Client.Fresh(ctx); err != nil {
 		return "", err
 	}
 	var a serve.OpenAnswer
@@ -77,10 +71,10 @@ func open(ctx context.Context, ch *pageserve.Channel, doc string) (string, error
 		}
 		return "", err
 	}
-	// THE PAGE IS OPENED ONLY WHEN NO PAGE HOLDS THE REVIEW, so a galley_open
-	// after the reviewer closed the tab brings it back, and one on a document
-	// already in front of them opens no second tab.
-	if a.Pages == 0 {
+	// THE PAGE IS OPENED ONLY WHEN NO TAB IS THERE TO SHOW THE REVIEW, so a
+	// galley_open after the reviewer closed the tab brings it back, and one on a
+	// document already in front of them opens no second tab.
+	if a.Tab == serve.TabOpened {
 		if err := ch.Open(a.URL); err != nil {
 			_, _ = fmt.Fprintf(ch.Log, "galley channel: opening the browser: %v\n", err)
 		}

@@ -279,22 +279,7 @@ func newApp() *tools.App {
 		NewFlags: newAgentPromptFlags,
 		Run:      runAgentPrompt,
 	})
-	app.Register(tools.Command{
-		Name:     "channel",
-		Group:    "agent",
-		Summary:  "MCP channel server — pushes review wakes into the session",
-		Synopsis: "channel [--scope <dir>]",
-		Help: "An MCP channel server on stdio. It opens documents for this session through\n" +
-			"its galley_open tool, starting the server if needed, and serves galley's other\n" +
-			"tools. Under pi it also waits on the server for every document this session owns,\n" +
-			"plus any under --scope that no session owns at all, and pushes each Revise,\n" +
-			"settle, Approve — and a document going away — into the session as an event.\n" +
-			"The galley_channel_status tool says why any other open document does not reach it.\n" +
-			"Under Claude Code it serves the tools only: `galley watch`, which the galley plugin\n" +
-			"runs, delivers the events.\n",
-		NewFlags: func() *flag.FlagSet { fs, _ := newChannelFlags(); return fs },
-		Run:      runChannel,
-	})
+	app.Register(channelCommand())
 	app.Register(watchCommand())
 	app.Register(tools.Command{
 		Name:        "skills",
@@ -346,7 +331,7 @@ func serveCommand() tools.Command {
 		Foreground: true,
 		Serve: func(ctx context.Context, port int, errw io.Writer) error {
 			return serve.Run(ctx, serve.Options{
-				Port: port, Version: version.Version(), Exe: pageserve.Executable(), Sessions: live(), Log: errw,
+				Port: port, Version: version.Version(), Sessions: live(), Log: errw,
 				Ready: func(url string) { _, _ = fmt.Fprintln(errw, url) },
 			})
 		},

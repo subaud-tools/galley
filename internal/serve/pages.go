@@ -7,18 +7,15 @@ import (
 )
 
 // PagesView is GET /_galley/pages: how many pages hold this editor's room
-// over its websocket right now. galley_open reads it on its reuse path and
-// opens the browser only when it is 0, so a second galley_open on a
-// document already in front of the reviewer opens no second tab.
+// over its websocket right now.
 type PagesView struct {
 	Pages int `json:"pages"`
 }
 
 // countPages counts each websocket upgrade to the room for as long as the
-// connection lasts: ygo's ServeHTTP returns only when the peer is gone.
-// Counted directly rather than through tools-common localweb.Tabs, which
-// needs the page to send a tab id and page name on its streams, and whose
-// front-page and move rules an editor serving one document has no use for.
+// connection lasts: ygo's ServeHTTP returns only when the peer is gone. Besides
+// localweb.Tabs, whose list holds only pages that check in with a tab id: this
+// sees every page on the document, and the unload rule and Host.showIn ask it.
 func (s *EditServer) countPages(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !gws.IsWebSocketUpgrade(r) {

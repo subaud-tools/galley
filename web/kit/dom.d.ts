@@ -23,6 +23,8 @@ export interface BarHandle {
   el: HTMLElement;
   themeControl: HTMLElement;
   setSection(id: string): void;
+  /** Show or hide every section button, for one bar kept across pages. */
+  setSectionsShown(shown: boolean): void;
   setCount(id: string, count?: string | number | null): void;
   /** tone: muted (default), signal, or danger (e.g. "offline · 3 queued"). */
   setStatus(text: string, opts?: { tone?: StatusTone }): void;

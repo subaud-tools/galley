@@ -2,6 +2,11 @@
 
 Newest first. Notes for releases up to 0.10.2 are on the GitHub releases page: https://github.com/subaud-tools/galley/releases
 
+## 0.24.0
+
+- galley's server takes its kept token, new-install check and open-tab list from the family's shared server (tools-common 0.45.0), and its channel is the shared one. Nothing on the page changes, and the token and open documents carry over.
+- An agent's wake reaches it sooner after a server restart: its channel looks for the new server at once rather than waiting 5 seconds, so a Revise pressed just after a restart is heard.
+
 ## 0.23.0
 
 - One `galley serve` per machine holds every open document on one port, the way diazo serves its plans. Opening a document no longer starts a process of its own, and a finished review no longer lingers as one.
@@ -11,7 +16,7 @@ Newest first. Notes for releases up to 0.10.2 are on the GitHub releases page: h
 - `galley edit` still works without an agent: it starts the server if needed, opens the document, prints its address and stays until the document closes. Ctrl-C closes the document and leaves the server running.
 - `--on-revise` and `--on-settle` commands run in the folder `galley edit` ran in, but with the server's environment, not the shell's.
 - Editors started by an earlier galley keep running until their sessions end. The new server will not open a document one of them still holds.
-- Restart any agent session that was running before the install: its galley channel can't open documents on the new server.
+- `kempt update` reloads running agent sessions onto the new channel.
 - An HTML page under review can read and change the other open reviews; see SECURITY.md.
 
 ## 0.22.0
