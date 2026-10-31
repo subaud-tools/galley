@@ -4,81 +4,191 @@
 package serve
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"io"
+	"maps"
 	"net/http"
+	"net/url"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/subaud-tools/galley/internal/docmodel"
+	"github.com/subaud-tools/galley/internal/htmlpage"
+	"github.com/subaud-tools/galley/internal/markdown"
 	"github.com/subaud-tools/tools-common/pageserve"
 )
 
 // docsPrefix is where every open document's routes live.
 const docsPrefix = "/api/docs/"
 
-// DocOptions is how a document is opened. It holds nothing yet: the flags
-// `galley edit` passes arrive with `galley serve`.
-type DocOptions struct{}
+// unloadGrace is how many checks in a row a document must meet an unload rule
+// before it goes. A channel can restart within a living session and a page
+// reloads, each leaving a gap of a moment; at a one-second tick this rides those
+// out, as `galley edit`'s owner watch does.
+const unloadGrace = 6
+
+// DocOptions is how a document is opened, saved with it in docs.json.
+type DocOptions struct {
+	// Owner is the session the document belongs to and leaves with; "": none,
+	// and it stays until closed.
+	Owner    string        `json:"owner,omitempty"`
+	OnRevise string        `json:"on_revise,omitempty"` // the command a Revise runs
+	OnSettle string        `json:"on_settle,omitempty"` // the command a settle in live mode runs
+	Quiet    time.Duration `json:"quiet,omitempty"`     // how long before a settle; 0: the default
+}
 
 // DocView is one open document as List reports it.
 type DocView struct {
 	ID   string `json:"id"`
-	Path string `json:"path"`
+	Path string `json:"path"` // the path it was opened by: a page's own .html
+}
+
+// OpenRequest is the body of POST /api/docs.
+type OpenRequest struct {
+	Path string `json:"path"` // absolute: the server runs in its own directory
+	DocOptions
+}
+
+// OpenAnswer is what POST /api/docs answers. URL carries the token, so opening
+// it signs a browser in.
+type OpenAnswer struct {
+	ID  string `json:"id"`
+	URL string `json:"url"`
 }
 
 // hostedDoc is one open document and its routes, built once.
 type hostedDoc struct {
+	path    string
+	options DocOptions
 	server  *EditServer
 	handler http.Handler
 }
 
 // Host holds the open documents.
 type Host struct {
-	mu   sync.Mutex
-	docs map[string]hostedDoc // by id
+	sessions pageserve.Live // where an owner's presence is read
+	log      io.Writer
+	savePath string // docs.json; "": not kept
+
+	mu      sync.Mutex
+	docs    map[string]hostedDoc // by id
+	address string               // the server's URL with its token
+
+	misses map[string]int // id -> checks in a row an unload rule held; the watch's own
+
+	exe     string      // the binary serve runs, watched for an install
+	exeInfo os.FileInfo // exe as it was when serve started
+	stale   bool        // exe was replaced and the entry says so; the watch's own
 }
 
 // NewHost returns a Host with nothing open.
-func NewHost() *Host { return &Host{docs: map[string]hostedDoc{}} }
+func NewHost() *Host {
+	return &Host{docs: map[string]hostedDoc{}, misses: map[string]int{}, log: io.Discard}
+}
 
 // Open serves the document at path and returns its id, the same for the same
-// path always. A document already open keeps its server: a second one would be
-// a second live document erasing the first (see claimDocument).
-func (h *Host) Open(path string, _ DocOptions) (string, error) {
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return "", err
-	}
-	id := pageserve.Token(abs)
+// path always. A document already open keeps its server and its options: a
+// second server would be a second live document erasing the first (see
+// claimDocument).
+func (h *Host) Open(path string, o DocOptions) (string, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if _, open := h.docs[id]; open {
-		return id, nil
+	id, added, err := h.openLocked(path, o)
+	if err != nil || !added {
+		return id, err
 	}
-	s, err := NewEdit(abs)
-	if err != nil {
-		return "", err
+	if err := h.saveLocked(); err != nil {
+		d := h.docs[id]
+		delete(h.docs, id)
+		return "", errors.Join(fmt.Errorf("keeping %s open: %w", path, err), d.server.Close())
 	}
-	s.Base = strings.TrimSuffix(docsPrefix, "/") + "/" + id
-	h.docs[id] = hostedDoc{server: s, handler: http.StripPrefix(s.Base, s.Handler())}
 	return id, nil
 }
 
-// Close projects the document to disk and stops serving it. Its peers'
-// connections close with it; every other document is untouched.
+// openLocked opens the document unless it is open already. h.mu is held.
+func (h *Host) openLocked(path string, o DocOptions) (id string, added bool, err error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", false, err
+	}
+	id = pageserve.Token(abs)
+	if _, open := h.docs[id]; open {
+		return id, false, nil
+	}
+	s, err := newServerFor(abs)
+	if err != nil {
+		return "", false, err
+	}
+	s.Base = strings.TrimSuffix(docsPrefix, "/") + "/" + id
+	s.Log = func(line string) { _, _ = fmt.Fprintf(h.log, "%s: %s\n", abs, line) }
+	s.OnRevise = o.OnRevise
+	if o.Quiet > 0 {
+		s.Notify.Quiet = o.Quiet
+	}
+	if o.OnSettle != "" {
+		s.Notify.Command = o.OnSettle
+		s.Notify.Log = s.Log
+	}
+	// What the document arrived carrying is not news.
+	s.SeedNotify()
+	// The bar's Done closes the document, and only it.
+	s.OnStop = func() {
+		if err := h.Close(id); err != nil {
+			s.Log(fmt.Sprintf("closing: %v", err))
+		}
+	}
+	h.docs[id] = hostedDoc{path: abs, options: o, server: s, handler: http.StripPrefix(s.Base, s.Handler())}
+	return id, true, nil
+}
+
+// newServerFor opens a page as a page and anything else as markdown.
+func newServerFor(abs string) (*EditServer, error) {
+	switch strings.ToLower(filepath.Ext(abs)) {
+	case ".html", ".htm":
+		return NewEditPage(abs)
+	default:
+		return NewEdit(abs)
+	}
+}
+
+// Close projects the document to disk and stops serving it, and it stays
+// closed across a restart. Its peers' connections close with it; every other
+// document is untouched.
 func (h *Host) Close(id string) error {
 	h.mu.Lock()
 	d, open := h.docs[id]
 	delete(h.docs, id)
+	var saved error
+	if open {
+		saved = h.saveLocked()
+	}
 	h.mu.Unlock()
 	if !open {
 		return fmt.Errorf("document %s is not open", id)
 	}
 	// In this order: Close closes the peers, and what has not reached disk by
 	// then never will.
-	return errors.Join(d.server.Flush(), d.server.Close())
+	return errors.Join(saved, d.server.Flush(), d.server.Close())
+}
+
+// closeAll is the server stopping: every document flushed and closed, and left
+// in docs.json for the next one.
+func (h *Host) closeAll() error {
+	h.mu.Lock()
+	docs := h.docs
+	h.docs = map[string]hostedDoc{}
+	h.mu.Unlock()
+	var errs []error
+	for _, d := range docs {
+		errs = append(errs, d.server.Flush(), d.server.Close())
+	}
+	return errors.Join(errs...)
 }
 
 // List reports the open documents, by path.
@@ -87,15 +197,232 @@ func (h *Host) List() []DocView {
 	defer h.mu.Unlock()
 	views := make([]DocView, 0, len(h.docs))
 	for id, d := range h.docs {
-		views = append(views, DocView{ID: id, Path: d.server.MdPath})
+		views = append(views, DocView{ID: id, Path: d.path})
 	}
 	slices.SortFunc(views, func(a, b DocView) int { return strings.Compare(a.Path, b.Path) })
 	return views
 }
 
+// saveLocked writes the open documents to docs.json. h.mu is held.
+func (h *Host) saveLocked() error {
+	if h.savePath == "" {
+		return nil
+	}
+	docs := make([]savedDoc, 0, len(h.docs))
+	for _, d := range h.docs {
+		docs = append(docs, savedDoc{Path: d.path, DocOptions: d.options})
+	}
+	slices.SortFunc(docs, func(a, b savedDoc) int { return strings.Compare(a.Path, b.Path) })
+	return saveDocs(h.savePath, docs)
+}
+
+// reopenSaved opens each saved document that has no owner or whose owner is
+// still live. One that fails says so and is dropped: it fails alone. A crash
+// here leaves docs.json as it was, because it is written once, at the end.
+func (h *Host) reopenSaved() {
+	saved, err := loadDocs(h.savePath)
+	if err != nil {
+		_, _ = fmt.Fprintf(h.log, "galley serve: the open documents were not read: %v\n", err)
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, d := range saved {
+		if d.Owner != "" && !h.sessions.SessionLive(d.Owner) {
+			_, _ = fmt.Fprintf(h.log, "galley serve: not reopening %s: its session has gone\n", d.Path)
+			continue
+		}
+		if _, _, err := h.openLocked(d.Path, d.DocOptions); err != nil {
+			_, _ = fmt.Fprintf(h.log, "galley serve: not reopening %s: %v\n", d.Path, err)
+		}
+	}
+	if err := h.saveLocked(); err != nil {
+		_, _ = fmt.Fprintf(h.log, "galley serve: the open documents were not saved: %v\n", err)
+	}
+}
+
+// setAddress records the server's URL with its token, once it listens.
+func (h *Host) setAddress(url string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.address = url
+}
+
+// docURL is the document's address with the token; just the path before the
+// server has an address.
+func (h *Host) docURL(id string) string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	path := docsPrefix + id + "/"
+	u, err := url.Parse(h.address)
+	if err != nil || h.address == "" {
+		return path
+	}
+	u.Path = path
+	return u.String()
+}
+
+// watch checks the binary and the unload rules every tick until ctx ends, then
+// lets every blocked `galley wait` go: one held open would hold shutdown for
+// its whole grace period and have its connection torn.
+func (h *Host) watch(ctx context.Context, every time.Duration) {
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			h.mu.Lock()
+			for _, d := range h.docs {
+				d.server.ReleaseWaiters()
+			}
+			h.mu.Unlock()
+			return
+		case <-t.C:
+			h.checkBinary()
+			h.sweep()
+		}
+	}
+}
+
+// sweep is one check of the unload rules: a document leaves when its owner's
+// session is gone, or when it is approved and no page holds it, once that has
+// held for unloadGrace checks in a row. A document with no owner that is not
+// approved stays until closed.
+func (h *Host) sweep() {
+	h.mu.Lock()
+	docs := maps.Clone(h.docs)
+	h.mu.Unlock()
+	for id := range h.misses {
+		if _, open := docs[id]; !open {
+			delete(h.misses, id)
+		}
+	}
+	for id, d := range docs {
+		ownerGone := d.options.Owner != "" && !h.sessions.SessionLive(d.options.Owner)
+		if !ownerGone && (!d.server.Sealed() || d.server.pages.Load() > 0) {
+			delete(h.misses, id)
+			continue
+		}
+		h.misses[id]++
+		if h.misses[id] < unloadGrace {
+			continue
+		}
+		delete(h.misses, id)
+		if err := h.Close(id); err != nil {
+			_, _ = fmt.Fprintf(h.log, "galley serve: unloading %s: %v\n", d.path, err)
+		}
+	}
+}
+
+// watchBinary records the binary serve runs, so checkBinary can tell when an
+// install replaces it.
+func (h *Host) watchBinary(exe string) error {
+	st, err := os.Stat(exe)
+	if err != nil {
+		return err
+	}
+	h.exe, h.exeInfo = exe, st
+	return nil
+}
+
+// checkBinary marks serve's entry stale once its binary is replaced (an install
+// writes a new file, so the inode changes): the next channel call restarts it
+// through Client.Fresh. A running serve keeps its old code, so without this it
+// would stay on the old build.
+func (h *Host) checkBinary() {
+	if h.exe == "" || h.stale {
+		return
+	}
+	now, err := os.Stat(h.exe)
+	if err != nil {
+		return // mid-install the file may briefly be missing
+	}
+	// Linux can hand a replaced file its old inode number, so the same inode
+	// alone isn't the same build: its size or time changes too.
+	if os.SameFile(h.exeInfo, now) && now.Size() == h.exeInfo.Size() && now.ModTime().Equal(h.exeInfo.ModTime()) {
+		return
+	}
+	// Only this serve's own entry is marked, and not before it is written: a
+	// check that finds none looks again on the next tick.
+	e, err := Running()
+	if err != nil || e.PID != os.Getpid() {
+		return
+	}
+	e.Stale = true
+	if err := Live().Advertise(e); err == nil {
+		h.stale = true
+	}
+}
+
+// parseMarkdown and extractPage are the parsers a file from outside goes
+// through; tests make them panic.
+var (
+	parseMarkdown = markdown.Parse
+	extractPage   = htmlpage.Extract
+)
+
+// parseOutside parses a file galley did not write. A panic in the parser is an
+// error like any other unreadable file: the document says so and every other
+// document in the process carries on.
+func parseOutside(raw []byte) (doc docmodel.Doc, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("the parser panicked: %v", r)
+		}
+	}()
+	// Inline notes the parse lifts are not imported, by design: see NewEdit.
+	doc, _, err = parseMarkdown(raw)
+	return doc, err
+}
+
+// extractOutside is parseOutside for a page.
+func extractOutside(raw []byte) (ex *htmlpage.Extraction, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("the page parser panicked: %v", r)
+		}
+	}()
+	return extractPage(raw)
+}
+
+// handleOpen is POST /api/docs.
+func (h *Host) handleOpen(w http.ResponseWriter, r *http.Request) {
+	var in OpenRequest
+	if !decode(w, r, &in) {
+		return
+	}
+	if !filepath.IsAbs(in.Path) {
+		http.Error(w, "path must be absolute: the server does not run in your directory", http.StatusBadRequest)
+		return
+	}
+	id, err := h.Open(in.Path, in.DocOptions)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, OpenAnswer{ID: id, URL: h.docURL(id)})
+}
+
+// handleClose is DELETE /api/docs/{id}.
+func (h *Host) handleClose(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if _, open := h.doc(id); !open {
+		http.NotFound(w, r)
+		return
+	}
+	if err := h.Close(id); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // Handler routes /api/docs/{id}/... to that document with the prefix stripped.
 func (h *Host) Handler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/docs", h.handleOpen)
+	mux.HandleFunc("GET /api/docs", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, h.List()) })
+	mux.HandleFunc("DELETE /api/docs/{id}", h.handleClose)
 	mux.HandleFunc(docsPrefix+"{id}/{rest...}", func(w http.ResponseWriter, r *http.Request) {
 		d, open := h.doc(r.PathValue("id"))
 		if !open {

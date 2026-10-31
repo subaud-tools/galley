@@ -375,16 +375,12 @@ func TestHostPagePreviewIsUnderTheBase(t *testing.T) {
 	if err := os.WriteFile(page, []byte("<!doctype html><html><body><h1>Page</h1></body></html>\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	s, err := NewEditPage(page)
+	id, err := f.host.Open(page, DocOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	const id = "pagedoc"
-	s.Base = "/api/docs/" + id
-	// Host.Open takes markdown only until `galley serve` brings the options.
-	f.host.mu.Lock()
-	f.host.docs[id] = hostedDoc{server: s, handler: http.StripPrefix(s.Base, s.Handler())}
-	f.host.mu.Unlock()
+	d, _ := f.host.doc(id)
+	s := d.server
 
 	_, shell := f.get(t, s.Base+"/")
 	preview := s.Base + "/_galley/preview/page.html"

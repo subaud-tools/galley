@@ -486,7 +486,7 @@ func NewEdit(mdPath string) (*EditServer, error) {
 	// projection. Comments hand-typed into the .md are not imported, by
 	// design: they are dropped. A reviewer comment's words live in
 	// pending.json and its place is an ID mark, which the parse keeps.
-	model, _, err := markdown.Parse(src)
+	model, err := parseOutside(src)
 	if err != nil {
 		return nil, fmt.Errorf("parse %s: %w", abs, err)
 	}
@@ -988,7 +988,7 @@ func (s *EditServer) saveOnce(overwrite string) (docmodel.Doc, []byte, bool, err
 	if fileMoved {
 		why := readErr
 		if why == nil {
-			theirs, _, why = markdown.Parse(raw)
+			theirs, why = parseOutside(raw)
 		}
 		if why != nil {
 			s.leftAlone = true

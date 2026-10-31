@@ -3,15 +3,18 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"strings"
 
+	"github.com/subaud-tools/galley/internal/serve"
 	"github.com/subaud-tools/galley/internal/version"
 	tools "github.com/subaud-tools/tools-common"
 	"github.com/subaud-tools/tools-common/localweb"
+	"github.com/subaud-tools/tools-common/pageserve"
 )
 
 // about is galley's overview, shown by `galley help` above the generated
@@ -319,6 +322,7 @@ func newApp() *tools.App {
 		NewFlags: newSkillsFlags,
 		Run:      runSkills,
 	})
+	app.Register(serveCommand())
 	app.Register(reportCommand())
 	// ledger dispatches its own sub-verbs; declaring them as Subcommands lets
 	// `galley ledger -h` show this help while `galley ledger sync -h` reaches
@@ -340,3 +344,33 @@ func openBrowser(url string) {
 	// stopping the server for.
 	_ = localweb.OpenBrowser(url)
 }
+
+// serveCommand is `galley serve`: pageserve's command over galley's server, in
+// the foreground with no flag and opening no browser, as its channel will start
+// it and galley_open opens the page.
+func serveCommand() tools.Command {
+	cmd := pageserve.Commands{
+		Spec:       pageserve.Spec{Tool: "galley"},
+		Process:    serve.Process(),
+		Group:      "review",
+		Foreground: true,
+		Serve: func(ctx context.Context, port int, errw io.Writer) error {
+			return serve.Run(ctx, serve.Options{
+				Port: port, Version: version.Version(), Exe: pageserve.Executable(), Sessions: live(), Log: errw,
+				Ready: func(url string) { _, _ = fmt.Fprintln(errw, url) },
+			})
+		},
+	}.ServeCommand(pageserve.Help{
+		Synopsis: "[--port N] [--stop]",
+		Summary:  "run the local server that holds every open document (one per machine), or stop it",
+		Long:     serveHelp,
+	})
+	cmd.Help = serveHelp
+	return cmd
+}
+
+const serveHelp = "Runs the review server in this process until it is stopped: one per machine, holding\n" +
+	"every open document behind one port and token. Open documents and the token are kept in\n" +
+	"its state folder, so a restart brings back each one whose owning session is still live.\n" +
+	"A document leaves when its owning session is gone, or once it is approved and no page\n" +
+	"holds it. Opens no browser and needs no network."
