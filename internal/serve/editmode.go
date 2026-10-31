@@ -2472,10 +2472,11 @@ func (s *EditServer) handleRevise(w http.ResponseWriter, r *http.Request) {
 			_ = json.Unmarshal(raw, &req) // a malformed body is a plain revise, not an error
 		}
 	}
-	// Read here, not in the goroutine: these are set once by the CLI before
-	// serving starts, and copying them keeps the async run from reading fields
-	// a later caller might be writing.
-	cmd, logf := s.OnRevise, s.Log
+	// Read here, not in the goroutine, and under the lock: a document taken up
+	// by another session has its hooks cleared while it serves (clearHooks).
+	s.reviseMu.Lock()
+	cmd, dir, logf := s.OnRevise, s.HookDir, s.Log
+	s.reviseMu.Unlock()
 	// THE GUARD IS THE ASK'S, AND ONLY THE ASK'S. It used to front this whole
 	// handler on the reasoning that "an approve nobody hears is equally
 	// unheard", and that sentence is the part that was wrong. A revise is HANDED
@@ -2619,10 +2620,19 @@ func (s *EditServer) handleRevise(w http.ResponseWriter, r *http.Request) {
 				// sees ReviseInFlight report false rather than racing it.
 				close(done)
 			}()
-			runRevise(cmd, s.HookDir, logf)
+			runRevise(cmd, dir, logf)
 		}()
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// clearHooks drops the commands the document was opened with, for a session that
+// didn't configure them.
+func (s *EditServer) clearHooks() {
+	s.reviseMu.Lock()
+	s.OnRevise, s.HookDir = "", ""
+	s.reviseMu.Unlock()
+	s.Notify.clearCommand()
 }
 
 // approveReview seals the current document and publishes the ending to every

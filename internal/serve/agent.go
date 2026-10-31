@@ -186,14 +186,15 @@ func (h *Host) reconcile() {
 // claimUnowned gives each unowned document under a waiting session's folder to
 // one such session, which is what a plain-terminal `galley edit` has always
 // meant: it belongs to no session, and exactly one channel takes it. A session
-// never takes an ended review: there is nothing in it to hear.
+// never takes an ended review: there is nothing in it to hear. Nor does one with
+// no channel: nothing would hear the document.
 func (h *Host) claimUnowned() {
 	now := time.Now()
 	g := h.agents
 	g.mu.Lock()
 	roots := map[string]string{}
 	for session, a := range g.sessions {
-		if a.root != "" && a.active(now) {
+		if a.root != "" && a.active(now) && h.sessions.SessionLive(session) {
 			roots[session] = canonicalPath(a.root)
 		}
 	}
@@ -210,7 +211,7 @@ func (h *Host) claimUnowned() {
 		}
 		for session, root := range roots {
 			if underRoot(canonicalPath(d.server.MdPath), root) {
-				d.options.Owner = session
+				d.options.Owner, d.options.Adopted = session, true
 				h.docs[id] = d
 				changed = true
 				break

@@ -67,7 +67,7 @@ func Run(ctx context.Context, o Options) error {
 		return err
 	}
 	h := NewHost()
-	h.sessions, h.log, h.savePath = o.Sessions, o.Log, DocsPath()
+	h.sessions, h.log, h.savePath, h.token = o.Sessions, o.Log, DocsPath(), token
 	var watching sync.WaitGroup
 	err = pageserve.Run(ctx, pageserve.Options{
 		Live: Live(), API: h.Handler(),

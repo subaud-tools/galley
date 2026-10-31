@@ -59,9 +59,9 @@ import (
 //
 // A GET is not a POST, so `guard` — which requires POST and a JSON body —
 // cannot cover this route. But guard's reasoning is about reads too ("THE
-// THREAT IS AN ORDINARY WEB PAGE. galley listens on 127.0.0.1 with no
-// authentication"), and the port is a fixed default, and the tree below the
-// document is served recursively. Without a header saying otherwise, any page
+// THREAT IS AN ORDINARY WEB PAGE"), and the browser's cookie goes with a request
+// from any port on 127.0.0.1, and the tree below the document is served
+// recursively. Without a header saying otherwise, any page
 // in the user's browser could embed
 //
 //	<img src="http://127.0.0.1:8123/Pictures/2024/private.jpg" onload=… onerror=…>
@@ -93,9 +93,8 @@ import (
 //   - Navigated to directly — the one way a script could run — the response
 //     carries "Content-Security-Policy: sandbox", which loads it into an
 //     opaque origin. A script inside it is then not same-origin with galley
-//     and cannot reach the mutating endpoints on 127.0.0.1, which is the
-//     only thing worth protecting here (they have no authentication, by
-//     design; see guard).
+//     and cannot reach the mutating endpoints with the browser's cookie,
+//     which is the only thing worth protecting here (see guard).
 //
 // The residual risk is a hostile SVG in a directory the user chose to edit a
 // document in, viewed directly, in a browser that ignores CSP sandbox. That

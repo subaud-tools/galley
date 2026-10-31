@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -471,4 +472,115 @@ func TestOpenRefusesADocumentAnOlderEditorHolds(t *testing.T) {
 	_ = holder.Process.Kill()
 	_ = holder.Wait()
 	r.open(t, doc, DocOptions{}) // its pid has gone, and the file left behind is nothing
+}
+
+// A session taking up a gone session's document doesn't inherit what that session
+// configured: a Revise and a settle run nothing, here and across a restart.
+func TestTakeUpDropsTheOldOwnersHooks(t *testing.T) {
+	f := startHost(t)
+	f.host.sessions = presence(t, "sess-a", "sess-b")
+	f.host.savePath = filepath.Join(t.TempDir(), "docs.json")
+	dir := t.TempDir()
+	doc := writeTestFile(t, filepath.Join(dir, "a.md"), "# A\n\nHi.\n")
+	revised, settled := filepath.Join(dir, "revised"), filepath.Join(dir, "settled")
+	id, err := f.host.openFor(OpenRequest{Path: doc, DocOptions: DocOptions{
+		Owner: "sess-a", OnRevise: "touch " + revised, OnSettle: "touch " + settled, Quiet: time.Millisecond, Dir: dir,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.host.sessions.WithdrawSession("sess-a"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.host.openFor(OpenRequest{Path: doc, DocOptions: DocOptions{Owner: "sess-b"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	req, err := http.NewRequest(http.MethodPost, f.base+"/api/docs/"+id+"/_galley/revise", strings.NewReader("{}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header = f.browser()
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	d, _ := f.host.doc(id)
+	d.server.Notify.Touch("something new")
+	time.Sleep(200 * time.Millisecond)
+	for _, marker := range []string{revised, settled} {
+		if _, err := os.Stat(marker); err == nil {
+			t.Errorf("the old owner's hook ran: %s", filepath.Base(marker))
+		}
+	}
+	saved, err := loadDocs(f.host.savePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(saved) != 1 || saved[0].Owner != "sess-b" || saved[0].OnRevise != "" || saved[0].OnSettle != "" || saved[0].Dir != "" {
+		t.Errorf("docs.json holds %+v", saved)
+	}
+}
+
+// A terminal's review stays when the session that adopted it ends: it was never
+// that session's to take with it, and its `galley edit` keeps running.
+func TestAdoptedDocumentOutlivesItsSession(t *testing.T) {
+	adopt := map[string]func(t *testing.T, r *running, doc string){
+		"by opening it": func(t *testing.T, r *running, doc string) {
+			r.open(t, doc, DocOptions{Owner: "sess-a"})
+		},
+		"by waiting on its folder": func(t *testing.T, r *running, doc string) {
+			r.agentWait(t, "sess-a", filepath.Dir(doc), 1)
+		},
+	}
+	for name, how := range adopt {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("XDG_STATE_HOME", t.TempDir())
+			sessions := presence(t, "sess-a")
+			r := startServe(t, Options{Sessions: sessions, Every: 5 * time.Millisecond})
+			doc := writeTestFile(t, filepath.Join(t.TempDir(), "a.md"), "# A\n\nHi.\n")
+			a := r.open(t, doc, DocOptions{})
+			how(t, r, doc)
+			if owner := r.ownerOf(t, a.ID); owner != "sess-a" {
+				t.Fatalf("adopted by %q", owner)
+			}
+			if err := sessions.WithdrawSession("sess-a"); err != nil {
+				t.Fatal(err)
+			}
+			deadline := time.Now().Add(5 * time.Second)
+			for r.ownerOf(t, a.ID) != "" {
+				if time.Now().After(deadline) {
+					t.Fatal("it never went back to having no owner")
+				}
+				time.Sleep(5 * time.Millisecond)
+			}
+			time.Sleep(100 * time.Millisecond)
+			if ids := r.ids(t); !slices.Contains(ids, a.ID) {
+				t.Fatalf("the document left with the session: %v", ids)
+			}
+		})
+	}
+}
+
+// The same when the session ends while the server is down.
+func TestAdoptedDocumentComesBackUnownedAfterItsSessionEnds(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	sessions := presence(t, "sess-a")
+	r := startServe(t, Options{Sessions: sessions, Every: time.Hour})
+	doc := writeTestFile(t, filepath.Join(t.TempDir(), "a.md"), "# A\n\nHi.\n")
+	a := r.open(t, doc, DocOptions{})
+	r.open(t, doc, DocOptions{Owner: "sess-a"})
+	r.stop()
+	if err := sessions.WithdrawSession("sess-a"); err != nil {
+		t.Fatal(err)
+	}
+	r = startServe(t, Options{Sessions: sessions, Every: time.Hour})
+	if ids := r.ids(t); !slices.Contains(ids, a.ID) {
+		t.Fatalf("not reopened: %v", ids)
+	}
+	if owner := r.ownerOf(t, a.ID); owner != "" {
+		t.Fatalf("owner = %q", owner)
+	}
 }

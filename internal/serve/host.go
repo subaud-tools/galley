@@ -5,6 +5,7 @@ package serve
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,6 +24,7 @@ import (
 	"github.com/subaud-tools/galley/internal/htmlpage"
 	"github.com/subaud-tools/galley/internal/markdown"
 	tools "github.com/subaud-tools/tools-common"
+	"github.com/subaud-tools/tools-common/localweb"
 	"github.com/subaud-tools/tools-common/pageserve"
 )
 
@@ -39,7 +41,10 @@ const unloadGrace = 6
 type DocOptions struct {
 	// Owner is the session the document belongs to and leaves with; "": none,
 	// and it stays until closed.
-	Owner    string        `json:"owner,omitempty"`
+	Owner string `json:"owner,omitempty"`
+	// Adopted is an Owner that took up a document opened with none: when that
+	// session ends the document goes back to having none, rather than leaving.
+	Adopted  bool          `json:"adopted,omitempty"`
 	OnRevise string        `json:"on_revise,omitempty"` // the command a Revise runs
 	OnSettle string        `json:"on_settle,omitempty"` // the command a settle in live mode runs
 	Quiet    time.Duration `json:"quiet,omitempty"`     // how long before a settle; 0: the default
@@ -94,6 +99,7 @@ type Host struct {
 	sessions pageserve.Live // where an owner's presence is read
 	log      io.Writer
 	savePath string // docs.json; "": not kept
+	token    string // what the control routes' header must carry; "": refuses all
 
 	mu      sync.Mutex
 	docs    map[string]hostedDoc // by id
@@ -114,7 +120,7 @@ func NewHost() *Host {
 }
 
 // Open serves the document at path and returns its id, the same for the same
-// path always, however it is spelled. A document already open keeps its server
+// file always, however it is named. A document already open keeps its server
 // and its options: two servers on one file each parse it into their own
 // document and project it over the other's, erasing it with nothing logged.
 func (h *Host) Open(path string, o DocOptions) (string, error) {
@@ -138,8 +144,8 @@ func (h *Host) openLocked(path string, o DocOptions) (id string, added bool, err
 	if err != nil {
 		return "", false, err
 	}
-	id = pageserve.Token(canonicalPath(abs))
-	if _, open := h.docs[id]; open {
+	id, open := h.openIDLocked(abs)
+	if open {
 		return id, false, nil
 	}
 	if err := refuseOlderEditor(abs); err != nil {
@@ -171,6 +177,35 @@ func (h *Host) openLocked(path string, o DocOptions) (id string, added bool, err
 	}
 	h.docs[id] = hostedDoc{path: abs, options: o, server: s, handler: http.StripPrefix(s.Base, s.Handler())}
 	return id, true, nil
+}
+
+// openIDLocked is the id for the file at abs, and whether it is open already:
+// under that id, or under another name for the same file, such as a page's
+// content.md, a page's .htm twin, or another case on a case-insensitive disk.
+// h.mu is held.
+func (h *Host) openIDLocked(abs string) (string, bool) {
+	id := pageserve.Token(canonicalPath(abs))
+	if _, open := h.docs[id]; open {
+		return id, true
+	}
+	for other, d := range h.docs {
+		if sameFile(abs, d.path) || sameFile(abs, d.server.MdPath) ||
+			sameFile(AdvertisedPath(abs), d.path) || sameFile(AdvertisedPath(abs), d.server.MdPath) {
+			return other, true
+		}
+	}
+	return id, false
+}
+
+// sameFile says whether two paths are one file now. A path that isn't there is
+// no file: a page's content.md before its first open.
+func sameFile(a, b string) bool {
+	ai, err := os.Stat(a)
+	if err != nil {
+		return false
+	}
+	bi, err := os.Stat(b)
+	return err == nil && os.SameFile(ai, bi)
 }
 
 // refuseOlderEditor refuses a document an editor from before one server still
@@ -290,8 +325,11 @@ func (h *Host) reopenSaved() {
 	defer h.mu.Unlock()
 	for _, d := range saved {
 		if d.Owner != "" && !h.sessions.SessionLive(d.Owner) {
-			_, _ = fmt.Fprintf(h.log, "galley serve: not reopening %s: its session has gone\n", d.Path)
-			continue
+			if !d.Adopted {
+				_, _ = fmt.Fprintf(h.log, "galley serve: not reopening %s: its session has gone\n", d.Path)
+				continue
+			}
+			d.Owner, d.Adopted = "", false
 		}
 		if _, _, err := h.openLocked(d.Path, d.DocOptions); err != nil {
 			_, _ = fmt.Fprintf(h.log, "galley serve: not reopening %s: %v\n", d.Path, err)
@@ -362,7 +400,8 @@ func (h *Host) watch(ctx context.Context, every time.Duration) {
 // sweep is one check of the unload rules: a document leaves when its owner's
 // session is gone, or when it is approved and no page holds it, once that has
 // held for unloadGrace checks in a row. A document with no owner that is not
-// approved stays until closed.
+// approved stays until closed, so one opened with none only goes back to none
+// when the session that adopted it ends.
 func (h *Host) sweep() {
 	h.mu.Lock()
 	docs := maps.Clone(h.docs)
@@ -383,9 +422,28 @@ func (h *Host) sweep() {
 			continue
 		}
 		delete(h.misses, id)
+		if ownerGone && d.options.Adopted {
+			h.disown(id, d.options.Owner)
+			continue
+		}
 		if err := h.Close(id); err != nil {
 			_, _ = fmt.Fprintf(h.log, "galley serve: unloading %s: %v\n", d.path, err)
 		}
+	}
+}
+
+// disown gives an adopted document back to no session, unless it has moved on.
+func (h *Host) disown(id, owner string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	d, open := h.docs[id]
+	if !open || d.options.Owner != owner {
+		return
+	}
+	d.options.Owner, d.options.Adopted = "", false
+	h.docs[id] = d
+	if err := h.saveLocked(); err != nil {
+		_, _ = fmt.Fprintf(h.log, "galley serve: the open documents were not saved: %v\n", err)
 	}
 }
 
@@ -491,12 +549,13 @@ func (h *Host) handleOpen(w http.ResponseWriter, r *http.Request) {
 // openFor opens the document for whoever asks, or decides between them when it
 // is open already. A document keeps its first options (see Open), except its
 // owner: one no session owns goes to the session asking, one whose session has
-// gone is taken up by the session asking, and one a live session owns is that
-// session's and is refused, as is any owned document to an asker with no session.
+// gone is taken up by the session asking, without what that session configured,
+// and one a live session owns is that session's and is refused, as is any owned
+// document to an asker with no session.
 func (h *Host) openFor(in OpenRequest) (string, error) {
-	id := pageserve.Token(canonicalPath(in.Path))
 	h.mu.Lock()
-	d, open := h.docs[id]
+	id, open := h.openIDLocked(in.Path)
+	d := h.docs[id]
 	if open && d.options.Owner != in.Owner {
 		owner := d.options.Owner
 		switch {
@@ -507,6 +566,15 @@ func (h *Host) openFor(in OpenRequest) (string, error) {
 			h.mu.Unlock()
 			return "", fmt.Errorf("opened by session %s, which has stopped; it is closing, retry in a few seconds: %w", owner, errOwned)
 		}
+		switch {
+		case owner == "":
+			d.options.Adopted = true
+		case !d.options.Adopted:
+			// The gone session's commands: an adopted document's are the
+			// terminal's that opened it.
+			d.options.OnRevise, d.options.OnSettle, d.options.Dir = "", "", ""
+			d.server.clearHooks()
+		}
 		d.options.Owner = in.Owner
 		h.docs[id] = d
 		if err := h.saveLocked(); err != nil {
@@ -514,6 +582,11 @@ func (h *Host) openFor(in OpenRequest) (string, error) {
 		}
 	}
 	h.mu.Unlock()
+	// By the name it was opened by: a page named by its content.md stays a page.
+	path := in.Path
+	if open {
+		path = d.path
+	}
 	// Closed and opened again rather than in one step under the lock: Close
 	// flushes to disk, and the reopen must read what it wrote.
 	if open && in.Fresh && d.server.Sealed() {
@@ -521,7 +594,7 @@ func (h *Host) openFor(in OpenRequest) (string, error) {
 			return "", err
 		}
 	}
-	return h.Open(in.Path, in.DocOptions)
+	return h.Open(path, in.DocOptions)
 }
 
 // handleClose is DELETE /api/docs/{id}.
@@ -538,15 +611,29 @@ func (h *Host) handleClose(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// control is a route that runs what it's given or reaches beyond one document:
+// it takes the token's header and never the cookie. A page under review holds
+// the cookie and can't read the token, so it can't name a command or a file, or
+// take a session's wakes. localweb has already checked one or the other.
+func (h *Host) control(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if h.token == "" || subtle.ConstantTimeCompare([]byte(r.Header.Get(localweb.TokenHeader)), []byte(h.token)) != 1 {
+			http.Error(w, "this route needs the "+localweb.TokenHeader+" header; a page's cookie is not enough", http.StatusForbidden)
+			return
+		}
+		next(w, r)
+	}
+}
+
 // Handler routes /api/docs/{id}/... to that document with the prefix stripped.
 func (h *Host) Handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/agent/wait", h.handleAgentWait)
-	mux.HandleFunc("POST /api/agent/report", h.handleAgentReport)
-	mux.HandleFunc("GET /api/agent/status", h.handleAgentStatus)
-	mux.HandleFunc("POST /api/docs", h.handleOpen)
-	mux.HandleFunc("GET /api/docs", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, h.List()) })
-	mux.HandleFunc("DELETE /api/docs/{id}", h.handleClose)
+	mux.HandleFunc("GET /api/agent/wait", h.control(h.handleAgentWait))
+	mux.HandleFunc("POST /api/agent/report", h.control(h.handleAgentReport))
+	mux.HandleFunc("GET /api/agent/status", h.control(h.handleAgentStatus))
+	mux.HandleFunc("POST /api/docs", h.control(h.handleOpen))
+	mux.HandleFunc("GET /api/docs", h.control(func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, h.List()) }))
+	mux.HandleFunc("DELETE /api/docs/{id}", h.control(h.handleClose))
 	mux.HandleFunc(docsPrefix+"{id}/{rest...}", func(w http.ResponseWriter, r *http.Request) {
 		d, open := h.doc(r.PathValue("id"))
 		if !open {

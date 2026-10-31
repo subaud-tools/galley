@@ -145,3 +145,70 @@ func TestRevisingHookRunsInTheOpenersDirectory(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 }
+
+// One file is one document, however it is named: a page by its content.md or
+// its .htm twin, and a file by another case on a case-insensitive disk. A second
+// server on it would erase the first, so a second live session is refused too.
+func TestOneFileIsOneDocument(t *testing.T) {
+	const page = "<!doctype html><html><body><h1>T</h1><p>Hi.</p></body></html>\n"
+	spellings := func(t *testing.T, r *running) (first string, others []string) {
+		t.Helper()
+		dir := t.TempDir()
+		first = writeTestFile(t, filepath.Join(dir, "page.html"), page)
+		a := r.open(t, first, DocOptions{Owner: "sess-a"})
+		return first, []string{a.Page, writeTestFile(t, filepath.Join(dir, "page.htm"), page)}
+	}
+	check := func(t *testing.T, r *running, first string, others []string) {
+		t.Helper()
+		id := r.open(t, first, DocOptions{Owner: "sess-a"}).ID
+		for _, other := range others {
+			if got := r.open(t, other, DocOptions{Owner: "sess-a"}).ID; got != id {
+				t.Errorf("%s got its own document %s, want %s", other, got, id)
+			}
+			var said OpenAnswer
+			code := r.call(t, http.MethodPost, "/api/docs", OpenRequest{Path: other, DocOptions: DocOptions{Owner: "sess-b"}}, &said)
+			if code != http.StatusConflict {
+				t.Errorf("a second session opening %s answered %d, want refused as theirs", other, code)
+			}
+		}
+		if ids := r.ids(t); len(ids) != 1 {
+			t.Errorf("open: %v, want one document", ids)
+		}
+	}
+
+	t.Run("a page by its other names", func(t *testing.T) {
+		r := agentServer(t, "sess-a", "sess-b")
+		first, others := spellings(t, r)
+		check(t, r, first, others)
+	})
+	t.Run("a file by another case", func(t *testing.T) {
+		r := agentServer(t, "sess-a", "sess-b")
+		dir := t.TempDir()
+		upper := writeTestFile(t, filepath.Join(dir, "Case.md"), "# A\n\nHi.\n")
+		lower := filepath.Join(dir, "case.md")
+		ua, errA := os.Stat(upper)
+		la, errB := os.Stat(lower)
+		if errA != nil || errB != nil || !os.SameFile(ua, la) {
+			t.Skip("this disk tells the cases apart")
+		}
+		r.open(t, upper, DocOptions{Owner: "sess-a"})
+		check(t, r, upper, []string{lower})
+	})
+	// The file stays what it was opened as: a fresh review named by content.md
+	// is still the page.
+	t.Run("a fresh review by another name stays the page", func(t *testing.T) {
+		r := agentServer(t, "sess-a")
+		first, others := spellings(t, r)
+		id := r.open(t, first, DocOptions{Owner: "sess-a"}).ID
+		if code := r.call(t, http.MethodPost, "/api/docs/"+id+"/_galley/revise", map[string]string{"verdict": "approve"}, nil); code != http.StatusNoContent {
+			t.Fatalf("approve answered %d", code)
+		}
+		var fresh OpenAnswer
+		if code := r.call(t, http.MethodPost, "/api/docs", OpenRequest{Path: others[0], Fresh: true, DocOptions: DocOptions{Owner: "sess-a"}}, &fresh); code != http.StatusOK {
+			t.Fatalf("a fresh open answered %d", code)
+		}
+		if fresh.ID != id {
+			t.Fatalf("the fresh review is %s, want the page's %s", fresh.ID, id)
+		}
+	})
+}

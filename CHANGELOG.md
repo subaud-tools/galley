@@ -11,7 +11,8 @@ Newest first. Notes for releases up to 0.10.2 are on the GitHub releases page: h
 - `galley edit` still works without an agent: it starts the server if needed, opens the document, prints its address and stays until the document closes. Ctrl-C closes the document and leaves the server running.
 - `--on-revise` and `--on-settle` commands run in the folder `galley edit` ran in, but with the server's environment, not the shell's.
 - Editors started by an earlier galley keep running until their sessions end. The new server will not open a document one of them still holds.
-- An HTML page under review can reach the other open reviews; see SECURITY.md.
+- Restart any agent session that was running before the install: its galley channel can't open documents on the new server.
+- An HTML page under review can read and change the other open reviews; see SECURITY.md.
 
 ## 0.22.0
 

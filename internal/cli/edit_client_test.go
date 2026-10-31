@@ -315,3 +315,35 @@ func TestTheTokenGoesOnlyToTheServer(t *testing.T) {
 		t.Fatalf("the server refused the call: %+v, %v", st, err)
 	}
 }
+
+// Closing the terminal hangs `galley edit` up, and that closes its document as
+// Ctrl-C does: a document left behind would keep its hook across restarts.
+func TestEditClosesItsDocumentOnHangup(t *testing.T) {
+	isolate(t)
+	doc := writeDoc(t, t.TempDir(), "doc.md", "# T\n\nHello.\n")
+	e := startEdit(t, buildGalley(t), doc)
+	if err := e.cmd.Process.Signal(syscall.SIGHUP); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.waitExit(t); err != nil {
+		t.Fatalf("SIGHUP: %v: %s", err, e.stderr())
+	}
+	if _, ok := serve.FindRuntime(doc); ok {
+		t.Fatal("the hangup left the document open")
+	}
+}
+
+// Since 0.23.0 no channel starts `galley edit`, so --owner means a session from
+// before the install, which can't use what this opens and should be restarted.
+func TestEditWithAnOwnerSaysToRestartAnOlderSession(t *testing.T) {
+	isolate(t)
+	doc := writeDoc(t, t.TempDir(), "doc.md", "# T\n\nHi.\n")
+	var errw strings.Builder
+	if err := runEdit([]string{"--owner", "ghost", "--no-open", doc}, io.Discard, &errw); err == nil {
+		t.Fatal("a dead owner was served")
+	}
+	said := errw.String()
+	if strings.Count(strings.TrimSpace(said), "\n") != 0 || !strings.Contains(said, "older than 0.23.0") || !strings.Contains(said, "restart") {
+		t.Fatalf("stderr = %q", said)
+	}
+}

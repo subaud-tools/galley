@@ -90,13 +90,18 @@ func newEditFlags() (*flag.FlagSet, *editFlags) {
 
 // runEdit is a client of the server: it starts the server if none is running,
 // registers the document, prints its address and stays until the document
-// closes. Ctrl-C and SIGTERM close it. The owner's session, an approve and the
+// closes. Ctrl-C, SIGTERM and SIGHUP (the terminal closing) close it. The owner's session, an approve and the
 // page's Done are the server's to act on; this process hears the document go.
 func runEdit(args []string, out, errw io.Writer) error {
 	fs, v := newEditFlags()
 	pos, err := splitPositional(fs, args, out)
 	if err != nil {
 		return err
+	}
+	// From 0.23.0 a channel opens documents on the server itself, so only an
+	// older one, still running since before the install, starts this with --owner.
+	if *v.owner != "" {
+		_, _ = fmt.Fprintln(errw, "galley edit --owner comes from a galley channel older than 0.23.0, which can't use this server; restart that agent session")
 	}
 	if err := requireLiveOwner(*v.owner); err != nil {
 		return err
@@ -120,7 +125,7 @@ func runEdit(args []string, out, errw io.Writer) error {
 		return serve.Process().Ensure(pageserve.Executable())
 	})
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
 
 	var doc serve.OpenAnswer

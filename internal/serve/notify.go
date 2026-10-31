@@ -49,6 +49,16 @@ func (n *Notifier) SetWake(f func(fp string)) {
 	n.wake = f
 }
 
+// clearCommand drops the push half; a pull still wakes. Safe on a nil Notifier.
+func (n *Notifier) clearCommand() {
+	if n == nil {
+		return
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.Command, n.Dir = "", ""
+}
+
 // Touch schedules a notification, replacing any already pending.
 func (n *Notifier) Touch(fp string) {
 	if n == nil {
@@ -97,6 +107,7 @@ func (n *Notifier) fire(fp string) {
 	}
 	n.lastRun = fp
 	cmd := n.Command
+	dir := n.Dir
 	logf := n.Log
 	wake := n.wake
 	n.mu.Unlock()
@@ -114,7 +125,7 @@ func (n *Notifier) fire(fp string) {
 	}
 
 	c := exec.Command("sh", "-c", cmd)
-	c.Dir = n.Dir
+	c.Dir = dir
 	out, err := c.CombinedOutput()
 	if logf == nil {
 		return

@@ -40,11 +40,11 @@ func serveAssetHint(name, contentType, hint string) http.HandlerFunc {
 // answers the request itself and returns false when the request must not
 // proceed.
 //
-// THE THREAT IS AN ORDINARY WEB PAGE. galley listens on 127.0.0.1 with no
-// authentication — by design, it is the user's own machine — so any page the
-// user has open in the same browser can send it requests, and the browser will
-// attach nothing that identifies the sender. Before this guard existed, a
-// cross-origin POST rewrote the user's document, and a cross-origin POST to
+// THE THREAT IS AN ORDINARY WEB PAGE. galley listens on 127.0.0.1, so any page
+// the user has open in the same browser can send it requests. localweb's token
+// is in front of every route, and the browser sends the cookie that holds it on
+// requests from the server's own site. Before this guard existed, when galley
+// had no token, a cross-origin POST rewrote the user's document, and a cross-origin POST to
 // /_galley/revise made the server run its configured command through `sh -c`.
 // Both were verified. No fetch and no CORS cooperation is needed for that: a
 // plain auto-submitting <form> is a "simple request", exempt from preflight,
