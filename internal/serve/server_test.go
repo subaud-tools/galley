@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	gws "github.com/gorilla/websocket"
+	"github.com/reearth/ygo/crdt"
 	"github.com/subaud-tools/galley/internal/docmodel"
 	"github.com/subaud-tools/galley/internal/htmlpage"
 	"github.com/subaud-tools/galley/internal/markdown"
@@ -219,33 +221,73 @@ func TestRestartReloadsLiveDocuments(t *testing.T) {
 	}
 }
 
-func TestStaleBinaryMarksEntry(t *testing.T) {
-	t.Setenv("GALLEY_HOME", t.TempDir())
-	exe := writeDoc(t, "galley", "the old build")
-	startServe(t, Options{Sessions: presence(t), Exe: exe, Every: 5 * time.Millisecond})
+// galley_open follows the one rule for a page: a tab on the document stays, a
+// tab on the front page moves to it, tabs on other reviews keep what they show,
+// and only with no tab open does the opener open one.
+func TestOpenPicksATab(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		tab   string // the page the tab checks in showing; "none": no tab
+		other bool   // the tab shows another open review
+		want  string
+		shows bool
+	}{
+		{name: "no tab", tab: "none", want: TabOpened},
+		{name: "a tab on the document", tab: "doc", want: TabReused},
+		{name: "a tab on the front page", tab: "", want: TabReused, shows: true},
+		{name: "a tab on another review", tab: "other", want: TabReused},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("GALLEY_HOME", t.TempDir())
+			r := startServe(t, Options{Sessions: presence(t), Every: time.Hour})
+			doc := writeDoc(t, "doc.md", "# T\n\nHello.\n")
+			if a := r.open(t, doc, DocOptions{}); tc.tab != "none" {
+				page := tc.tab
+				if page == "doc" {
+					page = a.ID
+				}
+				if code := r.call(t, http.MethodGet, "/api/poll?tab=t1&page="+page, nil, nil); code != http.StatusOK {
+					t.Fatalf("the check-in answered %d", code)
+				}
+			}
+			a := r.open(t, doc, DocOptions{})
+			if a.Tab != tc.want {
+				t.Fatalf("Tab = %q, want %q", a.Tab, tc.want)
+			}
+			var got struct {
+				Events []struct {
+					Type string `json:"type"`
+					Data struct{ Tab, Page string }
+				} `json:"events"`
+			}
+			if code := r.call(t, http.MethodGet, "/api/poll", nil, &got); code != http.StatusOK {
+				t.Fatalf("the poll answered %d", code)
+			}
+			shown := len(got.Events) == 1 && got.Events[0].Type == "show" && got.Events[0].Data.Tab == "t1" && got.Events[0].Data.Page == a.ID
+			if shown != tc.shows {
+				t.Fatalf("events = %+v, want a show: %v", got.Events, tc.shows)
+			}
+		})
+	}
+}
 
-	time.Sleep(30 * time.Millisecond)
-	if e, err := Running(); err != nil || e.Stale {
-		t.Fatalf("before the install: %+v, %v", e, err)
+// galley's page doesn't check in yet: a page holding the document over its
+// websocket still means no second tab.
+func TestOpenOpensNoSecondTabForAPageOnTheWebsocket(t *testing.T) {
+	t.Setenv("GALLEY_HOME", t.TempDir())
+	r := startServe(t, Options{Sessions: presence(t), Every: time.Hour})
+	doc := writeDoc(t, "doc.md", "# T\n\nHello.\n")
+	a := r.open(t, doc, DocOptions{})
+	address := "ws" + strings.TrimPrefix(r.base, "http") + docsPrefix + a.ID + "/yjs/" + a.Room
+	conn, resp, err := gws.DefaultDialer.Dial(address, http.Header{localweb.TokenHeader: {r.token}})
+	if err != nil {
+		t.Fatalf("dial %s: %v", address, err)
 	}
-	// An install writes a new file over the old name.
-	fresh := exe + ".new"
-	if err := os.WriteFile(fresh, []byte("the new build"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Rename(fresh, exe); err != nil {
-		t.Fatal(err)
-	}
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		e, err := Running()
-		if err == nil && e.Stale {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("the entry was never marked stale: %+v, %v", e, err)
-		}
-		time.Sleep(5 * time.Millisecond)
+	_ = resp.Body.Close()
+	defer func() { _ = conn.Close() }()
+	drainHandshake(t, conn, crdt.New())
+	if got := r.open(t, doc, DocOptions{}); got.Tab != TabReused {
+		t.Fatalf("Tab = %q, want %q", got.Tab, TabReused)
 	}
 }
 

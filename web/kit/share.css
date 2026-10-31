@@ -6,6 +6,7 @@
 
      --share-ground  the menu's ground       (--kit-card)
      --share-ink     its text                (--kit-fg)
+     --share-muted   a heading's text        (--kit-muted)
      --share-line    its hairline            (--kit-line)
      --share-hover   a row's hover outline   (--kit-signal)
      --share-lift    its elevation           (--kit-lift)
@@ -44,3 +45,14 @@
   white-space: nowrap;
 }
 .kit-share-menu button:hover { border-color: var(--share-hover, var(--kit-signal, #a4512a)); }
+/* A heading over the rows after it: the kit's section label (.kit-label), set
+   in from the menu's edge to line up with the rows' text. */
+.kit-share-heading {
+  font-size: 10.5px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--share-muted, var(--kit-muted, #59606f));
+  padding: 4px 15px 0;
+  white-space: nowrap;
+}
+.kit-share-heading:not(:first-child) { margin-top: 6px; }

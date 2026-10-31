@@ -26,7 +26,8 @@ export function sharedLine(path) {
 }
 
 // shareMenu builds button's menu from items ({label, act}), hidden, and makes
-// the button toggle it. A pick closes it and calls onPick(act, item); an
+// the button toggle it. An item {label, heading: true} is a label over the
+// items after it: nothing to press, and not in the tab order. A pick closes it and calls onPick(act, item); an
 // outside click, Escape and a resize close it. It opens right-aligned under
 // the button, so a button at the bar's right end grows its menu leftward
 // over the page rather than off its edge.
@@ -36,6 +37,13 @@ export function shareMenu(button, items, onPick) {
   el.setAttribute('role', 'menu');
   el.hidden = true;
   for (const item of items) {
+    if (item.heading) {
+      const h = document.createElement('div');
+      h.className = 'kit-share-heading';
+      h.textContent = item.label;
+      el.append(h);
+      continue;
+    }
     const b = document.createElement('button');
     b.type = 'button';
     b.setAttribute('role', 'menuitem');

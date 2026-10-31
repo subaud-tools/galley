@@ -81,10 +81,17 @@ type OpenAnswer struct {
 	URL  string `json:"url"`
 	Page string `json:"page"` // the file under review
 	Room string `json:"room"`
-	// Pages is how many pages hold it now, so an opener opens one only when
-	// none does.
-	Pages int `json:"pages"`
+	// Tab says what the opener does about a page: TabOpened, it opens one;
+	// TabReused, a page holds the document, or a tab was moved to it, or tabs on
+	// other reviews are open and none is taken over.
+	Tab string `json:"tab"`
 }
+
+// What OpenAnswer.Tab says.
+const (
+	TabOpened = "opened"
+	TabReused = "reused"
+)
 
 // hostedDoc is one open document and its routes, built once.
 type hostedDoc struct {
@@ -98,25 +105,24 @@ type hostedDoc struct {
 type Host struct {
 	sessions pageserve.Live // where an owner's presence is read
 	log      io.Writer
-	savePath string // docs.json; "": not kept
-	token    string // what the control routes' header must carry; "": refuses all
+	savePath string            // docs.json; "": not kept
+	tabs     *localweb.Tabs    // the page tabs open: pageserve.Run's list
+	events   *pageserve.Events // what the open tabs hear
 
 	mu      sync.Mutex
 	docs    map[string]hostedDoc // by id
 	address string               // the server's URL with its token
+	token   string               // what the control routes' header must carry; "": refuses all
 
 	misses map[string]int // id -> checks in a row an unload rule held; the watch's own
-
-	exe     string      // the binary serve runs, watched for an install
-	exeInfo os.FileInfo // exe as it was when serve started
-	stale   bool        // exe was replaced and the entry says so; the watch's own
 
 	agents *agents // the sessions waiting on their documents
 }
 
 // NewHost returns a Host with nothing open.
 func NewHost() *Host {
-	return &Host{docs: map[string]hostedDoc{}, misses: map[string]int{}, log: io.Discard, agents: newAgents()}
+	return &Host{docs: map[string]hostedDoc{}, misses: map[string]int{}, log: io.Discard, agents: newAgents(),
+		tabs: localweb.NewTabs(nil), events: pageserve.NewEvents()}
 }
 
 // Open serves the document at path and returns its id, the same for the same
@@ -341,11 +347,17 @@ func (h *Host) reopenSaved() {
 	}
 }
 
-// setAddress records the server's URL with its token, once it listens.
-func (h *Host) setAddress(url string) {
+// setAddress records the server's URL with its token, once it listens. The
+// token is pageserve's, kept in its state folder, and this URL is the one place
+// it hands it over. The control routes refuse everything until then, and nothing
+// can find the server before then.
+func (h *Host) setAddress(address string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.address = url
+	h.address = address
+	if u, err := url.Parse(address); err == nil {
+		h.token = u.Query().Get("t")
+	}
 }
 
 // docURL is the document's address with the token; just the path before the
@@ -373,7 +385,7 @@ func (h *Host) baseLocked(id string) string {
 	return u.Scheme + "://" + u.Host + path
 }
 
-// watch checks the binary and the unload rules every tick until ctx ends, then
+// watch checks the unload rules every tick until ctx ends, then
 // lets every blocked `galley wait` go: one held open would hold shutdown for
 // its whole grace period and have its connection torn.
 func (h *Host) watch(ctx context.Context, every time.Duration) {
@@ -390,7 +402,6 @@ func (h *Host) watch(ctx context.Context, every time.Duration) {
 			h.mu.Unlock()
 			return
 		case <-t.C:
-			h.checkBinary()
 			h.sweep()
 			h.reconcile()
 		}
@@ -444,46 +455,6 @@ func (h *Host) disown(id, owner string) {
 	h.docs[id] = d
 	if err := h.saveLocked(); err != nil {
 		_, _ = fmt.Fprintf(h.log, "galley serve: the open documents were not saved: %v\n", err)
-	}
-}
-
-// watchBinary records the binary serve runs, so checkBinary can tell when an
-// install replaces it.
-func (h *Host) watchBinary(exe string) error {
-	st, err := os.Stat(exe)
-	if err != nil {
-		return err
-	}
-	h.exe, h.exeInfo = exe, st
-	return nil
-}
-
-// checkBinary marks serve's entry stale once its binary is replaced (an install
-// writes a new file, so the inode changes): the next channel call restarts it
-// through Client.Fresh. A running serve keeps its old code, so without this it
-// would stay on the old build.
-func (h *Host) checkBinary() {
-	if h.exe == "" || h.stale {
-		return
-	}
-	now, err := os.Stat(h.exe)
-	if err != nil {
-		return // mid-install the file may briefly be missing
-	}
-	// Linux can hand a replaced file its old inode number, so the same inode
-	// alone isn't the same build: its size or time changes too.
-	if os.SameFile(h.exeInfo, now) && now.Size() == h.exeInfo.Size() && now.ModTime().Equal(h.exeInfo.ModTime()) {
-		return
-	}
-	// Only this serve's own entry is marked, and not before it is written: a
-	// check that finds none looks again on the next tick.
-	e, err := Running()
-	if err != nil || e.PID != os.Getpid() {
-		return
-	}
-	e.Stale = true
-	if err := Live().Advertise(e); err == nil {
-		h.stale = true
 	}
 }
 
@@ -543,7 +514,25 @@ func (h *Host) handleOpen(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.reconcile()
-	writeJSON(w, OpenAnswer{ID: id, URL: h.docURL(id), Page: d.server.MdPath, Room: d.server.Room, Pages: int(d.server.pages.Load())})
+	writeJSON(w, OpenAnswer{ID: id, URL: h.docURL(id), Page: d.server.MdPath, Room: d.server.Room, Tab: h.showIn(id, d)})
+}
+
+// showIn puts the document in a page tab when one is open, and says which
+// happened: a tab shows it, a front-page tab moves to it, or only tabs on other
+// reviews are open, which keep what they show. A page that holds the document
+// over its websocket counts as showing it, whether or not it checks in.
+func (h *Host) showIn(id string, d hostedDoc) string {
+	c := h.tabs.Pick(id)
+	switch c.Kind {
+	case localweb.TabNone:
+		if d.server.pages.Load() == 0 {
+			return TabOpened
+		}
+	case localweb.TabMove:
+		h.tabs.Moved(c.Tab, id)
+		h.events.Emit("show", map[string]string{"tab": c.Tab, "page": id})
+	}
+	return TabReused
 }
 
 // openFor opens the document for whoever asks, or decides between them when it
@@ -617,7 +606,10 @@ func (h *Host) handleClose(w http.ResponseWriter, r *http.Request) {
 // take a session's wakes. localweb has already checked one or the other.
 func (h *Host) control(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if h.token == "" || subtle.ConstantTimeCompare([]byte(r.Header.Get(localweb.TokenHeader)), []byte(h.token)) != 1 {
+		h.mu.Lock()
+		token := h.token
+		h.mu.Unlock()
+		if token == "" || subtle.ConstantTimeCompare([]byte(r.Header.Get(localweb.TokenHeader)), []byte(token)) != 1 {
 			http.Error(w, "this route needs the "+localweb.TokenHeader+" header; a page's cookie is not enough", http.StatusForbidden)
 			return
 		}
