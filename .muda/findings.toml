@@ -64,8 +64,8 @@ schema = 1
   basis = "measured"
   estimate = "No time saving; reproducibility. Effort: low - one exact version source (web/.nvmrc or package.json engines) read by both setup-node steps via node-version-file, plus an owned refresh path (dependabot does not track Node today)."
   risk = "Low. A pinned patch can go stale without a refresh path; both jobs must read the same source."
-  status = "approved"
-  pr = ""
+  status = "in-pr"
+  pr = "https://github.com/subaud-tools/galley/pull/156"
   exemption-id = ""
 
   [[findings.evidence]]
