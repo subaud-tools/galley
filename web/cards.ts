@@ -28,7 +28,7 @@ import {
 } from './card.ts';
 import { runFor, runTop } from './runs.ts';
 import { submitOnEnter } from './kit/enter.js';
-import { postJSON } from './net.ts';
+import { postJSON, routes } from './net.ts';
 import { age } from './suggestions.ts';
 import {
   censusCounts,
@@ -800,7 +800,7 @@ export const cardMethods = {
       // comment --on-document` and the agent use. A rail-only op would be a
       // second way to write the same {>>@document …<<}, and the two would
       // drift the first time either grew a rule.
-      postJSON('/_galley/instruct', {
+      postJSON(routes.instruct, {
         op: 'comment_document',
         text,
         author: AUTHOR,
@@ -1103,7 +1103,7 @@ export const cardMethods = {
         return;
       }
       this.armedRevert = null;
-      void postJSON('/_galley/revert', { key }).then((res) => {
+      void postJSON(routes.revert, { key }).then((res) => {
         if (res.ok) {
           return this.refreshPending();
         }
@@ -1308,7 +1308,7 @@ export const cardMethods = {
       }
       el.classList.add('gly-busy');
       note.textContent = 'saving…';
-      postJSON('/_galley/instruct', {
+      postJSON(routes.instruct, {
         op: 'edit',
         key: thread.key,
         text: next,
@@ -1470,7 +1470,7 @@ export const cardMethods = {
       clear();
       el.classList.add('gly-busy');
       note.textContent = 'deleting…';
-      postJSON('/_galley/instruction/delete', { key: thread.key })
+      postJSON(routes.instructionDelete, { key: thread.key })
         .then((res) => {
           el.classList.remove('gly-busy');
           if (!res.ok) {

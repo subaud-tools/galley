@@ -59,9 +59,15 @@ import (
 // Instructions live in the document as {>>note<<} blocks and in the ledger with
 // the round that carried them; stored versions are clean documents.
 type EditServer struct {
-	MdPath      string
-	RuntimePath string
-	Room        string
+	MdPath string
+	Room   string
+
+	// Base is the path this document's routes are mounted under, "" at the
+	// root. Set by Host before the document is served.
+	Base string
+
+	// HookDir is where OnRevise runs; "": this process's directory.
+	HookDir string
 
 	// Notify, when set, fires after the document settles. It exists so the
 	// reviewer never has to tell the agent to go and look.
@@ -468,21 +474,12 @@ func NewEdit(mdPath string) (*EditServer, error) {
 		// report a problem with something the user never mentioned.
 		return nil, fmt.Errorf("document: %w", err)
 	}
-	// ONE EDITOR PER DOCUMENT — see claimDocument, and the erasure it names.
-	// Asked here, before the second *crdt.Doc is built, because the second
-	// document is the harm; the advert is only how it is noticed. The claim is
-	// a READ, so two processes starting in the same instant can both pass it —
-	// the window is from here to the caller's announce, and the sequence this
-	// exists for (a second `galley edit`, minutes or hours later) is not in it.
-	if err := claimDocument(DefaultRuntimePath(abs)); err != nil {
-		return nil, err
-	}
 	// THE INLINE NOTES THE PARSE LIFTS ARE DISCARDED, and that is a deletion:
 	// a hand-typed {>>words<<} inside a sentence leaves the .md at the first
 	// projection. Comments hand-typed into the .md are not imported, by
 	// design: they are dropped. A reviewer comment's words live in
 	// pending.json and its place is an ID mark, which the parse keeps.
-	model, _, err := markdown.Parse(src)
+	model, err := parseOutside(src)
 	if err != nil {
 		return nil, fmt.Errorf("parse %s: %w", abs, err)
 	}
@@ -532,12 +529,11 @@ func NewEdit(mdPath string) (*EditServer, error) {
 	}
 
 	s := &EditServer{
-		MdPath:      abs,
-		RuntimePath: DefaultRuntimePath(abs),
-		Room:        room,
-		doc:         doc,
-		yjs:         yjs,
-		root:        root,
+		MdPath: abs,
+		Room:   room,
+		doc:    doc,
+		yjs:    yjs,
+		root:   root,
 		// The trail survives a restart: it clears on the document VERDICT, not
 		// on the process ending (the 2026-08-15 trail spec — review-long,
 		// verdict-cleared). The epoch starts at 1 so the zero value — an
@@ -984,7 +980,7 @@ func (s *EditServer) saveOnce(overwrite string) (docmodel.Doc, []byte, bool, err
 	if fileMoved {
 		why := readErr
 		if why == nil {
-			theirs, _, why = markdown.Parse(raw)
+			theirs, why = parseOutside(raw)
 		}
 		if why != nil {
 			s.leftAlone = true
@@ -1412,15 +1408,17 @@ func (s *EditServer) handleEditRoot(w http.ResponseWriter, r *http.Request) {
 	var buf bytes.Buffer
 	previewURL := ""
 	if s.pageMode {
-		previewURL = "/_galley/preview/" + s.previewRel
+		previewURL = s.Base + "/_galley/preview/" + s.previewRel
 	}
 	if err := editShell.Execute(&buf, struct {
+		Base       string
 		Title      string
 		Room       string
 		PageMode   bool
 		PreviewURL string
 		CanShare   bool
 	}{
+		Base:       s.Base,
 		Title:      filepath.Base(s.MdPath),
 		Room:       s.Room,
 		PageMode:   s.pageMode,
@@ -2474,10 +2472,11 @@ func (s *EditServer) handleRevise(w http.ResponseWriter, r *http.Request) {
 			_ = json.Unmarshal(raw, &req) // a malformed body is a plain revise, not an error
 		}
 	}
-	// Read here, not in the goroutine: these are set once by the CLI before
-	// serving starts, and copying them keeps the async run from reading fields
-	// a later caller might be writing.
-	cmd, logf := s.OnRevise, s.Log
+	// Read here, not in the goroutine, and under the lock: a document taken up
+	// by another session has its hooks cleared while it serves (clearHooks).
+	s.reviseMu.Lock()
+	cmd, dir, logf := s.OnRevise, s.HookDir, s.Log
+	s.reviseMu.Unlock()
 	// THE GUARD IS THE ASK'S, AND ONLY THE ASK'S. It used to front this whole
 	// handler on the reasoning that "an approve nobody hears is equally
 	// unheard", and that sentence is the part that was wrong. A revise is HANDED
@@ -2621,10 +2620,19 @@ func (s *EditServer) handleRevise(w http.ResponseWriter, r *http.Request) {
 				// sees ReviseInFlight report false rather than racing it.
 				close(done)
 			}()
-			runRevise(cmd, logf)
+			runRevise(cmd, dir, logf)
 		}()
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// clearHooks drops the commands the document was opened with, for a session that
+// didn't configure them.
+func (s *EditServer) clearHooks() {
+	s.reviseMu.Lock()
+	s.OnRevise, s.HookDir = "", ""
+	s.reviseMu.Unlock()
+	s.Notify.clearCommand()
 }
 
 // approveReview seals the current document and publishes the ending to every
@@ -3002,18 +3010,31 @@ func (s *EditServer) handleReport(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &req) {
 		return
 	}
-	switch req.Event {
-	case channelmcp.ReportHeld, channelmcp.ReportLanded, channelmcp.ReportTurnEnded:
-	default:
-		http.Error(w, fmt.Sprintf("event %q: want held, landed or turn_ended", req.Event), http.StatusBadRequest)
+	if err := checkReportEvent(req.Event); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	s.applyReport(req.Event, req.Token)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// checkReportEvent refuses an event the harness has no business sending.
+func checkReportEvent(event channelmcp.ReportEvent) error {
+	switch event {
+	case channelmcp.ReportHeld, channelmcp.ReportLanded, channelmcp.ReportTurnEnded:
+		return nil
+	}
+	return fmt.Errorf("event %q: want held, landed or turn_ended", event)
+}
+
+// applyReport moves the window's message as the report says.
+func (s *EditServer) applyReport(event channelmcp.ReportEvent, token string) {
 	s.reviseMu.Lock()
 	changed := false
 	if m := s.msg; m != nil && s.handoffLease != nil {
-		ours := req.Token != "" && req.Token == m.token
+		ours := token != "" && token == m.token
 		switch {
-		case req.Event == channelmcp.ReportLanded && ours:
+		case event == channelmcp.ReportLanded && ours:
 			if msgstate.Allowed(m.state, msgstate.WithAgent) {
 				m.state = msgstate.WithAgent
 				changed = true
@@ -3021,11 +3042,11 @@ func (s *EditServer) handleReport(w http.ResponseWriter, r *http.Request) {
 			if m.held {
 				m.held, changed = false, true
 			}
-		case req.Event == channelmcp.ReportHeld && ours:
+		case event == channelmcp.ReportHeld && ours:
 			if m.state == msgstate.Sent && !m.held {
 				m.held, changed = true, true
 			}
-		case req.Event == channelmcp.ReportTurnEnded:
+		case event == channelmcp.ReportTurnEnded:
 			if msgstate.Allowed(m.state, msgstate.NoReply) {
 				m.state, changed = msgstate.NoReply, true
 			}
@@ -3035,7 +3056,6 @@ func (s *EditServer) handleReport(w http.ResponseWriter, r *http.Request) {
 	if changed {
 		s.persistMessage()
 	}
-	w.WriteHeader(http.StatusNoContent)
 }
 
 // ackMoves reports whether the agent's ack may move a message in from to st:
@@ -3073,8 +3093,10 @@ func noteSuffix(note string) string {
 	return " — " + note
 }
 
-func runRevise(cmd string, logf func(string)) {
-	out, err := exec.Command("sh", "-c", cmd).CombinedOutput()
+func runRevise(cmd, dir string, logf func(string)) {
+	c := exec.Command("sh", "-c", cmd)
+	c.Dir = dir
+	out, err := c.CombinedOutput()
 	if logf == nil {
 		return
 	}
@@ -3444,22 +3466,35 @@ func (s *EditServer) handleWait(w http.ResponseWriter, r *http.Request) {
 		}
 		poll = min(d, maxWaitPoll)
 	}
-	since := r.URL.Query().Get("since")
+	reply, err := s.waitOnce(r.Context(), r.URL.Query().Get("since"), poll)
+	switch {
+	case errors.Is(err, context.Canceled):
+		// The caller went away. Nothing to write to.
+	case err != nil:
+		writeBusy(w, err)
+	default:
+		writeJSON(w, reply)
+	}
+}
 
+// waitOnce is one blocking read: what `galley wait` asks through handleWait and
+// what the Host's attachments ask directly. It returns ctx's error when ctx ends
+// first, and any other error means the document was busy throughout. Every path
+// has left the registry by the time it returns, so a caller's write of the
+// answer happens with this reader honestly uncounted (see below).
+func (s *EditServer) waitOnce(ctx context.Context, since string, poll time.Duration) (waitReply, error) {
 	// REGISTER BEFORE READING. The other order drops a release that lands
 	// between the read and the registration — the re-arm gap --since exists to
 	// close, reintroduced one level down where no cursor can see it.
 	ch, ok := s.registerWaiter()
 	if !ok {
-		writeJSON(w, waitReply{Reason: waitClosedR})
-		return
+		return waitReply{Reason: waitClosedR}, nil
 	}
 	defer s.unregisterWaiter(ch)
 
 	fp, view, err := s.waitFingerprint()
 	if err != nil {
-		writeBusy(w, err)
-		return
+		return waitReply{}, err
 	}
 	// THE ENDING IS A FACT, NOT AN EVENT, so it is answered whether or not the
 	// caller has a cursor and whether or not the fingerprint moved. A review
@@ -3483,8 +3518,7 @@ func (s *EditServer) handleWait(w http.ResponseWriter, r *http.Request) {
 		// exists to remove — and falls through to the ordinary paths below.
 		if reason, ended := endingReason(st.Verdict); ended {
 			s.unregisterWaiter(ch)
-			writeJSON(w, waitReply{Reason: reason, Fingerprint: fp, Pending: &view})
-			return
+			return waitReply{Reason: reason, Fingerprint: fp, Pending: &view}, nil
 		}
 	}
 	// The catch-up. The caller's cursor is behind, so what it is waiting for
@@ -3499,8 +3533,7 @@ func (s *EditServer) handleWait(w http.ResponseWriter, r *http.Request) {
 	// it. The one exception is the ending, and it is answered above.
 	if since != "" && since != fp {
 		s.unregisterWaiter(ch)
-		writeJSON(w, waitReply{Reason: waitChanged, Fingerprint: fp, Pending: &view})
-		return
+		return waitReply{Reason: waitChanged, Fingerprint: fp, Pending: &view}, nil
 	}
 
 	timer := time.NewTimer(poll)
@@ -3538,8 +3571,7 @@ func (s *EditServer) handleWait(w http.ResponseWriter, r *http.Request) {
 		// that is never coming back would make an honest refusal a slow one.
 		s.releasedWaiter(ch, ev.reason != waitClosedR)
 		if ev.reason == waitClosedR {
-			writeJSON(w, waitReply{Reason: waitClosedR, Fingerprint: fp})
-			return
+			return waitReply{Reason: waitClosedR, Fingerprint: fp}, nil
 		}
 		// Revise carries the immutable round captured before its pending marks
 		// were cleared. Other wakes still report the latest visible state.
@@ -3548,24 +3580,22 @@ func (s *EditServer) handleWait(w http.ResponseWriter, r *http.Request) {
 		} else {
 			fp, view, err = s.waitFingerprint()
 			if err != nil {
-				writeBusy(w, err)
-				return
+				return waitReply{}, err
 			}
 		}
-		writeJSON(w, waitReply{Reason: ev.reason, Fingerprint: fp, Pending: &view, Report: ev.report})
+		return waitReply{Reason: ev.reason, Fingerprint: fp, Pending: &view, Report: ev.report}, nil
 	case <-timer.C:
 		s.unregisterWaiter(ch)
 		fp, view, err := s.waitFingerprint()
 		if err != nil {
-			writeBusy(w, err)
-			return
+			return waitReply{}, err
 		}
 		// The CURRENT fingerprint, never the one the caller sent. An expiry is
 		// how a wait with no deadline renews its cursor, and handing back a
 		// stale one would make the next poll catch up on a change this one
 		// already declined — the agent's own write, most often.
-		writeJSON(w, waitReply{Reason: waitTimeout, Fingerprint: fp, Pending: &view})
-	case <-r.Context().Done():
-		// The caller went away. Nothing to write to.
+		return waitReply{Reason: waitTimeout, Fingerprint: fp, Pending: &view}, nil
+	case <-ctx.Done():
+		return waitReply{}, ctx.Err()
 	}
 }

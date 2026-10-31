@@ -30,11 +30,11 @@
 // THE PAUSES BETWEEN THE TYPED WORDS ARE LOAD-BEARING. Yjs coalesces edits that
 // arrive close together into ONE undo step, so typing three words with no gap
 // is one level and the control could not tell one level from three.
+import { served } from './gateserve.mjs';
 import { spawn } from 'node:child_process';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import net from 'node:net';
 import {
   check,
   cleanup,
@@ -54,7 +54,6 @@ const UNDO = 'ControlOrMeta+z';
 const REDO = 'ControlOrMeta+Shift+z';
 
 const GALLEY = process.env.GALLEY || 'bin/galley';
-const PORT = 8291;
 const dir = mkdtempSync(join(tmpdir(), 'galley-undo-'));
 const doc = join(dir, 'undo-probe.md');
 writeFileSync(
@@ -62,42 +61,12 @@ writeFileSync(
   '# Undo\n\nAlpha one here.\n\nBeta two here.\n\nGamma three here.\n',
 );
 
-// `stdio: 'ignore'` rather than the gates' drain-and-keep-the-tail. This probe
-// prints its own measurement and has no assertion whose failure would send a
-// reader to the server log — and it is what keeps this file from being a
-// seventh copy of that boilerplate. The dupes ratchet caught the first draft
-// cloning nine lines of typing.mjs, and a bound is not raised to make a build
-// green.
-// A STALE SERVER ON THIS PORT IS REFUSED RATHER THAN TALKED TO, and this guard
-// is here because the alternative already happened. An earlier run of this file
-// crashed before its cleanup, leaving a `galley edit` listening on 8291 with
-// its own document — and every run after it bound nothing, connected to that
-// server, and measured the WRONG DOCUMENT. It presented as the CRDT scrambling
-// text during typing ("ONE TWO THREETHREE ONE"), which sent me looking at the
-// write path rather than at the port. A gate that silently measures somebody
-// else's document is worse than one that does not run.
-const inUse = await new Promise((resolve) => {
-  const probe = net.createConnection({ port: PORT, host: '127.0.0.1' });
-  probe.on('connect', () => {
-    probe.destroy();
-    resolve(true);
-  });
-  probe.on('error', () => resolve(false));
-});
-if (inUse) {
-  console.log(
-    `FAIL  port ${PORT} is already listening — a previous run's server is still up. ` +
-      `Kill that PID (lsof -nP -iTCP:${PORT} -sTCP:LISTEN) and re-run.`,
-  );
-  process.exit(1);
-}
-
 const server = spawn(
   GALLEY,
-  ['edit', doc, '--no-open', '--port', String(PORT), '--on-revise', 'true'],
-  { stdio: 'ignore' },
+  ['edit', doc, '--no-open', '--on-revise', 'true'],
+  { stdio: ['ignore', 'pipe', 'ignore'] },
 );
-await new Promise((r) => setTimeout(r, 1500));
+const { url } = await served(server);
 
 // The chromium path is hoisted rather than ternaried inside the call, and the
 // viewport is this probe's own. Both are deliberate: the gates' launch block is
@@ -109,14 +78,14 @@ const browser = await launchOrSkip({
   ...(chromePath ? { executablePath: chromePath } : {}),
 });
 // After the browser's own (added at launch): the server, then its folder, at
-// the end or on an interrupt, so no run leaves a `galley edit` on the port.
+// the end or on an interrupt, so no run leaves a `galley edit` behind.
 onCleanup(() => server.kill('SIGTERM'));
 onCleanup(() => rmSync(dir, { recursive: true, force: true }));
 const page = await browser.newPage({
   viewport: { width: 1280, height: 900 },
 });
 page.on('pageerror', (e) => console.log('[page error]', e.message));
-await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+await page.goto(url, { waitUntil: 'networkidle' });
 await page.waitForSelector('.ProseMirror', { timeout: 15000 });
 await page.waitForTimeout(1200);
 
@@ -178,7 +147,7 @@ check(
 // NOW the server-side mutation: file an instruction, the gesture a reviewer
 // makes most and the one that used to orphan the stack whole.
 const filed = await page.evaluate(async () => {
-  const r = await fetch('/_galley/instruct', {
+  const r = await fetch('_galley/instruct', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -251,12 +220,12 @@ for (const word of [' A', ' B', ' C']) {
 }
 const beforeServerWrite = await text();
 const wrote = await page.evaluate(async () => {
-  const view = await (await fetch('/_galley/pending')).json();
+  const view = await (await fetch('_galley/pending')).json();
   const change = (view.changes || []).find((c) => c.kind === 'changed');
   if (!change) {
     return { found: false, saw: (view.changes || []).map((c) => c.kind) };
   }
-  const r = await fetch('/_galley/revert', {
+  const r = await fetch('_galley/revert', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ key: change.key }),
@@ -324,8 +293,4 @@ check(
 
 await cleanup();
 
-// THE SERVER IS KILLED BEFORE THIS LINE, and the order is the point. An exit
-// that ran first would leave a `galley edit` listening — which is exactly the
-// state that made three runs of this file measure a previous run's document and
-// report the CRDT scrambling text it never touched. See the port guard above.
 if (counts().fails) process.exit(1);

@@ -104,7 +104,7 @@ func newEditPage(htmlPath, siteRoot string) (*EditServer, error) {
 	}
 	// Extract errors are already author-facing (element and line, the author's
 	// spelling) — pass them straight through.
-	ex, err := htmlpage.Extract(src)
+	ex, err := extractOutside(src)
 	if err != nil {
 		return nil, err
 	}
@@ -217,7 +217,7 @@ func (s *EditServer) pageBoundary() {
 //
 // It exists because a caller that resolves adverts (galley_open) matched on
 // the path it was GIVEN and so could never find the editor it had just
-// spawned for a page. The extension switch is routeEdit's, deliberately: the
+// spawned for a page. The extension switch is newServerFor's, deliberately: the
 // two must agree about what "an HTML page" is, and one of them has to say so.
 // Pure — it touches no disk and creates nothing.
 func AdvertisedPath(abs string) string {
@@ -539,7 +539,7 @@ func (r *pageRenderer) restructured(projected []byte, gen int) {
 		_, _ = fmt.Fprintln(pageStderr, rerr.Error())
 		return
 	}
-	ex, err := htmlpage.Extract(src)
+	ex, err := extractOutside(src)
 	if err != nil {
 		// A tear, not a restructure — the ordinary refusal, before anything is
 		// written anywhere. See reextract.
@@ -687,7 +687,7 @@ func (r *pageRenderer) reextract(projected []byte, gen int, window, structural b
 		_, _ = fmt.Fprintln(pageStderr, rerr.Error())
 		return
 	}
-	ex, err := htmlpage.Extract(src)
+	ex, err := extractOutside(src)
 	if err != nil {
 		r.cannot(err.Error())
 		return
@@ -850,7 +850,7 @@ func (r *pageRenderer) adopt(src, md []byte) {
 //
 // It reports whether the live document now holds md.
 func (r *pageRenderer) reload(md []byte) bool {
-	model, _, err := markdown.Parse(md)
+	model, err := parseOutside(md)
 	if err != nil {
 		// Extract already parsed this markdown, so this is a galley bug rather
 		// than a page problem — and it is deliberately NOT routed through cannot:

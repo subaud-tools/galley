@@ -7,9 +7,8 @@ bin/
 # those two files: nothing here may ignore them.
 web/node_modules/
 
-# The running editor's advert beside a document (`galley edit` writes
-# <doc>.serve.json and removes it on exit). It belongs to a session, not the
-# repo.
+# The advert an editor from before `galley serve` wrote beside a document. It
+# belongs to a session, not the repo.
 *.serve.json
 
 # THE HISTORY IS LOCAL INSURANCE, NOT A SHARED ARTIFACT — the spec's own

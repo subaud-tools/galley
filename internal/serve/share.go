@@ -18,11 +18,12 @@ import (
 
 // previewRefresh reloads the preview tab after each save of the document, on
 // the /_galley/saved stamp and cadence web/preview.ts uses.
-const previewRefresh = `<script>
+func previewRefresh(base string) string {
+	return `<script>
 (function () {
   var last = null;
   setInterval(function () {
-    fetch('/_galley/saved', { cache: 'no-store' })
+    fetch('` + base + `/_galley/saved', { cache: 'no-store' })
       .then(function (r) { return r.json(); })
       .then(function (v) {
         if (last !== null && v.saved > last) location.reload();
@@ -33,6 +34,7 @@ const previewRefresh = `<script>
 })();
 </script>
 `
+}
 
 // renderDoc renders the document as it stands on disk in its project's theme.
 func (s *EditServer) renderDoc() ([]byte, error) { return RenderDoc(s.MdPath) }
@@ -83,7 +85,7 @@ func (s *EditServer) handleRender(w http.ResponseWriter, r *http.Request) {
 	}
 	page := string(out)
 	if i := strings.LastIndex(page, "</body>"); i >= 0 {
-		page = page[:i] + previewRefresh + page[i:]
+		page = page[:i] + previewRefresh(s.Base) + page[i:]
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")

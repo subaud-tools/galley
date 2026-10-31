@@ -10,6 +10,8 @@ Each time you send, and each time Claude answers, a copy of the file is saved be
 
 `galley edit` also accepts HTML files: `galley edit page.html` extracts the prose into a Markdown document, the review proceeds as normal, and every projection re-renders the page.
 
+One `galley serve` per machine holds every open document behind one port and token. `galley edit` starts it if it is not running, opens the document on it, prints the address and stays until the document closes; Ctrl-C closes the document and leaves the server. `--port` reaches the server only when that command starts it. `galley pending`, `wait`, `ack`, `cannot` and `revise` find the document through the server by its path.
+
 ## Install
 
 ```sh

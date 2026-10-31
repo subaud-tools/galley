@@ -52,6 +52,7 @@
 // chromium` once, or GALLEY_CHROME=<executable>. There is a `just revise`
 // recipe, it is in `just gates`, and it is a step of its own in ci.yml.
 
+import { served } from './gateserve.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import {
   appendFileSync,
@@ -66,7 +67,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const GALLEY = process.env.GALLEY || 'bin/galley';
-const PORT = Number(process.env.PORT || 8278);
 const SESSION = 'revise-gate-session';
 
 const FIRST = 'The first paragraph is where the reviewer asks for a change.';
@@ -230,28 +230,10 @@ writeFileSync(
 process.env.GALLEY_LIVE_DIR = LIVE;
 process.env.AGENT_SESSION_ID = SESSION;
 
-// THE PORT IS THIS RUN'S, OR THE RUN DOES NOT START: the wait below is for
-// `/` answering, and another galley already on the port would answer it
-// (galley#10, #128).
-const taken = await fetch(`http://127.0.0.1:${PORT}/`).then(
-  () => true,
-  () => false,
-);
-if (taken) {
-  console.log(
-    `port ${PORT} already answers: another galley is serving there (run the gates one at a time, or set PORT)`,
-  );
-  process.exit(1);
-}
-
-const server = spawn(
-  GALLEY,
-  ['edit', DOC, '--no-open', '--port', String(PORT), '--owner', SESSION],
-  {
-    stdio: ['ignore', 'pipe', 'pipe'],
-    env: cleanEnv({ GALLEY_DEBUG: DEBUG }),
-  },
-);
+const server = spawn(GALLEY, ['edit', DOC, '--no-open', '--owner', SESSION], {
+  stdio: ['ignore', 'pipe', 'pipe'],
+  env: cleanEnv({ GALLEY_DEBUG: DEBUG }),
+});
 let serverSaid = '';
 for (const stream of [server.stdout, server.stderr]) {
   stream.on('data', (b) => {
@@ -295,14 +277,8 @@ async function until(step, ms, pred) {
   return got;
 }
 
-const base = `http://127.0.0.1:${PORT}`;
-await until('the editor to serve its page', 20000, async () => {
-  if (serverExit) {
-    throw new Error(`the editor exited: ${serverSaid.trim()}`);
-  }
-  return (await fetch(`${base}/`)).ok;
-}).catch((e) => {
-  console.log(`FAIL  ${e.message}\n${serverSaid.trim()}`);
+const { base, url } = await served(server).catch((e) => {
+  console.log(`FAIL  ${e.message}`);
   process.exit(1);
 });
 
@@ -359,7 +335,7 @@ browser = await launchOrSkip({
 });
 const page = await browser.newPage({ viewport: { width: 1400, height: 1000 } });
 page.on('pageerror', (e) => console.log(`      [page error] ${e.message}`));
-await page.goto(`${base}/`, { waitUntil: 'networkidle' });
+await page.goto(url, { waitUntil: 'networkidle' });
 await page.waitForSelector('.ProseMirror', { timeout: 15000 });
 await page.waitForSelector('#gly-revise', { timeout: 15000 });
 

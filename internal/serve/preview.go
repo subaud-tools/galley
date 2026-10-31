@@ -115,8 +115,8 @@ func (s *EditServer) servePreview(w http.ResponseWriter, r *http.Request) {
 	// that loads the preview, so the reviewer's view is unaffected.
 	w.Header().Set("Cross-Origin-Resource-Policy", "same-origin")
 	// An SVG can carry <script>, and navigated to directly it would run in
-	// galley's origin — reaching the unauthenticated mutating endpoints on
-	// 127.0.0.1. The sandbox loads it into an opaque origin instead. SVG ONLY:
+	// galley's origin — reaching the mutating endpoints with the browser's
+	// cookie. The sandbox loads it into an opaque origin instead. SVG ONLY:
 	// on .html this would break the page's own scripts inside the iframe.
 	if ctype == "image/svg+xml" {
 		w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")

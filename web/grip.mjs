@@ -38,27 +38,18 @@
 // chromium` once, or GALLEY_CHROME=<executable>. It is in `just gates`, and a
 // step of its own in ci.yml.
 
+import { served } from './gateserve.mjs';
 import { spawn } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import {
-  check as kitCheck,
-  counts,
-  launchOrSkip,
-  until as poll,
-} from './build/probe.mjs';
+import { check as kitCheck, counts, launchOrSkip } from './build/probe.mjs';
 // The kinds that take a grip, read from the app's own list rather than copied:
 // a copy here would go on certifying the old set the day a kind is added.
 import { GRIP_KINDS } from './grips.ts';
 import { TABLE_HINT, TABLE_INSIDE } from './suggestions.ts';
 
 const GALLEY = process.env.GALLEY || 'bin/galley';
-// 8272, and 8273 is held for a second server: a claim about the file is a
-// claim about REOPENING it, and a second server on the same port a second
-// later talks to a socket the kernel has not finished releasing
-// (codeblock.mjs's reason for its two).
-const PORT = Number(process.env.PORT || 8272);
 
 const FIXTURE = `---
 title: The block grip
@@ -177,25 +168,11 @@ process.on('exit', () => {
 // last words are kept and printed only if it dies on its own. `stopped` is
 // the server's exit, so a claim about the FILE can wait for the last save.
 let stopped = null;
-async function serve(port) {
-  // THE PORT IS THIS RUN'S, OR THE RUN DOES NOT START. The answer below is
-  // `/` answering, and a `galley edit` that could not bind exits while another
-  // one goes on answering: another gate, or the last run's server still
-  // stopping. The run then drives that server's document and reports its
-  // state as this one's (galley#72, measured with two runs on one port).
-  const taken = await fetch(`http://127.0.0.1:${port}/`).then(
-    () => true,
-    () => false,
-  );
-  if (taken) {
-    throw new Error(
-      `port ${port} already answers: another galley is serving there (run the gates one at a time, or set PORT)`,
-    );
-  }
+async function serve() {
   const proc = spawn(
     GALLEY,
-    ['edit', doc, '--no-open', '--port', String(port), '--on-revise', 'true'],
-    { stdio: ['ignore', 'ignore', 'pipe'] },
+    ['edit', doc, '--no-open', '--on-revise', 'true'],
+    { stdio: ['ignore', 'pipe', 'pipe'] },
   );
   children.add(() => proc.kill('SIGTERM'));
   stopped = () =>
@@ -206,14 +183,12 @@ async function serve(port) {
   let tail = '';
   proc.stderr.on('data', (b) => (tail = (tail + b).slice(-4000)));
   proc.on('exit', (code, signal) => {
-    if (code && signal !== 'SIGTERM') console.log(`      [${port}] ${tail}`);
+    if (code && signal !== 'SIGTERM') console.log(`      [server] ${tail}`);
   });
-  const base = `http://127.0.0.1:${port}`;
-  if (await poll(async () => (await fetch(`${base}/`)).ok, 20000)) return base;
-  throw new Error(`galley edit on ${port} never answered`);
+  return served(proc);
 }
 
-const base = await serve(PORT);
+const { base, url } = await serve();
 const pending = async () => (await fetch(`${base}/_galley/pending`)).json();
 
 const executablePath = process.env.GALLEY_CHROME || undefined;
@@ -227,7 +202,7 @@ const page = await browser.newPage({
   viewport: { width: 1440, height: 1000 },
 });
 page.on('pageerror', (e) => console.log(`      [page] ${e.message}`));
-await page.goto(base, { waitUntil: 'networkidle' });
+await page.goto(url, { waitUntil: 'networkidle' });
 await page.locator('.ProseMirror table').first().waitFor({ timeout: 15000 });
 await page.waitForTimeout(1200);
 // blockDom is the element ProseMirror drew for the top-level block at
@@ -1659,7 +1634,7 @@ const focused = () =>
   }));
   await page.evaluate(
     (key) =>
-      fetch('/_galley/instruct', {
+      fetch('_galley/instruct', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -2099,8 +2074,8 @@ await browser.close();
 // A second server on the same file, on the held port: the instruction and its
 // card come back from the file, which is what was saved and nothing else.
 {
-  const again = await serve(PORT + 1);
-  const list = (await (await fetch(`${again}/_galley/pending`)).json())
+  const again = await serve();
+  const list = (await (await fetch(`${again.base}/_galley/pending`)).json())
     .instructions;
   const back = (list || []).find((i) => i.key === tableFiled);
   check(
@@ -2117,7 +2092,7 @@ await browser.close();
   const view = await reopened.newPage({
     viewport: { width: 1440, height: 1000 },
   });
-  await view.goto(again, { waitUntil: 'networkidle' });
+  await view.goto(again.url, { waitUntil: 'networkidle' });
   const card = await view
     .waitForSelector(`.gly-rail-band .gly-thread[data-key="${tableFiled}"]`, {
       timeout: tableFiled ? 15000 : 1,
@@ -2216,11 +2191,11 @@ await browser.close();
     { before: before.all.length, history, after: after.all.length },
   );
 
-  const sent = await post('/_galley/revise', {});
+  const sent = await post('_galley/revise', {});
   const held = await until('handoff');
   await view.waitForTimeout(500);
   const holding = await grips();
-  const cancelled = await post('/_galley/handoff/cancel', {});
+  const cancelled = await post('_galley/handoff/cancel', {});
   await view
     .waitForFunction(() => !window.galleyEdit.app.handoff, null, {
       timeout: 10000,
@@ -2240,7 +2215,7 @@ await browser.close();
     },
   );
 
-  const approved = await post('/_galley/revise', { verdict: 'approve' });
+  const approved = await post('_galley/revise', { verdict: 'approve' });
   const sealed = await until('sealed');
   await view.waitForTimeout(500);
   const closed = await grips();

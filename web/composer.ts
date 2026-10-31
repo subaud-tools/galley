@@ -22,7 +22,7 @@
 // here with their one caller. sectionSpan lives in web/figures.ts with the
 // block grip, which opens a section's composer.
 
-import { postJSON } from './net.ts';
+import { postJSON, routes } from './net.ts';
 import { growOnInput, elide, AUTHOR } from './rail.ts';
 import { submitOnEnter } from './kit/enter.js';
 import { literalHit } from './suggestions.ts';
@@ -915,7 +915,7 @@ export const composerMethods = {
         body.toPath = c.range.toPath;
       }
     }
-    postJSON('/_galley/instruct', body)
+    postJSON(routes.instruct, body)
       .then((res) => {
         if (res.ok) {
           this.hideComposer();
@@ -970,7 +970,7 @@ export const composerMethods = {
     if (c.block.region) {
       body.region = c.block.region;
     }
-    postJSON('/_galley/instruct', body)
+    postJSON(routes.instruct, body)
       .then((res) => {
         if (res.ok) {
           this.hideComposer();

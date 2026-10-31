@@ -40,7 +40,7 @@ func waitGet(baseURL, since string, timeout time.Duration) (waitReply, int, erro
 	}
 	// No client timeout: the SERVER bounds the poll, and a client that gave up
 	// first would report "the server never answered" for a working endpoint.
-	resp, err := http.Get(baseURL + "/_galley/wait?" + q.Encode())
+	resp, err := serverClient.Get(baseURL + "/_galley/wait?" + q.Encode())
 	if err != nil {
 		return waitReply{}, 0, err
 	}
@@ -141,7 +141,7 @@ func armed(t *testing.T, baseURL string) string {
 func instructAs(t *testing.T, baseURL, target, instruction string) {
 	t.Helper()
 	body := fmt.Sprintf(`{"op":"comment","target":%q,"text":%q,"author":"court"}`, target, instruction)
-	resp, err := http.Post(baseURL+"/_galley/instruct", "application/json", strings.NewReader(body))
+	resp, err := serverClient.Post(baseURL+"/_galley/instruct", "application/json", strings.NewReader(body))
 	if err != nil {
 		t.Fatalf("instruct: %v", err)
 	}
@@ -310,7 +310,7 @@ func TestWaitReportsAnApprove(t *testing.T) {
 		done <- waitOutcome{reply: reply, code: code, err: err}
 	}()
 	waitUntilWaiting(t, srv) // the file's existing helper that polls Waiting() > 0; write it if absent
-	resp, err := http.Post(ts.URL+"/_galley/revise", "application/json", strings.NewReader(`{"verdict":"approve"}`))
+	resp, err := serverClient.Post(ts.URL+"/_galley/revise", "application/json", strings.NewReader(`{"verdict":"approve"}`))
 	if err != nil {
 		t.Fatal(err)
 	}

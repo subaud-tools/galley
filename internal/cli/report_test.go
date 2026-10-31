@@ -2,134 +2,64 @@ package cli
 
 import (
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
-	"os"
 	"testing"
 	"time"
 
-	"github.com/subaud-tools/tools-common/pageserve"
+	"github.com/subaud-tools/galley/internal/serve"
+	"github.com/subaud-tools/tools-common/channelmcp"
 )
 
-// recordingEditor is an advertised editor that records each report posted to
-// it, owned by owner.
-func recordingEditor(t *testing.T, dir, name, owner string) chan map[string]string {
-	t.Helper()
-	got := make(chan map[string]string, 8)
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/_galley/report" || r.Method != http.MethodPost {
-			http.NotFound(w, r)
-			return
-		}
-		var b map[string]string
-		_ = json.NewDecoder(r.Body).Decode(&b)
-		got <- b
-		w.WriteHeader(http.StatusNoContent)
-	}))
-	t.Cleanup(ts.Close)
-	doc := writeDoc(t, dir, name, "# T\n")
-	room := "room" + name[:1] + "0123456789abcdef0123456789abcdef"
-	if err := live().Write(pageserve.Entry{URL: ts.URL, Room: room, Page: doc, PID: os.Getpid(), Owner: owner}); err != nil {
-		t.Fatal(err)
-	}
-	return got
-}
-
-// `galley report`, which the Claude Code plugin runs, posts the report to
-// every editor the session owns, and to no other.
-func TestReportReachesOnlyTheSessionsEditors(t *testing.T) {
-	t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
-	t.Setenv("CLAUDE_CODE_SESSION_ID", "sess-a")
-	t.Setenv("AGENT_SESSION_ID", "")
-	t.Setenv("AGENT_SESSION_CHILD", "")
-	dir := t.TempDir()
-	mine := recordingEditor(t, dir, "a.md", "sess-a")
-	theirs := recordingEditor(t, dir, "b.md", "sess-b")
-
-	for _, c := range []struct {
-		args         []string
-		event, token string
+// A report reaches the document the wake came from, from the CLI the Claude Code
+// plugin runs and from pi's report notification alike: the page shows where the
+// Revise stands. That only the session's documents hear it is the server's: see
+// TestAgentReportReachesOnlyTheSessionsDocuments.
+func TestReportsReachTheSessionsDocuments(t *testing.T) {
+	cases := []struct {
+		name string
+		send func(t *testing.T, r *chanRig, token string)
 	}{
-		{[]string{"landed", "0123456789abcdef"}, "landed", "0123456789abcdef"},
-		{[]string{"held", "0123456789abcdef"}, "held", "0123456789abcdef"},
-		{[]string{"turn-ended"}, "turn_ended", ""},
-	} {
-		if out, errw, code := galleyCLI(t, append([]string{"report"}, c.args...)...); code != 0 {
-			t.Fatalf("report %v: exit %d: %s %s", c.args, code, out, errw)
-		}
-		select {
-		case b := <-mine:
-			if b["event"] != c.event || b["token"] != c.token {
-				t.Fatalf("report %v posted %v", c.args, b)
+		{"galley report", func(t *testing.T, _ *chanRig, token string) {
+			t.Setenv("CLAUDE_CODE_SESSION_ID", "session-me")
+			t.Setenv("AGENT_SESSION_ID", "")
+			t.Setenv("AGENT_SESSION_CHILD", "")
+			if out, errw, code := galleyCLI(t, "report", "landed", token); code != 0 {
+				t.Fatalf("report: exit %d: %s %s", code, out, errw)
 			}
-		default:
-			t.Fatalf("report %v did not reach the session's editor", c.args)
-		}
-		select {
-		case b := <-theirs:
-			t.Fatalf("report %v reached another session's editor: %v", c.args, b)
-		default:
-		}
+		}},
+		{"pi's notification", func(t *testing.T, r *chanRig, token string) {
+			r.send(`{"jsonrpc":"2.0","method":"notifications/channels/report","params":{"event":"landed","report":"` + token + `"}}`)
+		}},
 	}
-}
-
-// Under pi, channels.tools sends the channel a report notification; the
-// channel posts each to the session's editors in the order sent, and an
-// editor slow to answer never holds up a tool call.
-func TestTheChannelPostsReportsInOrderOffTheReadLoop(t *testing.T) {
-	t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
-	dir := t.TempDir()
-	release := make(chan struct{})
-	got := make(chan map[string]string, 4)
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/_galley/report" {
-			// The channel attaches to the editor it owns; hold its poll.
-			select {
-			case <-r.Context().Done():
-			case <-release:
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			startServer(t)
+			dir := t.TempDir()
+			doc := writeDoc(t, dir, "doc.md", "# T\n\nHello.\n")
+			r := newRig(t, "session-me", dir)
+			base := baseOf(r.open(doc).URL)
+			press(t, base)
+			token, _ := r.note("the press")[channelmcp.MetaReport].(string)
+			tc.send(t, r, token)
+			deadline := time.Now().Add(5 * time.Second)
+			for {
+				var st serve.ReviseStateView
+				resp, err := serverClient.Get(base + "/_galley/revise")
+				if err != nil {
+					t.Fatal(err)
+				}
+				err = json.NewDecoder(resp.Body).Decode(&st)
+				_ = resp.Body.Close()
+				if err != nil {
+					t.Fatal(err)
+				}
+				if st.Message != nil && string(st.Message.State) == "with_agent" {
+					return
+				}
+				if time.Now().After(deadline) {
+					t.Fatalf("the message is %+v", st.Message)
+				}
+				time.Sleep(10 * time.Millisecond)
 			}
-			return
-		}
-		var b map[string]string
-		_ = json.NewDecoder(r.Body).Decode(&b)
-		<-release // a slow editor
-		got <- b
-		w.WriteHeader(http.StatusNoContent)
-	}))
-	t.Cleanup(ts.Close)
-	t.Cleanup(func() {
-		select {
-		case <-release:
-		default:
-			close(release)
-		}
-	})
-	doc := writeDoc(t, dir, "a.md", "# T\n")
-	if err := live().Write(pageserve.Entry{URL: ts.URL, Room: "room-a0123456789abcdef", Page: doc, PID: os.Getpid(), Owner: "sess-a"}); err != nil {
-		t.Fatal(err)
-	}
-
-	r := newRig(t, dir, "sess-a", time.Hour)
-	r.send(`{"jsonrpc":"2.0","method":"notifications/channels/report","params":{"event":"landed","report":"0123456789abcdef"}}`)
-	r.send(`{"jsonrpc":"2.0","method":"notifications/channels/report","params":{"event":"turn_ended"}}`)
-	r.send(`{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"galley_channel_status","arguments":{}}}`)
-	select {
-	case <-r.reply:
-	case <-time.After(2 * time.Second):
-		t.Fatal("a tool call waited on the editor's report answer")
-	}
-	close(release)
-	for i, w := range []map[string]string{
-		{"event": "landed", "token": "0123456789abcdef"},
-		{"event": "turn_ended", "token": ""},
-	} {
-		select {
-		case b := <-got:
-			if b["event"] != w["event"] || b["token"] != w["token"] {
-				t.Fatalf("report %d posted %v, want %v", i+1, b, w)
-			}
-		case <-time.After(5 * time.Second):
-			t.Fatalf("report %d never reached the editor", i+1)
-		}
+		})
 	}
 }

@@ -99,6 +99,7 @@
 // any more — the justfile keeps a target for `rounds-ux` alone — so it is
 // spelled out here rather than pointed at a recipe that is not there.
 
+import { served } from './gateserve.mjs';
 import { spawn } from 'node:child_process';
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -108,15 +109,9 @@ import { join } from 'node:path';
 // The point of exporting them is that the UI cannot drift into its own wording,
 // and a gate that retyped them here would be the drift it is guarding against.
 import { CODE_INSIDE, CODE_HINT, FRONT_MATTER_INSIDE } from './suggestions.ts';
-import {
-  check as kitCheck,
-  counts,
-  launchOrSkip,
-  until as poll,
-} from './build/probe.mjs';
+import { check as kitCheck, counts, launchOrSkip } from './build/probe.mjs';
 
 const GALLEY = process.env.GALLEY || 'bin/galley';
-const PORT = Number(process.env.PORT || 8253);
 
 // The scaffolding's check, with the detail written as JSON as this gate always
 // has: most details here are objects.
@@ -357,7 +352,7 @@ const AS_WRITTEN = readFileSync(DOC, 'utf8');
 // check here makes.
 const server = spawn(
   GALLEY,
-  ['edit', DOC, '--no-open', '--port', String(PORT), '--on-revise', 'true'],
+  ['edit', DOC, '--no-open', '--on-revise', 'true'],
   {
     stdio: ['ignore', 'pipe', 'pipe'],
   },
@@ -377,7 +372,8 @@ for (const stream of [server.stdout, server.stderr]) {
   });
 }
 server.on('exit', (code, signal) => {
-  if (signal === 'SIGTERM') {
+  // A SIGTERM ends `galley edit` gracefully, with code 0: this gate's own shutdown.
+  if (signal === 'SIGTERM' || code === 0) {
     return;
   }
   console.log(
@@ -399,9 +395,7 @@ process.on('exit', () => {
   }
 });
 
-const base = `http://127.0.0.1:${PORT}`;
-if (!(await poll(async () => (await fetch(`${base}/`)).ok, 20000)))
-  throw new Error('server never came up');
+const { base, url } = await served(server);
 
 // The bytes with the SERVER up and no browser attached, read before chromium
 // launches. §0 needs the two halves apart: `galley edit` parses the file and
@@ -417,7 +411,7 @@ const browser = await launchOrSkip({
 });
 const page = await browser.newPage({ viewport: { width: 1400, height: 1000 } });
 page.on('pageerror', (e) => console.log(`      [page error] ${e.message}`));
-await page.goto(`${base}/`, { waitUntil: 'networkidle' });
+await page.goto(url, { waitUntil: 'networkidle' });
 await page.waitForSelector('.ProseMirror', { timeout: 15000 });
 await page.waitForTimeout(1000);
 
