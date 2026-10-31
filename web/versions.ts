@@ -43,7 +43,6 @@
 // header for what the second spelling of each of them cost. `stackCards` is the
 // same arithmetic `paintAnchors` uses; the card anatomy and the reveal are the
 // same ones a thread card wears.
-import { RAIL_MIN_WIDTH } from './rail.ts';
 import {
   cardShell,
   cardBody,
@@ -65,6 +64,10 @@ import {
 // its own words; describing it twice is how the two copies come to disagree.
 import type { RoundView, ChangeView, DiffView, VersionsView } from './wire';
 import { apiUrl, routes } from './net.ts';
+
+// Below this History's rail sits under the paper, not beside it. Pixels: the
+// stylesheet's media query is the same number in the same unit.
+const RAIL_MIN_WIDTH = 992;
 
 // An ARRIVAL is NOT a round, and this interface is the place that says so. It
 // is assembled in the browser from `GET /_galley/revise` — which carries the

@@ -204,6 +204,7 @@
   color: var(--gly-fg);
 }
 .ProseMirror { outline: none; }
+.ProseMirror > :first-child { margin-top: 0; }
 .gly-versions-paper { min-width: 0; }
 .ProseMirror > * + *,
 .gly-versions-paper > * + * { margin-top: 0.9em; }
@@ -722,48 +723,6 @@
   box-shadow: var(--gly-lift);
   font: 13px/1.5 var(--gly-sans);
 }
-/* The head's type is the CHROME VOICE and is declared once, further down — see
-   `.gly-card-head`, which four selectors now share. This one differs by a
-   single font-size and says so there. */
-/* THE BUBBLE CARRYING A CONVERSATION.
-
-   No second surface and no second elevation: the bubble is still the floating
-   thing and still carries the one shadow declared above, and the card inside it
-   is the same card the rail, the panel, the settled list and the sheet draw —
-   the same composition the whole-document panel already uses, where a floating
-   surface on the page's own paper holds full cards on card stock.
-
-   What is different is only the two things a conversation makes true and three
-   lines of verbs did not. A thread is UNBOUNDED — ten replies would run off the
-   window and take resolve and delete with them — so it is capped to the room
-   its mark leaves and WHAT DOES NOT FIT SCROLLS. The cap itself is not declared
-   here: it is a fact about the mark's own rect, so SuggestionUI.show writes it
-   and this is the column that gives under it. And it neither draws nor lights
-   anything, for the reason a sheet card does not: the light exists to say which
-   words a card in the RAIL is about, and this card is ON its words.
-
-   ONLY THE ENTRIES GIVE. Capping means something is below the fold, and what
-   was below the fold was the actions row — a conversation a reviewer could
-   read the top of and settle from nowhere. So the head, the reply box and both
-   verbs are `flex: none` and the entries carry the whole cap, which is the
-   same shape .gly-overall-inner already uses for the same reason. The entries
-   are gathered into .gly-bubble-said by App.bubbleThreadCard, because a flex
-   child is the only thing that can be the one that scrolls. */
-.gly-bubble-thread { display: flex; flex-direction: column; overflow: hidden; }
-.gly-bubble-card {
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  /* A HAND ONLY WHERE THE HAND DOES SOMETHING — the same rule
-     `.gly-card.gly-adrift` already keeps. This card's jump-to-mark click is
-     stopped (see SuggestionUI's constructor: you are already at the mark), so
-     the pointer would be promising a verb that is not there. */
-  cursor: default;
-}
-.gly-bubble-card > .gly-card-head,
-.gly-bubble-card > .gly-card-actions,
-.gly-bubble-card > .gly-card-note { flex: none; }
-.gly-bubble-said { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 .gly-bubble-note { margin-top: 0.35rem; opacity: 0.8; }
 .gly-bubble button,
 .gly-card button,
@@ -838,17 +797,8 @@
 .gly-bubble button[disabled],
 .gly-card button[disabled],
 .gly-composer button[disabled],
-.gly-card button.gly-thread-delete[disabled],
-.gly-overall-input[disabled],
 /* AND THE INSTRUCTION EDIT BOX, which joined SEALED_VERBS and did not join
-   this list. Measured by web/layers.mjs §8, which reads the constant whole and
-   compares each selector's paint live against sealed: `.gly-thread-edit-text`
-   came back byte-identical on both — `1 | rgb(26, 29, 39) | rgba(0, 0, 0, 0) |
-   rgb(227, 229, 236) | none` — a box the seal had correctly DISABLED and that
-   went on inviting the reviewer to type into it. The comment above this rule
-   already says why the pair travels together; this is that comment's own
-   prediction arriving. */
-.gly-thread-edit-text[disabled],
+   this list. Measured by web/layers.mjs §8,
 .gly-composer-text[disabled] {
   cursor: default;
   opacity: 0.55;
@@ -861,34 +811,6 @@
    `just layers` now asserts that no bubble carries a decide verb at all. The
    `:hover:not([disabled])` SHAPE they were the worked example of is unchanged
    and is still how every live verb in this file spells its hover. */
-
-/* --- the notes rail ---
-
-   THE RAIL IS AS TALL AS THE DOCUMENT AND SCROLLS WITH IT. It was `position:
-   fixed` — a viewport-locked column holding unbounded content — and five
-   mechanisms existed to manage the overflow that guarantees: `overflow: hidden`
-   on the band, two fold clusters, a cap with a "+N more" line, and two lists
-   floating upward over the map. Court, from use: "i can't scroll to see the
-   response to every? there are also lines to the left of the rail. why??
-   settled still overrides the rest of the threads. changed then overrides that.
-   this is a very confusing UX." All five are deleted; the card is beside its
-   text by the document's own scroll instead. See
-   docs/superpowers/specs/2026-08-16-the-rail-scrolls.md.
-
-   A card's top is what coordsAtPos measured for its mark PLUS window.scrollY,
-   less the band's own document top: the cards are absolutely positioned INSIDE
-   the band, so their coordinates are band-local, and paintAnchors converts. The
-   offset is added exactly once, in that one function.
-
-   The document column reserves the rail's width rather than running underneath
-   it: `.kit-card-body > main` is centred in the WHOLE viewport, so without the
-   reservation the prose runs under the rail and any mark under there is
-   unclickable. That reservation is UNCHANGED by the rail leaving `fixed`, and
-   it is what keeps the two columns apart at every width the rail renders at:
-   `main` is at most `620 + 320 + 40` wide and centred, so its text ends at
-   `W/2 + 130`, while the rail's left edge is at `W - 320` — clear of each other
-   for every `W` above 900, and the rail is gone below 992. The max-width is
-   grown by exactly the padding because the shell sets `box-sizing: border-box`. */
 
 /* The three numbers the column is made of, spelled ONCE. The whole-document
    panel is set on the same column as the prose (see .gly-overall-inner), and
@@ -989,24 +911,14 @@
   --gly-rail-top: calc(var(--gly-sub-h) + var(--gly-page-pad));
 }
 
-/* THE PROSE STARTS WHERE THE RAIL DOES, IN BOTH MODES. The shell's `main`
-   declares `padding: 32px 20px 40vh`; this overrides the top of it only, and
-   wins on specificity (0,0,2 against the inline block's 0,0,1) rather than on
-   source order. Both columns then hang off one number — see --gly-rail-top. */
+/* The prose has the card to itself: centred at its measure, with room for the
+   grips on its left. History's rail keeps --gly-rail-top; the draft has no row
+   above its title to reserve. */
 .kit-card-body > main {
-  padding-top: var(--gly-rail-top);
+  padding-top: var(--gly-page-pad);
+  max-width: var(--gly-col-wide);
+  padding-right: var(--gly-gutter);
 }
-
-@media (min-width: 992px) {
-  .kit-card-body > main {
-    max-width: calc(var(--gly-col) + var(--gly-rail-w) + var(--gly-gutter) * 2);
-    padding-right: calc(var(--gly-rail-w) + var(--gly-gutter) * 2);
-  }
-}
-/* Collapsed: the rail is gone and the document recentres wider. Not inside the
-   media query — below RAIL_MIN_WIDTH `railSurfaces` forces this regardless of
-   viewport width, because there is no rail there to be beside. */
-body.gly-collapsed .kit-card-body > main { max-width: var(--gly-col-wide); padding-right: var(--gly-gutter); }
 
 /* THE GRIP'S GUTTER, AT EVERY WIDTH. Each block grip hangs off the column's
    left edge into `--gly-grip-gutter`, so the text must start at least that far
@@ -1026,308 +938,14 @@ body.gly-collapsed .kit-card-body > main { max-width: var(--gly-col-wide); paddi
    it against its own container. Page mode is not here: its column is a pane,
    and the pane keeps the gutter (see `body.gly-page.gly-view-both #editor`). */
 :root {
-  --gly-grip-inset: clamp(
-    var(--gly-gutter),
-    calc(
-      var(--gly-grip-gutter) -
-        (100% - (var(--gly-col) + var(--gly-rail-w) + var(--gly-gutter) * 2)) / 2
-    ),
-    var(--gly-grip-gutter)
-  );
   --gly-grip-inset-wide: clamp(
     var(--gly-gutter),
     calc(var(--gly-grip-gutter) - (100% - var(--gly-col-wide)) / 2),
     var(--gly-grip-gutter)
   );
 }
-@media (min-width: 992px) {
-  body:not(.gly-page) .kit-card-body > main { padding-left: var(--gly-grip-inset); }
-}
-body.gly-collapsed:not(.gly-page) .kit-card-body > main {
+body:not(.gly-page) .kit-card-body > main {
   padding-left: var(--gly-grip-inset-wide);
-}
-
-/* THE RAIL STILL ASKS WHERE THE BAR ENDS — BEING ABSOLUTE IS EXACTLY WHY.
-
-   `top` was `var(--gly-bar-h)` under the fixed rail, and before that the
-   constant `3.4rem`. The constant was a guess that a folded bar (91.4px against
-   3.4rem's 54.4px) made wrong, and a `fixed` rail at `z-index: 20` over a bar
-   at 10 then painted straight over the bar's second row: measured at 1000px,
-   `#gly-revise` at `{x: 834.4, y: 49.2, right: 980}`, wholly inside the window,
-   `elementFromPoint` at its centre returning `.gly-rail-band`, and a real click
-   timing out. On screen and unpressable, which is worse than off screen.
-
-   THE REGROUP DELETED THE MEASUREMENT AND THAT WAS THE ONE ERROR IN IT. The
-   argument was: the bar is `position: sticky`, which is IN FLOW, so the bar's
-   height is already the first thing in the page and a rail at the page's top
-   begins below it without being told anything. TRUE OF A FLOW SIBLING AND FALSE
-   OF THIS ELEMENT — `position: absolute` takes the rail OUT of flow, so its
-   containing block is the initial one and `top: 0` is document y 0, which is
-   precisely where the opaque bar sits at `scrollY 0`. At `z-index: 5` the rail
-   is UNDER it, so everything the anchor pass did not place by hand landed
-   behind the bar: on a settled document the notice, the settled head and the
-   changed head all stack from y 0 (measured: bar bottom 52.2, the notice 0 →
-   68.3, `elementFromPoint` at its top returning `.gly-bar`), which is Court's
-   own report restated — *"settled still overrides the rest of the threads.
-   changed then overrides that."* An ANCHORED card was never wrong, because
-   `paintAnchors` writes its top from a mark that is itself below the bar; that
-   is why every check on this rail passed over the defect.
-
-   So the offset is back, and it is MEASURED (`--gly-bar-h`, published by
-   App.watchBar) rather than guessed, for the reason the fold taught: `3.4rem`
-   is the fallback for the frame before the first measurement and nothing else.
-   NO SECOND CORRECTION IS NEEDED ANYWHERE — `paintAnchors` reads the band's own
-   top through `getBoundingClientRect` on every pass, so a card's `top` is
-   written band-local against whatever this offset is and its document position
-   is unchanged.
-
-   And the STACKING ORDER is still inverted on purpose. A document-tall rail
-   scrolls PAST the sticky bar, so its cards cross the bar on every scroll; at
-   `z-index: 20` they would be drawn over it, which is the same covered-control
-   defect arriving through the opposite door. The rail goes UNDER the bar (5
-   against the bar's 10) and a card crossing it is occluded exactly as the prose
-   beneath the bar is. Occluded WHILE SCROLLING is the intended reading, and it
-   is a different claim from what this offset fixes: a box the reviewer can
-   scroll back to is reachable, a box at the top of the page under a bar that is
-   also at the top of the page is not reachable at any scroll position. */
-.gly-rail {
-  /* ABSOLUTE, NOT FIXED, AND ITS HEIGHT IS ITS CONTENT'S. Absolute puts it in
-     the PAGE's coordinate space — right: 0 is still the right edge of the
-     window, and `top` is measured from the top of the DOCUMENT — so it scrolls
-     with the prose it is a map of. Height is left to the content, which is the
-     band (as tall as the cards in it, written by paintAnchors) plus the three
-     sections after it: the rail therefore ends just after the last card, and
-     the sections sit there rather than at some fixed foot. Nothing here caps or
-     clips anything; a card past the end of the page extends the page's own
-     scroll.
-
-     AND THE `top` RESTS ON ONE FACT NOTHING ELSE STATES: the bar is the FIRST
-     IN-FLOW BOX, at document y 0, under `body { margin: 0 }` (edit.html's
-     `<header class="gly-bar">` is body's first child). Two separate things are
-     true only because of that. At `scrollY 0` the rail's first box lands
-     exactly on the bar's foot rather than under it — the defect this offset
-     fixes. And when the bar FOLDS, the prose moves down by the fold's height
-     and the rail's top moves down by the SAME height, so a card still holding
-     a band-local top from the last paint stays beside its mark even though
-     `watchBar`'s republication schedules no `paintAnchors`. Insert anything
-     above the bar and both go wrong by that thing's height, silently, and no
-     gate reads it — every check here measures the rail against `--gly-bar-h`,
-     which would move with it. */
-  position: absolute;
-  /* The bar's MEASURED height, plus the reserved sub-bar row — one number with
-     History's, see --gly-rail-top. */
-  top: calc(var(--gly-bar-h, 3.4rem) + var(--gly-rail-top));
-  right: 0;
-  width: var(--gly-rail-w);
-  padding: 0 var(--gly-rail-pad) 0 0;
-  font: var(--gly-card-font);
-  z-index: 5;
-}
-/* THE FIXED PANEL IS DELETED, AND WITH IT THE ONLY SPELLING THAT WAS NOT THE
-   RAIL'S. It was a full-bleed band hung off the bar's bottom edge, floating at
-   z-index 21 over the rail, with its own column tokens, its own elevation
-   token, its own content cap and its own scroll container — an entire second
-   surface for one instruction. The whole-document instruction is a card in the
-   instruction rail now (spec §2.2), pinned first, so everything that block
-   declared was either overridden by `.gly-overall.gly-overall-rail` a thousand
-   lines below or was painting a surface nobody opens.
-
-   A DEAD DECLARATION THAT HAPPENS TO MATCH IS WORSE THAN NO DECLARATION —
-   this file records the rule under the deleted settled card — and a whole dead
-   BLOCK is that failure at scale: every reader after this one would have had
-   to work out which of its fifteen properties the rail spelling still let
-   through. The element is still HIDDEN while there is no reason to show it,
-   and `[hidden]` is a user-agent rule any author `display` beats — so it needs
-   a real one, and it has it in the one place every surface's now lives, at the
-   foot of this file. */
-/* The panel's column, its wide-width reservation and its collapsed override are
-   deleted with the panel: the rail spelling (`.gly-overall-rail
-   .gly-overall-inner`) sets max-width, max-height, margin, padding and overflow
-   outright, so all three were declarations a reader could not tell from live
-   ones. */
-/* The column is a flex column still — that is what puts the head, the pinned
-   card, the box and the note in that order — but nothing is `flex: none` any
-   more, because there is no cap for a child to be squeezed against. */
-/* `.gly-overall-head` is declared once, three hundred lines down with the rest
-   of what is inside this card — it was declared HERE as well, one property at
-   a time, which is two rules a reader has to find both of before they know
-   what the element is. */
-/* --- ONE RAIL HEAD, ONE HEIGHT, BOTH MODES ---
-
-   THE REGION ABOVE THE CARDS IS THE ONE REGION THAT HAS TO BE STABLE, and it
-   held three unlike controls at three heights: `+ instruction on the whole
-   document` in the draft, `‹ all rounds` in a History round, `ROUNDS — NEWEST
-   FIRST` on the History landing. Court's report was that switching to History
-   moved everything in the rail, and this was the half of it the top offset did
-   not explain — the head is what the first card sits under, so its height is
-   added to every card's position in the column.
-
-   A RESERVED SLOT, which is the primitive the bar already uses for its own
-   label swaps (`.gly-reserved`, and `.gly-revise-count`'s reserve): reserve
-   the space and change what is painted in it, never the space. Switching modes swaps the label; it does not swap the
-   layout. `min-height` rather than `height` because the three labels are within
-   a couple of pixels of each other today and a fourth may not be — a slot that
-   CLIPS is a worse failure than one that grows, and the growth is visible in
-   `rounds-ux.mjs`, which requires the three to be equal.
-
-   The 12px below is the gap the first card keeps from the head, and it is the
-   card gap the stacker uses (RAIL_GAP is 10 and this is the head's own margin —
-   they are different distances and deliberately not one constant: one separates
-   two cards, this separates chrome from work). */
-.gly-rail-head {
-  display: flex;
-  align-items: center;
-  min-height: 34px;
-  margin: 0 0 12px;
-}
-
-/* The flow region after the positioned map. It carries the settled/held empty
-   state and the rare unplaced-instruction section. An instruction whose mark
-   disappeared is still live work, so its complete card remains reachable here
-   rather than behind a count that now opens a different view. */
-.gly-rail-notice {
-  padding-top: 10px;
-}
-/* The band: the positioned context every anchored card lives in.
-
-   NO `overflow`, AND THAT IS THE POINT. `overflow: hidden` was what replaced
-   dimming — a card whose mark was four screens down sat four screens down
-   inside a viewport-height band and was CLIPPED, which is the "i can't scroll
-   to see the response to every?" half of the report. Its height is written by
-   paintAnchors from the cards it holds (they are absolutely positioned, so they
-   contribute none of their own), which is what puts the three sections after it
-   genuinely after the last card. `flex: 1` and `min-height: 0` went with the
-   flex column. */
-.gly-rail-band { position: relative; }
-
-/* THE RAIL'S SETTLED AND CHANGED SECTIONS ARE GONE FROM THIS STYLESHEET.
-
-   `.gly-rail-settled` / `.gly-settled-list` held finished conversations at the
-   foot of the rail; `.gly-rail-changed` / `.gly-changed-list` / `.gly-change*`
-   drew the trail as a log beside them. The rail holds live work only now — one
-   job, *here is what needs you, beside the text it is about* — and Court's own
-   question is why both are gone rather than restyled: *"why is there a settled
-   vs changed in the first place? what's the difference?"* Two unlike things in
-   one grey costume, and if the reviewer cannot tell them apart the presentation
-   has already failed.
-
-   Settled conversations moved to the sheet first, and that region is gone as
-   well: nothing resolves an instruction any more, so there is nothing settled
-   to draw, and `.gly-settled-head`, `.gly-sheet-settled*`,
-   `.gly-card.gly-resolved`, `.gly-card.gly-settled-card` and
-   `.gly-card.gly-declined` are deleted with it.
-
-   THE LESSON THE SETTLED CARD PAID FOR OUTLIVES IT, and other rules here cite
-   it. Its 0.8 dimming was written as a bare `.gly-settled-card` (0,1,0), which
-   lost outright to `.gly-card.gly-resolved` (0,2,0), and as
-   `.gly-card.gly-settled-card` declared a thousand lines EARLIER, which tied
-   and lost on source order. It painted resolve's 0.55 both ways, with a
-   `:hover` that lost too, while the stylesheet said 0.8. A declaration that
-   loses while appearing to apply is worse than none.
-
-   The trail moved NOWHERE: it is an outgoing message to the agent, its count
-   rides the verdict button, and `.gly-change`, `.gly-change-line`,
-   `.gly-change-who` and `.gly-change-adrift` are deleted with the rows they painted. The one thing
-   `.gly-change-*` carried that nothing else did — red and green under a head
-   naming whose hand it was, the declared exemption to "red is reserved for
-   waiting on you" — needs no exemption now that no row exists, and there is no
-   replace card left to have taught the vocabulary either: `.gly-quote-del` and
-   `.gly-quote-ins` are deleted with it, and the ghost in the prose is the one
-   removal mark the product has.
-
-   See docs/superpowers/specs/2026-08-16-the-rail-holds-live-work.md. */
-
-/* THE CARDS IN THE RAIL SHARE ONE LEFT EDGE, so the column reads as one column
-   — the same work, in a different place.
-
-   `.gly-rail-band .gly-card` insets with `left: 26px` (it is absolutely
-   placed); a card in the anchorless section is in FLOW, so it takes the same
-   inset as a margin. Without it such a card renders at the block's own left
-   edge and the block's full width: measured on the layers fixture, `1280/304`
-   against every other card's `1306/278`, which is exactly the pair §9 recorded
-   as the deleted revision receipt's own geometry. A card is a card, which is
-   the whole premise.
-
-   `margin-left`, not `left`: this block is not a positioned context for its
-   children and must not become one. The 26px is GUTTER_PX — named CONNECTOR_PX
-   through two designs and renamed with the second of them — and it is RESERVED
-   on every card whatever it sits beside, because one left edge down the whole
-   rail is what the reviewer reads.
-
-   THE TWO FOLD CLUSTERS ARE GONE FROM THIS RULE BECAUSE THEY ARE GONE.
-   `.gly-rail-above` and `.gly-rail-below` held the cards whose marks were past
-   the top or bottom edge of the VIEWPORT: dimmed (`.gly-card.gly-offscreen`, at
-   0.5, with accept/reject/resolve/delete hidden AND disabled), clipped to their
-   head line (`max-height: 3.4rem`, with `.gly-drafting` opting out the card
-   being typed in), capped at FOLD_CAP with the rest `display: none`
-   (`.gly-folded-out`) and counted in a `.gly-fold-more` line. Every one of them
-   managed the overflow of a viewport-locked column. The rail scrolls with the
-   document: a card whose mark is below the window is BELOW THE WINDOW, whole
-   and undimmed, and scrolling is how you reach it. */
-.gly-rail-notice .gly-card { margin-left: var(--gly-rail-gutter); }
-.gly-rail-unplaced {
-  display: grid;
-  gap: var(--gly-rail-gap);
-}
-.gly-rail-unplaced-head {
-  margin-left: var(--gly-rail-gutter);
-  color: var(--gly-muted);
-  font-family: var(--gly-mono);
-  font-size: 10px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-/* THE SECTION DASHES ITS CARDS, NOT THE `adrift` FLAG ALONE. Every card in
-   here is one whose place in the document is gone, which is exactly what a
-   dashed edge means in this product — but only a RANGE thread carries
-   `.gly-adrift`, because a block thread that lost its block never had a mark to
-   be adrift FROM (see threadLabel). Keying on the section is what makes the
-   whole population read the same, which is the one-surface-one-language rule
-   this file records under the deleted revision receipt. The kind edge stays
-   solid for the reason stated at `.gly-card.gly-adrift` above. */
-.gly-rail-unplaced .gly-card {
-  border-style: dashed;
-  border-left-style: solid;
-}
-/* WHICH WORDS WENT, IN THE VOCABULARY REMOVAL ALREADY SPEAKS. The card used to
-   carry a grey apology about a mark; it quotes its lost anchor now, struck in
-   `--gly-del` — the one colour this product uses for removed text, everywhere.
-   DOTTED and with no wash, which is the shape that tells it apart from a
-   settled diff's solid strike on the del wash: apart by shape, not by hue, the
-   same discipline the three suggestion marks are drawn with. */
-.gly-lost-anchor-line {
-  font-size: 12px;
-  color: var(--gly-muted);
-}
-.gly-lost-anchor {
-  color: var(--gly-del);
-  text-decoration: line-through;
-  text-decoration-style: dotted;
-}
-/* THE COLD-OPEN RAIL TEACHES. One dashed card in the margin's own anatomy —
-   mono head, sans body — and it earns its dash the way every other dashed thing
-   here does: it is not work, and it is not beside anything. It replaced
-   `nothing pending — the document is settled`, which said in a quiet second
-   voice what an Approve-faced primary states outright a few inches up. */
-/* `.gly-card.gly-rail-teach` AND NOT A BARE CLASS. `.gly-card` declares
-   `border: 1px solid` — the shorthand, so it sets the STYLE — and it is
-   (0,1,0), the same as a bare class, and DECLARED LATER in this file. A bare
-   `.gly-rail-teach { border-style: dashed }` therefore loses on source order
-   and paints solid: measured `border: "solid"` with the rule right there in the
-   stylesheet. This file records the shape under `.gly-thread-delete` and under
-   the deleted settled card; it is the same trap a third time. */
-.gly-card.gly-rail-teach {
-  border-style: dashed;
-  cursor: default;
-  color: var(--gly-muted);
-}
-/* THE PANEL'S BLANK SPACE IS A DOOR (web/cards.ts panelDoorAt), and the
-   pointer says so. Set on the root by the mousemove that reads the same
-   predicate the click does, because the space under the rail's last card is
-   outside every element a selector could name. `cursor` is inherited, so the
-   element under the pointer — body, the rail, the band — shows it. */
-html.gly-panel-door {
-  cursor: pointer;
 }
 
 .gly-card {
@@ -1336,19 +954,6 @@ html.gly-panel-door {
   border-radius: 6px;
   background: var(--gly-card);
   cursor: pointer;
-}
-.gly-rail-band .gly-card {
-  position: absolute;
-  /* GUTTER_PX. Nothing is drawn in it — the connector that once was is
-     deleted — and it is kept because ONE LEFT EDGE is what the reviewer reads
-     down the whole rail. `just layers` §9 measures it against the rail's own
-     box, which is what caught a second container laying cards out at the
-     block's full width. */
-  left: var(--gly-rail-gutter);
-  right: 0;
-  /* Cards slide rather than jump when a neighbour is decided. Position only:
-     animating anything measured would fight the rAF re-measure. */
-  transition: top 0.14s ease;
 }
 .gly-card:hover { border-color: var(--gly-hl); }
 /* THE KEYBOARD'S RING, ON EVERYTHING THE KEYBOARD LANDS ON. Two weights and no
@@ -1361,24 +966,6 @@ html.gly-panel-door {
 .gly-block-grip:focus-visible { outline: 2px solid var(--gly-hl); outline-offset: 1px; }
 .gly-card.gly-busy { opacity: 0.5; }
 .gly-card.gly-failed { border-color: var(--gly-del); }
-/* Adrift: the server reports it, the document has not shown it yet. The card
-   still exists — the count would be a lie otherwise — it just has no words of
-   its own on the page, which is also why it lights none and needs no rule
-   saying so. */
-/* THE KIND EDGE IS NEVER DASHED. `border-style: dashed` is one property over
-   four sides, and the fourth is the 3px violet flag that says WHAT KIND OF CARD
-   THIS IS — a fact that has not changed just because the card cannot point any
-   more. Dashed, the edge reads as a broken border rather than as a flag, which
-   is the same misreading §5 of the 2026-08-08 handoff records about the
-   substitution card's gradient. Board 1b: dashed outside, solid violet edge —
-   which is one card's state and so is ONE rule; it was two, at the same
-   selector, with a comment between them, and the longhand ordering inside a
-   block says the same thing the two blocks did. */
-.gly-card.gly-adrift {
-  cursor: default;
-  border-style: dashed;
-  border-left-style: solid;
-}
 /* THE CARD END OF THE LIGHT — the other half of "either end, one mechanism".
    Hovering the words lights the card, which is the half a card-only
    implementation silently does not have, and the same wash is used at both ends
@@ -1397,25 +984,6 @@ html.gly-panel-door {
 .gly-card.gly-lit {
   border-color: var(--gly-accent);
   box-shadow: 0 0 0 3px var(--gly-lit-bg);
-}
-/* A CARD IS A HAND ONLY WHERE THE HAND DOES SOMETHING. `.gly-card` above says
-   `cursor: pointer` for every card on every surface, but `threadCard` returns
-   BEFORE it attaches the click handler when the thread has nowhere to point —
-   the panel, the rail's anchorless section and the settled list, all three.
-   Those cards offered a hand and answered nothing.
-
-   Keyed on `[title]` rather than on a surface, because `el.title = 'show me
-   where this is'` is set on the very line after that early return: the title
-   and the handler are the same predicate, so this cannot drift out of step
-   with the script the way a per-surface override would. `.gly-adrift` does not
-   cover it — a block or document thread is not adrift, it simply never had a
-   mark — and a panel override would be a fourth place to keep in step. */
-.gly-card.gly-thread:not([title]) { cursor: default; }
-.gly-settled {
-  border-style: dashed;
-  cursor: default;
-  color: var(--gly-muted);
-  text-align: center;
 }
 
 /* --- the block grips ---
@@ -1491,58 +1059,6 @@ html.gly-panel-door {
   border-radius: 4px;
   outline: 1px dashed var(--gly-hl);
   outline-offset: 3px;
-}
-
-/* --- what is inside the whole-document panel (R7) ---
-
-   The panel's own band, column and cap are further up, with the chrome they
-   belong to. What is left here is the conversation inside it.
-
-   The rail-era rules are GONE, and they were doing damage rather than nothing:
-   a dashed border-style with the band's `border: 0` dashed the panel's bottom
-   rule; a 10px margin-bottom left a strip of page colour under a band that is
-   meant to meet the document; and `max-height: 9rem` on the entries was the
-   scrollbar Court saw. That 9rem was load-bearing when this card lived above
-   the rail's band and every pixel of it pushed an anchored card down its
-   column. In the chrome it costs the band nothing — measured, and asserted on
-   every open and shut — so the cap belongs to the panel as a whole and the
-   entries simply take what is left of it. */
-.gly-overall-head {
-  font-family: var(--gly-mono);
-  color: var(--gly-muted);
-  overflow-wrap: anywhere;
-}
-/* NO SCROLLER. This was "the one scroll container in the panel, and only once
-   the panel has reached its cap" — and the panel is gone, so the cap is gone,
-   so there is nothing for it to give against. It matters that this went with
-   the panel rather than being left as a harmless leftover: a `scroll` listener
-   in capture on `window` hears its own surface, which is why this file already
-   says a scroller inside a scroller is a trap to be walked into only once. The
-   page is the scroller now, as it is for every other card in the rail. */
-.gly-overall-entries { min-height: 0; }
-/* No overrides. A conversation in the panel is the same card as a conversation
-   in the rail — that is the whole of §3. What used to live here stripped the
-   border, the head and the kind edge off it, which is how a rail card came to
-   be standing in a toolbar with none of its own furniture. */
-.gly-overall-entries .gly-card { margin-top: 0.4rem; }
-.gly-overall-form { margin-top: 0.45rem; }
-/* A TEXTAREA now, not an <input> — a note on the whole document is prose and
-   gets more than one line (see makeOverallCard). `display: block` because a
-   textarea is inline-block by default and would sit on a text baseline,
-   leaving a descender's worth of gap under it that no rule here asked for;
-   `resize: vertical` because a reviewer writing a long note should be able to
-   see it. Its type and its cap, half the window, are the composer's and the
-   edit box's: see the one rule for all three below. */
-.gly-overall-input {
-  display: block;
-  width: 100%;
-  box-sizing: border-box;
-  padding: 0.3rem 0.4rem;
-  border: 1px solid var(--gly-line);
-  border-radius: 4px;
-  background: var(--gly-bg);
-  color: var(--gly-fg);
-  resize: vertical;
 }
 /* Amber says HERE, and a focused input is here — so the colour is right and
    §6's "remove the idle ring" is a no-op: there is no idle ring. What was too
@@ -1660,8 +1176,7 @@ html.gly-panel-door {
    different surfaces against `.gly-census`'s own. */
 .gly-bubble-head,
 .gly-card-head,
-.gly-composer-head,
-.gly-thread-who {
+.gly-composer-head {
   font-family: var(--gly-mono);
   font-size: 0.62rem;
   letter-spacing: 0.1em;
@@ -1671,7 +1186,6 @@ html.gly-panel-door {
 /* The two recorded differences, each on its own line rather than inside its
    own copy of the voice. */
 .gly-bubble-head { font-size: 0.66rem; }
-.gly-thread-who { opacity: 0.55; }
 .gly-card-body { margin-top: 0.3rem; overflow-wrap: anywhere; }
 .gly-card-actions { display: flex; gap: 0.4rem; margin-top: 0.45rem; }
 .gly-card-note { margin-top: 0.3rem; font-size: 11px; opacity: 0.62; }
@@ -1679,10 +1193,10 @@ html.gly-panel-door {
 
 /* --- the comment composer --- */
 
+/* In the Instructions tab, above the drafts it adds to. */
 .gly-composer {
-  position: absolute;
-  z-index: 30;
-  padding: 0.35rem;
+  margin: 0 0 12px;
+  padding: 0.5rem;
   border: 1px solid var(--gly-line);
   /* THE KIND EDGE, the same 3px an instruction card wears in the rail. The
      composer makes exactly one kind of thing and the card it produces is
@@ -1693,7 +1207,6 @@ html.gly-panel-door {
   border-left: 3px solid var(--gly-hl);
   border-radius: 8px;
   background: var(--gly-bg);
-  box-shadow: var(--gly-lift);
   font: 13px/1.5 var(--gly-sans);
 }
 .gly-composer-bar { display: flex; gap: 0.3rem; }
@@ -1706,7 +1219,7 @@ html.gly-panel-door {
    check. The prototype's composer is this width for the same reason. The note
    and the refusal follow it, because three boxes in one popover with two widths
    is a popover that changes shape depending on what went wrong. */
-.gly-composer-form { display: flex; flex-direction: column; gap: 0.35rem; width: 21rem; }
+.gly-composer-form { display: flex; flex-direction: column; gap: 0.35rem; }
 /* The chrome voice is `.gly-card-head`'s, and this selector is IN that rule
    now rather than repeating it — the sentence that used to sit here said the
    composer's head and the card's head are one sentence about one object, and
@@ -1738,8 +1251,7 @@ html.gly-panel-door {
    Both selectors are (0,1,0) and stay so; `.gly-composer-text[disabled]` and
    the rest of the sealed-verbs list are (0,2,0) and beat this wherever they
    meet it, unchanged. */
-.gly-composer-text,
-.gly-thread-edit-text {
+.gly-composer-text {
   border: 1px solid var(--gly-line);
   border-radius: 6px;
   background: transparent;
@@ -1754,9 +1266,8 @@ html.gly-panel-door {
    here once. `box-sizing` because the height written is the border box's, and
    a content box would add the padding twice. Each box keeps its own radius and
    ground above; what a reviewer types into them is the same. */
-.gly-overall-input,
-.gly-composer-text,
-.gly-thread-edit-text {
+
+.gly-composer-text {
   font: 13px/1.5 var(--gly-sans);
   padding: 0.3rem 0.4rem;
   box-sizing: border-box;
@@ -1788,15 +1299,12 @@ html.gly-panel-door {
    would cost. `.gly-overall-input`'s is here too — it is a different BOX (see
    the typing-box rule above) and the same FOCUS, which is exactly the split
    this file asks for: share what is shared, spell what differs. */
-.gly-composer-text:focus-visible,
-.gly-thread-edit-text:focus-visible,
-.gly-overall-input:focus-visible { outline: 1px solid var(--gly-hl); outline-offset: 1px; }
+.gly-composer-text:focus-visible { outline: 1px solid var(--gly-hl); outline-offset: 1px; }
 /* The verbs, and the whisper. `esc cancels` is pushed to the far end by
    `margin-left: auto` rather than by a spacer element: there is nothing there
    to be a spacer, and a box with no content is a box a later reader has to work
    out the purpose of. */
-.gly-composer-actions,
-.gly-capture-actions { display: flex; align-items: center; gap: 0.4rem; }
+.gly-composer-actions { display: flex; align-items: center; gap: 0.4rem; }
 /* A PER-ELEMENT CLASS LOSES TO ITS OWN CONTAINER, and `.gly-composer button`
    (0,1,1) sets the border, the background, the colour and the radius of every
    button in here. Both of these are written at (0,2,0) — the container class
@@ -1813,18 +1321,15 @@ html.gly-panel-door {
    it. Same weight `.gly-thread-delete` carries, for a different reason — that
    one is quiet because it is irreversible, this one because it is the exit and
    an exit that competes with the verb is a surface arguing with itself. */
-.gly-composer .gly-composer-cancel,
-.gly-capture .gly-capture-cancel {
+.gly-composer .gly-composer-cancel {
   border-color: transparent;
   background: transparent;
   color: var(--gly-muted);
   padding-left: 0.2rem;
   padding-right: 0.2rem;
 }
-.gly-composer .gly-composer-cancel:hover:not([disabled]),
-.gly-capture .gly-capture-cancel:hover:not([disabled]) { color: var(--gly-fg); }
-.gly-composer-esc,
-.gly-capture-esc {
+.gly-composer .gly-composer-cancel:hover:not([disabled]) { color: var(--gly-fg); }
+.gly-composer-esc {
   margin-left: auto;
   font-family: var(--gly-mono);
   font-size: 10px;
@@ -1833,7 +1338,7 @@ html.gly-panel-door {
 }
 /* Red is for a request that FAILED. A strike that is simply unavailable for
    this selection is information, not an error, so it gets the muted voice. */
-.gly-composer-note { margin-top: 0.3rem; max-width: 21rem; color: var(--gly-del); font-size: 12px; }
+.gly-composer-note { margin-top: 0.3rem; color: var(--gly-del); font-size: 12px; }
 .gly-composer-note.gly-quiet { color: var(--gly-muted); }
 .gly-composer-note:empty { display: none; }
 
@@ -1880,58 +1385,6 @@ html.gly-panel-door {
   pointer-events: none;
 }
 .gly-refusal-hint { margin-top: 0.2rem; opacity: 0.6; font-size: 12px; }
-
-/* --- narrow: one surface, two states ---
-
-   992px, in PIXELS, matching rail.ts's RAIL_MIN_WIDTH exactly. A rem-based
-   query would agree with the JS at the default font size and disagree at every
-   other one, and the way that disagreement shows up is the rail and the sheet
-   rendering at the same time — the one thing this layout must never do. */
-
-/* AND IT SITS ABOVE THE SHEET, BECAUSE THE SHEET DOES NOT REPLACE IT.
-   A RECT INSIDE THE WINDOW IS NOT A CONTROL THE REVIEWER CAN PRESS. At
-   z-index 25 this bar was under `.gly-sheet`'s 45, and the sheet is
-   `position: fixed; inset: 0` — so opening the list at 430×900 left the bar
-   painted, `isVisible()` true, its rect at `{y: 860, height: 40}` wholly inside
-   the window, and `document.elementFromPoint` at every one of its four
-   controls' centres returning a sheet element. All four dead, in the layout
-   that has no other spelling of any of them.
-
-   THREE PARTS OF THE PRODUCT ALREADY SAID THE BAR IS THERE IN THIS STATE, which
-   is what decides this rather than taste. `railSurfaces` answers `bar: true`
-   below the breakpoint whether or not the sheet is open — where at 992 and
-   above it answers `bar: false`, and the bar is genuinely not painted.
-   `.gly-sheet`'s own `padding-bottom: 52px` is this bar's 40px plus the sheet's
-   12px: its list was laid out to end clear of a bar drawn over it. And `step()`
-   carries a branch for exactly this state ("the sheet's cards too: with the
-   sheet open it is the surface showing the list") — the ↑/↓ that branch is
-   about live nowhere else.
-
-   Hiding the bar with the sheet open was the alternative and it takes the count,
-   the step and the way back all at once; making the sheet stop short of it needs
-   this height as a second constant in a layout where the bar does not exist
-   above the breakpoint. So the bar is chrome above the surface, and the sheet's
-   list scrolls under it exactly as the prose scrolls under the sticky bar at the
-   top of the page. Above the bubble and the verdict menu (40) and the sheet
-   (45) — this is the last thing on the page a narrow reviewer can reach, and
-   nothing may cover it. §7b‴ of web/layers.mjs is the standing gate, at four
-   widths × sheet shut and open. */
-.gly-bottombar {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 40px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 0 12px;
-  border-top: 1px solid var(--gly-line);
-  background: var(--gly-bg);
-  font-family: var(--gly-mono);
-  font-size: 12px;
-  z-index: 50;
-}
 /* --- THE CHROME BUTTON, ONCE ---
 
    An outlined pill of hairline on the page's own ground, taking its type from
@@ -1962,7 +1415,7 @@ html.gly-panel-door {
    — and the census's 12px is meant to come from `.gly-census`'s own font-size
    by inheritance, not from the bar's number happening to agree. Dropping it
    would make changing `.gly-census`'s size stop moving its verbs, silently. */
-.gly-bottombar button,
+
 .gly-verdict-menu button {
   font: inherit;
   border: 1px solid var(--gly-line);
@@ -1971,122 +1424,6 @@ html.gly-panel-door {
   color: inherit;
   cursor: pointer;
 }
-/* 44px targets: this bar is the narrow layout's only spelling of any of its
-   controls, and the pointer on it is a finger. */
-.gly-bottombar button {
-  min-width: 44px;
-  min-height: 32px;
-}
-/* `border: none` was declared here and was DEAD: `.gly-bottombar button` (0,1,1)
-   directly above beats `.gly-bar-count` (0,1,0) and painted the border anyway —
-   measured, `border-top-width: 1px`, `rgb(227, 229, 236)`. A dead declaration
-   that HAPPENS TO MATCH is already worse than none at all, because a reader
-   cannot tell it from a live one and will maintain it — and one that does not
-   match, as this one did not, is worse still: it describes a border that is
-   painted. This is the container trap exactly,
-   on the one control the narrow layout is read from. The count keeps the
-   bordered chrome it has always actually rendered with, which is also what
-   every other control in this bar wears. `flex` and `text-align` DO apply —
-   nothing competes for either. */
-.gly-bar-count { text-align: left; }
-
-/* THE TWO DOORS ARE ADJACENT AND THE SPACER IS AFTER THEM, which is board 1i's
-   whole layout and the top bar's own rule read at the other end of the page:
-   what a reviewer navigates WITH goes before the flexible cell, what they act
-   with goes after. `.gly-bar-count` used to carry `flex: 1` and so WAS the
-   spacer, which is why anything put beside it landed hard against the right
-   edge with the count stretched across the window. */
-.gly-bar-spacer { flex: 1; }
-
-/* The narrow bar's History chip. It takes the bar's own button chrome above and
-   declares only what the wide chip declares in `.gly-census` — the open state
-   and the arrival — because a second visual language for one door is the thing
-   this whole phase exists to remove.
-
-   `.gly-bottombar .gly-bar-versions` and not a bare class: `.gly-bottombar
-   button` is (0,1,1) and a per-element class in this stylesheet loses to its
-   own container, every time, silently. */
-.gly-bottombar .gly-bar-versions.is-open {
-  border-color: var(--gly-signal);
-  color: var(--gly-signal);
-  background: var(--gly-card);
-}
-/* AMBER UNTIL READ, IN PAINT AND ONLY IN PAINT — the wide chip's rule, for the
-   wide chip's reason. `box-shadow` draws inside the border box and contributes
-   no geometry, so a round landing while the reviewer's finger is on `↓ next`
-   cannot move `↓ next`. */
-.gly-bottombar .gly-bar-versions.is-new {
-  color: var(--gly-accent);
-  box-shadow: inset 0 0 0 1px var(--gly-accent);
-}
-
-.gly-sheet {
-  position: fixed;
-  inset: 0;
-  z-index: 45;
-  overflow-y: auto;
-  /* NO horizontal padding here. It used to carry 12px each side, which —
-     because .gly-sheet-body centres ITSELF inside whatever width it is
-     given — only cancelled out and matched the prose above ~704px; below
-     that, .gly-sheet-body's max-width stopped binding and the 12px squeeze
-     showed up as the sheet's cards sitting narrower and inboard of where
-     the prose actually sits. Horizontal insets belong to the head and the
-     body themselves now, so each measures against the full viewport the
-     way `.kit-card-body > main` does, at every width.
-
-     THE 52px AT THE FOOT IS THE BOTTOM BAR'S, and it is the reason that bar is
-     drawn OVER this surface rather than hidden by it: 40px of bar plus this
-     sheet's own 12px. It was already written that way while the bar sat
-     underneath at z-index 25 — space reserved for something nobody could see
-     or press. See `.gly-bottombar`. */
-  padding: 12px 0 52px;
-  background: var(--gly-bg);
-}
-.gly-sheet-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 0 var(--gly-gutter);
-  font-family: var(--gly-mono);
-  font-size: 12px;
-}
-.gly-sheet-untracked { color: var(--gly-muted); }
-/* The document's own measure, centred — not the full window. A card sized for
-   a 300px rail read as a different kind of thing stretched to 870px, so the
-   sheet is set at the measure the PROSE takes when nothing is beside it:
-   `body.gly-collapsed .kit-card-body > main` is `--gly-col-wide`, and the rail is never beside
-   the prose while this surface is up, because `railSurfaces` hides it
-   underneath the sheet at every width.
-
-   THE OLD REASON WAS "THE NARROW LAYOUT IS FORCED-COLLAPSED", and it was the
-   whole justification while the sheet existed only below RAIL_MIN_WIDTH. The
-   census count opens it at WIDE now, where a reviewer who has not resized
-   below RAIL_MIN_WIDTH leaves `main` in its rail-reserving form (620px of
-   prose plus a 320px reservation) — so the sentence that said the layout
-   under this one is always the collapsed one is simply not true any more.
-   The WIDTH did not have to change with it, and that is worth saying
-   plainly: 680 is right because it is the document's own measure with
-   nothing beside it, which is the state the sheet puts the page in whatever
-   `main` underneath happens to be set to.
-
-   The gutter is repeated rather than left off: `main` spends it as padding
-   around .ProseMirror, and everything here is `box-sizing: border-box` (the
-   shell's `*` rule), so a sheet card without the same padding would still fill
-   the full 680px border-box and overshoot by exactly that gutter. With
-   .gly-sheet itself carrying no horizontal padding this centres against the
-   FULL VIEWPORT, which is what stops the two centrings drifting apart the way
-   they did when the sheet's own inset squeezed the space this is centred
-   within — and it is the sheet's own centring, no longer a claim about where
-   `main` happens to sit at the same moment. The LEFT padding is `main`'s grip
-   inset, not the bare gutter, so a card starts where the prose does at the
-   widths where the prose gives up room for the grips. */
-.gly-sheet-body {
-  max-width: var(--gly-col-wide);
-  margin: 0 auto;
-  padding: 0 var(--gly-gutter) 0 var(--gly-grip-inset-wide);
-}
-.gly-sheet-card { position: static; margin-bottom: var(--gly-rail-gap); }
 /* NOTHING TO SUPPRESS HERE, and its absence is the claim. A card used to carry
    its own connector leg and arm as children, so every surface the card renders
    on had to switch them off. There is no connector, and the LIGHT is not the
@@ -2350,28 +1687,6 @@ html.gly-panel-door {
   to { opacity: 1; transform: none; }
 }
 
-/* Below the breakpoint the bottom bar owns the foot of the window, so the
-   strip sits above it rather than on top of it. */
-@media (max-width: 991px) {
-  .gly-strip { bottom: 56px; }
-  .gly-strip-fade { display: none; }
-}
-
-/* THE ARRIVAL CARD'S AMBER BORDER AND ITS "new" BADGE ARE DELETED, and
-   `@keyframes gly-card-in` with them: that animation had exactly one user.
-   `.gly-card.gly-new` and `.gly-new-badge` were `suggestionCard`'s — what an
-   arriving PROPOSAL wore for handoff §4's 300ms — and the rounds-only wire
-   carries no proposals for a card to be built from. probe.mjs asserts `gly-new`
-   ABSENT from the built bundle so the pair cannot come back on a card with no
-   arrivals to announce. The count's pulse below is the arrival's only permanent
-   trace on screen now, which is what the note there already claims. */
-
-/* The count is the durable record, so its pulse is the arrival's only
-   permanent trace on screen. BOTH counts carry it: the strip's is hidden below
-   the breakpoint (it is the same string the bottom bar prints, and the strip
-   needed the width), so a pulse only on that one would be a trace nobody on a
-   narrow window ever sees. */
-.gly-bar-count.gly-pulse { animation: gly-pulse 900ms ease-out; }
 @keyframes gly-pulse {
   0% { color: var(--gly-accent); transform: scale(1.12); }
   100% { color: inherit; transform: none; }
@@ -2380,8 +1695,7 @@ html.gly-panel-door {
 /* Everything above is motion for its own sake to a reader who asked for none.
    The states stay; only the movement goes. */
 @media (prefers-reduced-motion: reduce) {
-  .gly-strip,
-  .gly-bar-count.gly-pulse{ animation: none; }
+  .gly-strip { animation: none; }
 }
 
 /* AND THE SWEEP'S HOVER GOES THE SAME WAY. `.gly-census-accept:hover` was the
@@ -2426,114 +1740,6 @@ html.gly-panel-door {
   }
 
 }
-
-/* --- a comment is one card with one verb --- */
-.gly-thread { border-left: 3px solid var(--gly-hl); }
-.gly-thread-entry { margin-top: 0.4rem; }
-/* A COMMENT'S LINE BREAKS ARE ITS WORDS, so every surface that shows one —
-   rail, sheet, bubble and the whole-document panel all render this — keeps
-   them, and a long unbroken token wraps rather than widening the card. */
-.gly-thread-entry p {
-  margin: 0.15rem 0 0;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-/* `.gly-thread-who` is the chrome voice — see `.gly-card-head`, where the four
-   spellings of it became one and this one's quieter opacity is its own line. */
-/* `.gly-thread-reply` AND `.gly-thread-resolve:hover` ARE DELETED, and the
-   reply box is out of the shared typing-box rule above with them. A card takes
-   no reply and settles nothing — an instruction is immutable work for the next
-   round, not a conversation to answer — so `threadCard` builds neither, and
-   both names left `SEALED_VERBS` before the rules did. Delete is the one verb a
-   card carries; its weight is below. */
-
-/* THE DESTROY WEIGHT — and it must out-specify its own container to exist.
-   `.gly-card button` below sets `border: 1px solid var(--gly-line)` and
-   `color: inherit` at (0,1,1); every per-button class in this stylesheet is
-   (0,1,0) and silently loses to it. This rule was written borderless and muted,
-   was commented as "never the loudest thing on the card", and rendered as an
-   ordinary pill from the day it landed — see thread-card.png in
-   docs/design/shots-2026-08-08/. Delete is irreversible outside git and looked
-   exactly as consequential as resolve, which keeps every word.
-
-   `.gly-card .gly-thread-delete` matches the container's specificity and wins
-   on order. Any new per-button weight in §4 needs the same shape; a bare class
-   is a rule that does not apply.
-
-   AND THE 0.75 BELOW BEAT THE DEAD STATE FOR THE SAME REASON IT BEATS THE
-   CONTAINER. `.gly-card button.gly-thread-delete` is (0,2,1), the same as
-   `.gly-card button[disabled]` a thousand lines above, and later — so a SEALED
-   page painted this button at its resting 0.75 and the seal was invisible on
-   the only verb that cannot be undone. The dead-state block up there repeats
-   this selector at (0,3,1); do not "tidy" it away, and if this rule's shape
-   changes, change that one with it. */
-.gly-card .gly-thread-delete,
-.gly-card button.gly-thread-delete {
-  /* The 2rem is a REACH, not a margin: resolve and delete are not neighbours on
-     a toolbar, and the gap is what stops a slipped click from settling a
-     conversation you meant to remove — or removing one you meant to settle. */
-  margin-left: 2rem;
-  border-color: transparent;
-  color: var(--gly-muted);
-  opacity: 0.75;
-  /* ONE GRID CELL FOR BOTH LABELS. `delete` becomes `delete?` on its own click,
-     and a control that resizes under the cursor puts the second click somewhere
-     the first one was not — the third form of the no-motion defect CLAUDE.md
-     records, here on the one button whose misfire cannot be undone. The cell is
-     as wide as the wider label, exactly, rather than as wide as a number
-     someone guessed. */
-  display: inline-grid;
-  grid-template-areas: 'label';
-  place-items: center;
-}
-.gly-card .gly-thread-delete > span {
-  grid-area: label;
-}
-/* The unpainted label is `.gly-reserved` — the same primitive collapse, hold
-   and revise already reserve their own labels with, and for the same reason:
-   present, laid out, and never drawn, because `display: none` would give the
-   cell nothing to be as wide as. This button had a second spelling of it,
-   `.gly-delete-reserve`, which also set `pointer-events: none` — redundant,
-   since `visibility: hidden` already takes an element out of hit testing. */
-.gly-card .gly-thread-delete:hover:not([disabled]) {
-  border-color: var(--gly-del);
-  color: var(--gly-del);
-  opacity: 1;
-}
-/* THE SETTLE WEIGHT — a single outlined pill, violet on hover, no partner
-   (docs/design/2026-08-08-handoff-spec.md §4). It takes the container's own
-   `.gly-card button` border and 999px radius deliberately rather than
-   redeclaring them: that rule IS the settle weight's form, and a per-element
-   copy of it is a second declaration to keep in step.
-
-   WHAT IS DECLARED HERE IS THE HOVER, and it has to out-specify nothing —
-   `.gly-card .gly-thread-edit:hover:not([disabled])` is (0,4,0) against the
-   container's (0,1,1). The reach between this and `delete` is `delete`'s own
-   2rem margin-left, stated there; the two verbs are not neighbours on a
-   toolbar and a slipped click must not reach the irreversible one. */
-.gly-card .gly-thread-edit:hover:not([disabled]),
-.gly-card .gly-thread-edit.is-open {
-  border-color: var(--gly-hl);
-  color: var(--gly-hl);
-}
-/* The box the reviewer's words come back in. It is IN the card, under the
-   entries, so the card grows rather than a second surface opening over the
-   prose — and the band already chose sliding over overlapping (see the
-   declared exemption in web/motion.mjs). */
-.gly-thread-editor { margin-top: 0.45rem; }
-.gly-thread-edit-text {
-  width: 100%;
-}
-.gly-thread-editor-actions { justify-content: flex-end; }
-/* The armed state is the only resting-adjacent red in the product, which is
-   exactly what makes it legible as a warning rather than as decoration. */
-.gly-card .gly-thread-delete.gly-armed {
-  border-color: var(--gly-del);
-  color: var(--gly-del);
-  opacity: 1;
-}
-/* The stepped card, so j/k is legible in the rail as well as in the text. */
-.gly-card.gly-stepped { border-color: var(--gly-signal); box-shadow: 0 0 0 1px var(--gly-signal); }
 
 
 /* The readout sits BEFORE the bar's one flexible cell, with the buttons after
@@ -3081,75 +2287,6 @@ body.gly-history-mode .kit-card-body > main {
   }
 }
 
-/* The whole-document composer is the first item in the instruction rail. It
-   shares the rail's width and card language instead of opening a second panel
-   over the document. */
-/* THE ONLY SPELLING. This block used to spend seven properties undoing the
-   fixed panel's — `position: static`, `inset: auto`, `z-index: auto`, `width:
-   auto`, `border: 0`, `box-shadow: none`, `background: transparent` — and the
-   panel is deleted, so every one of them was a declaration whose live rule was
-   somewhere else in the file. A `<section>` in the rail's flow is already
-   static, auto and unpainted. What is left is the class pair itself, kept
-   because `.gly-overall-rail` is what the rules below key on. */
-.gly-overall-rail .gly-overall-inner {
-  max-width: none;
-  max-height: none;
-  margin: 0;
-  padding: 0 0 10px var(--gly-rail-gutter);
-  overflow: visible;
-}
-/* `.gly-overall-head` carries `.gly-rail-head` now — the slot owns its
-   margin, so the reset that used to live here would fight it. */
-/* `.gly-overall-toggle` IS DELETED, AND SO IS ITS HOVER. It was the `+
-   instruction on the whole document` handle: a full-width outlined control at
-   the top of the instruction rail, opening the form under it. The rail holds
-   live work only, and a `+ add` button needs nothing and is beside nothing —
-   see web/cards.ts's own section for the two defects that placement caused.
-   Capture has no control now: a click on the panel's blank space opens
-   `.gly-capture`, where the typing happens. */
-/* THE HEAD'S SLOT IS RESERVED WHEN THERE IS NOTHING TO HEAD.
-   `.gly-overall-head` carries `.gly-rail-head`, which is ONE SLOT at ONE height
-   carrying three labels across the draft rail and History's two states — so
-   collapsing it moves the map by its own height when the mode changes, which is
-   exactly what `web/rounds-ux.mjs` measured (draft 0/0 against History's
-   116.2/34). `visibility` and not `display`: the ink goes, the box stays, and
-   the reviewer sees an empty rail rather than a head above nothing. */
-.gly-overall-quiet .gly-overall-head { visibility: hidden; }
-.gly-overall-rail .gly-overall-entries .gly-card {
-  margin: var(--gly-rail-gap) 0 0;
-}
-.gly-overall-rail .gly-overall-form { margin-top: 8px; }
-.gly-overall-rail .gly-overall-input { width: 100%; }
-
-/* --- the capture card: where a whole-document instruction is WRITTEN --- */
-
-/* A CARD IN FLOW, IN THE WHOLE-DOCUMENT PANEL — NOT AN OVERLAY.
-
-   It is a child of `.gly-overall-inner`, sitting under that panel's head and
-   above the filed whole-document threads, and it takes part in the rail's flow
-   like every other card: opening it pushes the band down, closing it gives the
-   space back. That is what Court asked for — the composer reads as one of the
-   cards rather than a shadowed box floating over them.
-
-   THE 39.29px DEFECT IS ANSWERED BY A REPAINT, NOT BY LEAVING THE FLOW. The
-   old in-flow composer drifted the anchored cards because opening it moved the
-   band and nothing re-measured; the overlay that replaced it escaped the
-   problem by escaping the flow, at the cost of the float Court is reporting.
-   `openCapture`, `closeCapture` and the box's own `input` handler all call
-   `scheduleAnchors` now, so `paintAnchors` re-reads the band's top every time
-   this card changes height and re-floors the cards on their marks. See
-   web/cards.ts and paintAnchors.
-
-   IT NEEDS NO POSITION OF ITS OWN. `.gly-overall-inner` already carries the
-   rail's left gutter as padding, so a static block child fills gutter→right on
-   the same left edge and width as the entry cards below it; `.gly-card` gives
-   it the background, border, radius and padding. What is left is the pointer,
-   because the whole card is a writing surface and not a button. */
-.gly-capture {
-  cursor: default;
-}
-.gly-capture-head { margin-bottom: 0.4rem; }
-
 /* --- the right-click menu --- */
 
 /* ON `body`, NEVER INSIDE `.ProseMirror`. See web/menu.ts: a surface appended
@@ -3206,7 +2343,6 @@ body.gly-history-mode .kit-card-body > main {
   white-space: nowrap;
 }
 .gly-menu-detail:empty { display: none; }
-.gly-instruction-actions { justify-content: flex-end; }
 
 /* NO TYPE OF ITS OWN. The ask and the answer are two utterances of one
    exchange and must read as a pair — so neither sets a size or a weight, and
@@ -3278,18 +2414,13 @@ body.gly-history-mode .kit-card-body > main {
 .ProseMirror .gly-figure-source[hidden],
 .ProseMirror .gly-region-draft[hidden],
 .gly-bubble[hidden],
-.gly-bottombar[hidden],
 .gly-composer[hidden],
 .gly-composer-bar[hidden],
 .gly-composer-deny[hidden],
 .gly-composer-deny-hint[hidden],
 .gly-composer-form[hidden],
-.gly-capture[hidden],
 .gly-menu[hidden],
-.gly-overall[hidden],
-.gly-rail[hidden],
 .gly-refusal[hidden],
-.gly-sheet[hidden],
 .gly-strip[hidden],
 .gly-strip-dismiss[hidden],
 .gly-strip-fade[hidden],
@@ -3297,78 +2428,6 @@ body.gly-history-mode .kit-card-body > main {
 .gly-strip-show[hidden],
 .gly-verdict-menu[hidden],
 .gly-versions[hidden] { display: none; }
-
-/* THE REVIEWER'S OWN EDITS, IN THE RAIL. One surface: the rail is the list of
-   what pressing Revise will send, and a hand edit is half of that. The other
-   half had no surface anywhere, and the answer proposed for it was a SECOND
-   list — which is the two-things-doing-one-job shape this product fixes by
-   deletion rather than by adding a panel.
-
-   The heading matches `.gly-rail-unplaced-head` exactly rather than inventing a
-   second section voice: two headings in one column that differ for no reason
-   are two languages on one surface. */
-.gly-rail-changes {
-  display: grid;
-  gap: var(--gly-rail-gap);
-}
-.gly-rail-changes-head {
-  margin-left: var(--gly-rail-gutter);
-  color: var(--gly-muted);
-  font-family: var(--gly-mono);
-  font-size: 10px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-/* REMOVED TEXT IS `--gly-del`, DOTTED, WITH NO WASH — the outgoing-and-not-yet
-   -sent shape, which is exactly what `.gly-trail-ghost` wears in the prose for
-   the same population. A settled diff in History is the same colour SOLID on
-   the del wash. Colour says what happened to the text; SHAPE says whether it
-   has happened yet, and none of this has been sent. */
-.gly-change-before {
-  color: var(--gly-del);
-  text-decoration: line-through dotted;
-  text-decoration-thickness: 1px;
-}
-.gly-change-after {
-  color: var(--gly-ins);
-  text-decoration: underline dotted;
-  text-decoration-thickness: 1px;
-}
-
-/* REVERT IS THE CHANGE CARD'S ONE VERB, and it wears the destroy weight the
-   other two work-discarding verbs already wear: muted at rest, del-red on
-   hover, and BOTH LABELS IN ONE GRID CELL so `revert` becoming `revert?` on its
-   own click cannot move the button out from under the cursor that pressed it.
-   That is the third form of the no-motion defect this file records, and it is
-   the same primitive `.gly-thread-delete` uses rather than a second spelling of
-   it — the container's `.gly-card button` rule supplies border, radius, colour
-   and type, and this declares only what differs.
-
-   The selector matches the container's specificity (0,2,1) deliberately: a bare
-   `.gly-change-revert` is (0,1,0) and would LOSE to `.gly-card button`, which
-   is the trap this stylesheet records four instances of — a rule that reads as
-   though it were in force and is not. */
-.gly-card button.gly-change-revert {
-  border-color: transparent;
-  color: var(--gly-muted);
-  opacity: 0.75;
-  display: inline-grid;
-  grid-template-areas: 'label';
-  place-items: center;
-}
-.gly-card .gly-change-revert > span {
-  grid-area: label;
-}
-.gly-card .gly-change-revert:hover:not([disabled]) {
-  border-color: var(--gly-del);
-  color: var(--gly-del);
-  opacity: 1;
-}
-.gly-card .gly-change-revert.gly-armed {
-  border-color: var(--gly-del);
-  color: var(--gly-del);
-  opacity: 1;
-}
 
 /* ============================================================================
    PAGE MODE: THE SPLIT-PANE LIVE PREVIEW
@@ -3436,7 +2495,6 @@ body.gly-page .gly-view-btn.is-active {
    window scrolls both together. */
 body.gly-page .kit-card-body > main {
   max-width: none;
-  padding-right: calc(var(--gly-rail-w) + var(--gly-gutter) * 2);
 }
 body.gly-page .gly-panes {
   display: flex;
@@ -3542,9 +2600,6 @@ body.gly-page .ProseMirror p.gly-shell-marker {
 .gly-editor-card .kit-card-body { margin: 0; }
 
 .gly-editor-card .kit-card-body > main { margin: 0 auto; }
-/* With no cards the column widens, and centred in the card it runs under the
-   rail's hint: in the window it had the width to clear it, in the card it has not. */
-body.gly-collapsed .gly-editor-card .kit-card-body > main { margin: 0; }
 
 /* The rounds, above the card, with the whole record at the end of the line. */
 .gly-stages .kit-stages { margin: 0 0 12px; }
@@ -3616,3 +2671,23 @@ body.gly-sealed #gly-drafts, body.gly-sealed .kit-sendbar-hint { display: none; 
 .gly-msg .kit-pill { white-space: nowrap; }
 .gly-msg .kit-msg-line { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 body.gly-sealed .gly-msg { display: none; }
+
+/* The right column's tabs. The kit draws them; these are what galley puts in. */
+.gly-tab > .kit-label { margin-bottom: 8px; }
+.gly-tab-hint { display: block; margin: 12px 0 0; font: 11.5px var(--kit-mono); color: var(--kit-muted); }
+/* A hand edit is the same kind of row with no box: the words it changed and Revert. */
+.gly-edit-rows { margin-top: 8px; }
+.gly-edit-rows:empty { display: none; }
+.gly-edit-row > .kit-meta { font: 11.5px var(--kit-mono); color: var(--kit-muted); }
+.gly-edit-words { margin: 0; font-size: 14px; overflow-wrap: anywhere; }
+.gly-edit-words del { color: var(--gly-del); }
+.gly-edit-words ins { color: var(--gly-ins); text-decoration-style: dotted; }
+/* The row lit from either end: hovered here, or its words hovered there. */
+.kit-draft-row.gly-lit { border-color: var(--kit-signal); }
+/* The thread's messages, then this round's drafts, then the box. */
+.gly-chat-said > .kit-empty { margin: 0 0 12px; }
+.gly-chat-said.gly-chat-told > .kit-empty, .gly-chat-said.gly-chat-holds > .kit-empty { display: none; }
+.gly-chat-said:not(.gly-chat-told) > .kit-thread-msgs { display: none; }
+.gly-chat-said:not(.gly-chat-holds) > .gly-chat-drafts { display: none; }
+.gly-chat-drafts { margin-bottom: 12px; }
+.gly-chat-drafts .kit-draft-row { border-left: 3px solid var(--kit-signal); }

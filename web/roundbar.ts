@@ -3,7 +3,8 @@
 // read it in node; web/shell.ts draws them with the kit.
 
 import { COULD_NOT, askedOf, roundCards } from './versions.ts';
-import type { RoundView } from './wire';
+import type { MessageView, RoundView } from './wire';
+import type { ChatMessage, DraftRowValue, EditRowValue } from './tabs.ts';
 
 // What this file needs of the kit's StageValue. Spelled here because the kit
 // only loads in a browser.
@@ -23,13 +24,49 @@ declare global {
 }
 
 /** What the shell gives the editor, on window.galleyChrome. */
+/** What the kit's rows and the Chat box ask of the editor. */
+export interface TabActions {
+  edit(key: string, text: string): void;
+  remove(key: string): void;
+  select(key: string): void;
+  file(text: string): Promise<boolean>;
+  revert(key: string): void;
+}
+
 export interface GalleyChrome {
+  wireTabs(actions: TabActions): void;
+  paintDrafts(view: {
+    text: DraftRowValue[];
+    chat: DraftRowValue[];
+    edits: EditRowValue[];
+    selected: string;
+    counts: { instructions: number; chat: number };
+  }): void;
+  paintChat(messages: ChatMessage[]): void;
+  /** Opens the Instructions tab on a draft's row. */
+  showRow(key: string): void;
+  /** Opens the Chat tab with its box in hand. */
+  openChat(): void;
+  /** Words with nowhere else to go, added to the Chat box. */
+  keepInChat(words: string): void;
+  /** The composer has something to ask: its tab comes forward. */
+  showComposer(): void;
+  /** The composer has gone: back to the tab it replaced. */
+  composerGone(): void;
   paintPrimary(label: string | null): void;
   paintStages(
     stages: RoundStage[],
     open: (opens: string) => void,
     door: HTMLElement | null,
   ): void;
+}
+
+export const MESSAGE_HELD_LINE =
+  'the agent is mid-turn; it reads this when the turn ends';
+
+/** The line under a message's pill. */
+export function messageLine(m: MessageView): string {
+  return m.held ? MESSAGE_HELD_LINE : m.line;
 }
 
 type MessageLike = { state: string } | null | undefined;
@@ -132,7 +169,21 @@ export function primaryWords(o: {
 }
 
 // The cards of the track: the verdict's own cut is the end of the line, not a round.
-function trackCards(rounds: RoundView[] | null | undefined): RoundView[] {
+/** What a round asked: its own asks, or those of the round it answers. A landing's
+ * own instruction is the agent's note, not an ask. */
+export function asksOf(card: RoundView): string[] {
+  if (card.answers === 0) {
+    return askedOf(card);
+  }
+  if (card.askedInstructions && card.askedInstructions.length > 0) {
+    return card.askedInstructions;
+  }
+  return card.asked ? [card.asked] : [];
+}
+
+export function trackCards(
+  rounds: RoundView[] | null | undefined,
+): RoundView[] {
   return roundCards(rounds)
     .filter((r) => r.reason !== 'verdict')
     .sort((a, b) => a.n - b.n);
@@ -201,7 +252,7 @@ function finishedStage(
   o: { history: boolean; reading: number },
 ): RoundStage {
   const could = r.reason === COULD_NOT;
-  const asked = askedOf(r).length;
+  const asked = asksOf(r).length;
   let state: RoundStage['state'] = could
     ? 'flagged'
     : r.answers > 0

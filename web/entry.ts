@@ -105,13 +105,7 @@
 // AppState because no mixin reads it, only watchBar's own unpublish path
 // would (there is none).
 
-import type {
-  AppState,
-  AppMethods,
-  Thread,
-  CardEntry,
-  ArrivalItem,
-} from './appshell.ts';
+import type { AppState, AppMethods, Thread, ArrivalItem } from './appshell.ts';
 import { Editor, Mark, mergeAttributes } from '@tiptap/core';
 import { Extension } from '@tiptap/core';
 import type { Node as PMNode, ResolvedPos } from '@tiptap/pm/model';
@@ -133,8 +127,7 @@ import { litKey, litPlugin, sameRuns } from './lit.ts';
 import { scopePlugin } from './scope.ts';
 import { keyMethods } from './keys.ts';
 import { pendingMethods } from './pending.ts';
-import { sheetMethods } from './sheet.ts';
-import { cardMethods } from './cards.ts';
+import { tabMethods } from './tabs.ts';
 import { composerMethods, holdsWords } from './composer.ts';
 import { figureMethods } from './figures.ts';
 import { historyMethods } from './history.ts';
@@ -143,11 +136,10 @@ import { verdictMethods } from './verdict.ts';
 import { sealMethods } from './seal.ts';
 import { shareMethods, type ShareMenu } from './share.ts';
 import { coerceLevel } from './heading.ts';
-import { runFor, markElement } from './runs.ts';
 // ONE CARD AND ONE REVEAL, shared with History's rail. See web/card.ts, whose
 // header carries the whole argument: the two rails are one surface and were
 // built twice.
-import { revealMark, coalesce, growthWatch, anchorNote } from './card.ts';
+import { coalesce } from './card.ts';
 import { VersionsPanel } from './versions.ts';
 // getJSON/postJSON own talking to the server; see web/net.ts's header for why
 // they cannot live in a mixin.
@@ -182,7 +174,6 @@ import {
   ARRIVAL_FADE_MS,
   ARRIVAL_SUFFIX,
 } from './arrivals.ts';
-import { carryDrafts } from './rail.ts';
 import { mountPreview } from './preview.ts';
 import { shellMarkerQuiet } from './marker.ts';
 import { headingAlign } from './headingalign.ts';
@@ -191,7 +182,6 @@ import type { Composer } from './composer.ts';
 import type { Mode, ModeUI } from './bar.ts';
 import { makeMenu, openMenu, closeMenu, menuOpen } from './menu.ts';
 import type { DocMenu } from './menu.ts';
-import type { OverallCard, CaptureCard } from './cards.ts';
 import type { BlockRef, ReviewerChange } from './wire';
 
 // The fragment field. Spelled once here, once in Go's ydoc.FragmentName.
@@ -763,38 +753,17 @@ class App implements AppState {
   comments: Thread[];
   changes: ReviewerChange[];
   armedRevert: string | null;
-  armedRevertAt: number;
   blocks: BlockRef[];
   pendingCount: number;
   verdict: string;
 
   // --- the rail, the sheet, and their shared card lists ---
-  rail: { root: HTMLElement; band: HTMLElement; notice: HTMLElement };
-  sheet: {
-    root: HTMLElement;
-    head: HTMLElement;
-    body: HTMLElement;
-  };
-  cards: CardEntry[];
-  sheetCards: CardEntry[];
-  sheetOpen: boolean;
-  overall?: OverallCard;
-  capture?: CaptureCard;
-  cardSizes: ReturnType<typeof growthWatch>;
   // See this file's own header for why this moved here from AppMethods.
-  scheduleAnchors: () => void;
-  armedDelete: string | null;
-  armedAt: number;
-  editingThread: string | null;
   stepped: string | null;
+  selectedDraft: string;
 
   // --- the bubble, and the census/bar chrome ---
   bubble: SuggestionUI;
-  bar: {
-    root: HTMLElement;
-    count: HTMLButtonElement;
-    versions: HTMLButtonElement;
-  };
   strip: {
     root: HTMLElement;
     text: HTMLElement;
@@ -937,7 +906,6 @@ class App implements AppState {
     this.comments = [];
     this.changes = [];
     this.armedRevert = null;
-    this.armedRevertAt = 0;
     // WHAT THE PRESS WILL SEND, as the server counted it. It is read off the
     // /_galley/pending payload beside the verdict itself (refreshPending) and
     // never off this page's own rail, for the reason the verdict is: a count
@@ -966,54 +934,17 @@ class App implements AppState {
     this.said = '';
     // One entry per rendered card: its element, the run it is anchored to, and
     // paintAnchors walks it; nothing else may.
-    this.cards = [];
     this.runsDoc = null;
     this.runs = [];
-    // A CARD THAT GROWS AFTER IT WAS PLACED LEAVES EVERY CARD BELOW IT STALE.
-    // The stack is exact arithmetic over the heights it was handed, and those
-    // heights were measured once — so a reply box expanding under a second line
-    // of typing, or an entry arriving into an already-positioned card, moves
-    // that card's bottom edge without moving anything else, and it lands on top
-    // of the reply box and the buttons of its neighbour. Observed with a thread
-    // card drawn over the card below it; the same class of bug as the ceiling
-    // one, which was also geometry computed once against something that then
-    // changed size.
-    //
-    // The answer is to stop assuming heights hold — `growthWatch` in card.ts,
-    // which History's rail uses over its own cards for the same reason and
-    // carries the whole argument. It cannot feed itself because a placement
-    // pass writes only `top` on a card.
-    this.cardSizes = growthWatch(() => this.scheduleAnchors());
 
     const mount = document.getElementById('editor');
     this.docName = (mount && mount.dataset.doc) || '';
     this.pageMode = !!mount && mount.dataset.pageMode === '1';
     this.canShare = !!mount && mount.dataset.canShare === '1';
-    // THE TRAIL HAS NO REGION TO REMEMBER A COLLAPSE FOR, AND NO SAVE STATE
-    // EITHER. `changedOpen` was a collapse flag for the log at the rail's foot; the trail is an outgoing message and not a history, so there
-    // is no log, no head to open and nothing to persist.
-    //
-    // `trailPosted`, `trailLoaded`, `trailTimer`, `trailSaving` and `trailEpoch`
-    // are DELETED with the save they bookkept. See the note where `syncTrail`
-    // was: the browser POSTed the whole trail to /_galley/trail on a 600ms
-    // debounce after every keystroke and again on every 1.5s poll, that route
-    // does not exist, and the handler advanced its baseline only on `res.ok` —
-    // so a typing session retried a 404 forever and never persisted anything.
-    this.sheetOpen = false;
-    // Which thread's delete control is armed, and since when. On the APP rather
-    // than in the button, because every card is destroyed and rebuilt on every
-    // pending refresh — see deleteButton.
-    this.armedDelete = null;
-    this.armedAt = 0;
-    // Which instruction is open for editing, keyed by the thread's stable key
-    // — the same rule as the armed delete flag directly above, and for the
-    // same reason: paintRail destroys every card, so state held in a card's
-    // closure is state that lasts about a second. See editButton.
-    this.editingThread = null;
     // The stepped mark's run. Not an index: indices renumber when a suggestion
     // resolves, and the whole point of a run is that it does not.
     this.stepped = null;
-    this.sheetCards = [];
+    this.selectedDraft = '';
 
     // The addressable blocks, as the SERVER sees them. A block grip files its
     // instruction against a block key, and a key is a content hash the browser
@@ -1022,7 +953,6 @@ class App implements AppState {
     this.blocks = [];
 
     this.status = this.makeStatus();
-    this.rail = this.makeRail();
     this.composer = this.makeComposer();
     // ONE GRIP BESIDE EVERY BLOCK that takes a whole-block instruction, in a
     // layer beside the document. Painted on one animation frame however many
@@ -1195,18 +1125,6 @@ class App implements AppState {
     // than the height of a bar half built.
     this.watchBar();
 
-    // A REVISION'S RESULTS ARE ITS OWN CARDS AND NOTHING ELSE. There used to
-    // be a second object here — `this.batch`, `this.batchStep` and a
-    // `collecting` window that filled them, feeding a receipt card in the
-    // anchorless block that listed the very edits the band was already
-    // carding. Two things doing one function, in two visual languages, in two
-    // containers. It is gone; what it offered is offered elsewhere and always
-    // was — `✓ all` in the census strip decides in bulk over the same
-    // population, `j`/`k` step through what arrived, and every card already
-    // says `agent · just now`, which is the whole of the grouping claim the
-    // receipt made.
-    this.bar = this.makeBottomBar();
-    this.sheet = this.makeSheet();
     // The two intents that light a card and its words. Watched here, once: the
     // listeners are delegated off the document because paintRail destroys every
     // card they could otherwise be bound to. There is no element to build —
@@ -1232,20 +1150,6 @@ class App implements AppState {
       // entry.ts already imports it, so a module-level import there would be a
       // cycle.
       threads: () => this.comments,
-      threadCard: (thread) => {
-        if (!isThread(thread)) {
-          // See isThread's own comment — unreachable in practice, since
-          // every thread this callback receives came straight from
-          // `this.comments` above.
-          throw new Error('threadCard received a thread with no key');
-        }
-        return this.bubbleThreadCard(thread);
-      },
-      // railSurfaces itself, through the one accessor paintSurfaces also uses —
-      // not a second spelling of the width test, and not the width test at all.
-      // "Is the rail carrying conversations" is the question, and collapsed at
-      // 1600px it is not, though the window is as wide as they come.
-      railShown: () => this.surfaces().rail,
       frame: () => this.chromeFrame(),
       // AND WHERE THE RAIL IS CARRYING IT, THE CLICK GOES TO THE CARD. A
       // comment highlight used to open a bubble with two verbs and no
@@ -1258,7 +1162,7 @@ class App implements AppState {
         if (!isThread(thread)) {
           return;
         }
-        this.flashThreadCard(thread.key);
+        this.openDraft(thread.key);
       },
     });
 
@@ -1317,21 +1221,6 @@ class App implements AppState {
       }, 0);
     });
 
-    // A card's position is a fact about where its mark is in the viewport, so
-    // it has to be recomputed on everything that can move a mark relative to
-    // it: the page scrolling, the window resizing, and the document changing
-    // (which includes every suggestion arriving over the websocket).
-    //
-    // Coalesced into one animation frame rather than run per event: a scroll
-    // fires these faster than a layout read can answer, and coordsAtPos forces
-    // layout. `scroll` is captured so it catches a scrollable ancestor too.
-    // `coalesce` in card.ts, which History's rail uses too — four lines, which
-    // is exactly the size at which two copies drift without anyone noticing.
-    this.scheduleAnchors = coalesce(() => this.paintAnchors());
-    window.addEventListener('scroll', this.scheduleAnchors, {
-      passive: true,
-      capture: true,
-    });
     // Where the READER put the page, as opposed to where a rebuild threw it.
     // See keepPlace: `restoring` is what tells the two apart.
     this.placeScrollY = window.scrollY;
@@ -1345,11 +1234,6 @@ class App implements AppState {
       { passive: true },
     );
     editor.on('transaction', ({ transaction }) => this.keepPlace(transaction));
-    window.addEventListener('resize', this.scheduleAnchors);
-    // Crossing the breakpoint is a resize like any other, and there is exactly
-    // one place that decides what a width means.
-    window.addEventListener('resize', () => this.paintSurfaces());
-    editor.on('update', () => this.scheduleAnchors());
     // A NodeView is rebuilt from scratch when its node changes, and takes
     // every pin on it with it. Re-fitting them is not layout, so it does not
     // belong in the rAF-throttled anchor pass — an update is
@@ -1410,39 +1294,6 @@ class App implements AppState {
         this.chromeFrame(),
       );
     });
-    // THE PANEL'S BLANK SPACE OPENS THE WHOLE-DOCUMENT BOX (see panelDoorAt),
-    // and the pointer says so before the press. Delegated off `document` for
-    // the reason the menu is: the rail's cards are rebuilt on every poll. A
-    // press that ends a drag-selection inside the rail is the reviewer
-    // selecting, not asking, so it opens nothing.
-    document.addEventListener('click', (event) => {
-      if (
-        event.button !== 0 ||
-        !this.panelDoorAt(event.target, event.clientX, event.clientY)
-      ) {
-        return;
-      }
-      const picked = window.getSelection();
-      if (
-        picked &&
-        !picked.isCollapsed &&
-        picked.anchorNode &&
-        this.rail.root.contains(picked.anchorNode)
-      ) {
-        return;
-      }
-      this.openCaptureByHand();
-    });
-    document.addEventListener(
-      'mousemove',
-      (event) => {
-        document.documentElement.classList.toggle(
-          'gly-panel-door',
-          this.panelDoorAt(event.target, event.clientX, event.clientY),
-        );
-      },
-      { passive: true },
-    );
     // A PRESS OFF AN EMPTY COMPOSER PUTS IT AWAY, a grip's and a selection's
     // alike: an open box nobody has typed in is not worth a second gesture to
     // dismiss. One holding words stays, so a stray press never costs them.
@@ -1491,9 +1342,7 @@ class App implements AppState {
     });
     window.addEventListener('resize', () => closeMenu(this.menu));
 
-    // After scheduleAnchors exists: paintSurfaces re-measures when the rail
-    // comes back, and a rail painted while hidden measured every card at zero.
-    this.paintSurfaces();
+    this.wireTabs();
     // Fire-and-forget: the first paint of the pending view on page load. A
     // failure here leaves the rail empty until the next `tick()` poll
     // (pending.ts) succeeds — no proposal is lost, only its first paint is
@@ -1612,9 +1461,10 @@ class App implements AppState {
     if (!el) {
       return '';
     }
-    const card = el.closest<HTMLElement>('.gly-rail-band .gly-card[data-run]');
-    if (card) {
-      return card.dataset.run || '';
+    const row = el.closest<HTMLElement>('.kit-draft-row[data-draft-id]');
+    if (row) {
+      const thread = this.comments.find((t) => t.key === row.dataset.draftId);
+      return (thread && thread.run) || '';
     }
     const mark = el.closest('.ProseMirror [data-run]');
     const run = mark ? mark.getAttribute('data-run') || '' : '';
@@ -1644,10 +1494,7 @@ class App implements AppState {
     if (!run) {
       return [];
     }
-    const card = this.rail.band.querySelector(
-      `.gly-card[data-run="${cssEscape(run)}"]`,
-    );
-    if (!card) {
+    if (!this.comments.some((t) => t.run === run)) {
       return [];
     }
     const s = this.suggestions.find((x) => x.run === run);
@@ -1663,15 +1510,17 @@ class App implements AppState {
   // prose's half needs no such help and that is the point of it being a
   // decoration: ProseMirror re-derives it on every redraw instead of wiping it.
   paintLit() {
-    const run = this.litHover || this.litFocus;
+    const picked = this.comments.find((t) => t.key === this.selectedDraft);
+    const run = this.litHover || this.litFocus || (picked && picked.run) || '';
     const runs = this.litRuns(run);
-    // The card end. Its own element, so a class here is ours to write.
-    for (const card of this.rail.band.querySelectorAll<HTMLElement>(
-      '.gly-card',
+    // The row end.
+    for (const row of document.querySelectorAll<HTMLElement>(
+      '.kit-draft-row[data-draft-id]',
     )) {
-      card.classList.toggle(
+      const thread = this.comments.find((t) => t.key === row.dataset.draftId);
+      row.classList.toggle(
         'gly-lit',
-        runs.length > 0 && card.dataset.run === run,
+        runs.length > 0 && !!thread && thread.run === run,
       );
     }
     // The prose end. NEVER a class on a mark — see lit.ts.
@@ -1684,44 +1533,6 @@ class App implements AppState {
       return;
     }
     view.dispatch(view.state.tr.setMeta(litKey, runs));
-  }
-
-  // reveal scrolls a card's mark into view and rings it. Binding by run rather
-  // than by text is what makes this exact for two suggestions that read the
-  // same: there is nothing to disambiguate and nothing to report as ambiguous.
-  reveal(run: string, el: HTMLElement) {
-    // Asking a full-screen list to show you something and then having to
-    // dismiss it by hand is a tap wasted.
-    if (this.sheetOpen) {
-      this.closeSheet();
-    }
-    // The same lookup paintAnchors uses, for the same reason: a card whose mark
-    // the fragment has not yet been given an id for still has somewhere to jump.
-    const card = this.cards.find((c) => c.el === el);
-    // CardEntry carries no `suggestion` field (nothing ever puts one there —
-    // see appshell.ts's own CardEntry comment), so the fallback object is
-    // built explicitly here rather than spread from `card`, which runFor's
-    // declared parameter type requires anyway.
-    const found = runFor(
-      this.runsNow(),
-      card ? { run: card.run, suggestion: null } : { run, suggestion: null },
-    );
-    if (!found) {
-      anchorNote(el).textContent =
-        'not in the document yet — it lands on the next sync';
-      return;
-    }
-    const mark = markElement(this.editor.view, found);
-    if (!mark) {
-      anchorNote(el).textContent = 'cannot locate it on the page';
-      return;
-    }
-    anchorNote(el).textContent = '';
-    revealMark(mark);
-    // The scroll moves every anchor, so every card's position is now stale —
-    // and a smooth scroll is still running after this frame returns.
-    this.scheduleAnchors();
-    window.setTimeout(() => this.paintAnchors(), 450);
   }
 
   // --- keeping the reviewer's place across a remote rebuild ---
@@ -2032,33 +1843,10 @@ class App implements AppState {
       this.hideStrip();
       return;
     }
-    const card = this.cards.find((c) => c.run === arrival.run);
-    this.reveal(arrival.run, card ? card.el : this.strip.root);
+    this.reveal(arrival.run);
     if (this.arrivalQueue.length === 0) {
       this.hideStrip();
     }
-  }
-
-  // The count pulsing is how an arrival reaches someone whose eyes are in the
-  // document: a number that changed is the smallest possible interruption, and
-  // unlike the strip it is telling the truth for as long as it stands.
-  //
-  // BOTH COUNTS, because only one of them is ever on screen. The strip's count
-  // is hidden below the breakpoint — it is the same string the bottom bar
-  // already prints and the strip needed the width back (see editor.css's
-  // narrow block) — so pulsing only that one left the arrival's single
-  // permanent trace invisible on exactly the layout that has no rail to watch
-  // it land in. The hidden one takes the class harmlessly; the visible one
-  // shows it. Which is which is the stylesheet's business, not this method's.
-  pulseCensus() {
-    const el = this.bar && this.bar.count;
-    if (!el) {
-      return;
-    }
-    el.classList.remove('gly-pulse');
-    void el.offsetWidth;
-    el.classList.add('gly-pulse');
-    window.setTimeout(() => el.classList.remove('gly-pulse'), 900);
   }
 
   // The "new" badge is a reading aid, not a state: it says "this is the one
@@ -2074,7 +1862,7 @@ class App implements AppState {
         return;
       }
       this.newRuns.clear();
-      this.paintRail();
+      this.paintTabs();
     }, ARRIVAL_FADE_MS);
   }
 
@@ -2083,66 +1871,6 @@ class App implements AppState {
   // two verbs that is worth knowing before either comes back.
 
   // --- the notes rail ---
-
-  // makeRail builds the column: the map, and a notice under it.
-  //
-  // THE RAIL HOLDS LIVE WORK ONLY, and that is the whole of its job: *here is
-  // what needs you, beside the text it is about*. Nothing else lives here.
-  //
-  //   .gly-rail-band    anchored cards, at their marks
-  //   .gly-rail-notice  one sentence when the map is empty for a reason
-  //
-  // THREE SECTIONS ARE GONE AND EACH LEFT FOR ITS OWN REASON.
-  //
-  //   `.gly-rail-settled` — finished conversations. Not live work, and beside
-  //   nothing. They moved to the sheet first, and that region is gone too:
-  //   nothing resolves an instruction any more, so there is nothing settled to
-  //   show.
-  //
-  //   `.gly-rail-changed` — the trail's log. Deleted outright rather than
-  //   moved, because the trail is an OUTGOING MESSAGE TO THE AGENT and not a
-  //   history: nobody browses it, so no surface anywhere holds one. The count
-  //   rides the button that sends it. See rail.ts's outgoingCounts, which
-  //   carries the argument in full, and answer the question it poses there
-  //   (WHEN would the reviewer open it) before proposing a drawer again.
-  //
-  //   `.gly-rail-anchorless` — the old loose container is gone, but its live
-  //   work is not. Threads whose original mark disappeared render as complete
-  //   cards in `.gly-rail-unplaced` inside the notice flow, preserving delete
-  //   without pretending they can be positioned beside prose.
-  //
-  // Court, on the four sections it used to have: *"why does the settled/changed
-  // float with? why is there a settled vs changed in the first place? what's
-  // the difference?"* — settled is finished conversations and changed was the
-  // reviewer's own edits, two unlike things in one grey costume, and if the
-  // reviewer cannot tell them apart the presentation has already failed.
-  //
-  // See docs/superpowers/specs/2026-08-16-the-rail-holds-live-work.md.
-  makeRail() {
-    const root = document.createElement('aside');
-    root.className = 'gly-rail';
-    root.id = 'gly-rail';
-    // The band is the positioned context every anchored card lives in, and it
-    // is as tall as the cards it holds (paintAnchors writes that height —
-    // absolutely positioned children contribute none of their own). Its
-    // coordinates are the DOCUMENT's, less the band's own top; nothing below
-    // reads window.scrollY, because paintAnchors has already added it.
-    const band = document.createElement('div');
-    band.className = 'gly-rail-band';
-    // The flow below the positioned map holds empty-state copy and, when an
-    // instruction has lost its mark, a small section of complete cards. Those
-    // cards receive the same 26px gutter as the positioned band; without it the
-    // old loose container measured 1280/304 against 1306/278 for every other
-    // card and made one rail speak two visual languages.
-    const notice = document.createElement('div');
-    notice.className = 'gly-rail-notice';
-    root.append(band, notice);
-    // Beside the prose, in the centre card: right: 0 is the card's edge.
-    (document.querySelector('.gly-editor-card') ?? document.body).appendChild(
-      root,
-    );
-    return { root, notice, band };
-  }
 
   // --- the trail: the changed region, and the save that persists it ---
 
@@ -2284,15 +2012,12 @@ class App implements AppState {
     const view =
       document.documentElement.clientHeight || window.innerHeight || 0;
     const head = document.querySelector('.kit-bar');
-    const foot = this.bar && this.bar.root;
     const top = head ? head.getBoundingClientRect().bottom : 0;
-    const bottom =
-      foot && !foot.hidden ? foot.getBoundingClientRect().height : 0;
     // The send bar sticks to the window's foot, and History hides it.
     const send = document.querySelector('.kit-sendbar');
     const sendTop = send ? send.getBoundingClientRect().top : 0;
     const floor = sendTop > 0 && sendTop < view ? sendTop : view;
-    return { top, bottom: Math.min(view - bottom, floor) };
+    return { top, bottom: floor };
   }
 
   watchBar() {
@@ -2317,197 +2042,6 @@ class App implements AppState {
     window.addEventListener('resize', publish);
   }
 
-  // --- what the reviewer was typing, across a rebuild ---
-  //
-  // Every surface this walks is emptied and rebuilt by paintRail, which runs on
-  // every poll and every mutation. draftRoots is the list of places a reply can
-  // be half-written when that happens: the RAIL (its root, so the band is
-  // walked), the overall card, whose entries are thread cards with reply boxes
-  // of their own, and the SHEET, which was the fourth and was missing.
-  //
-  // It is a LIST, so it goes stale the moment the one card component renders on
-  // a surface nobody added here — measured, a thirty-five character reply typed
-  // into a sheet thread card came back `''` with focus on `BODY`, while the
-  // same gesture in the rail survived in the same run.
-  //
-  // TWO POPULATIONS CHANGED SURFACE AND THE LIST DID NOT HAVE TO, WHICH IS THE
-  // CASE IT HAS GONE STALE ON BEFORE. Settled conversations and anchorless ones
-  // used to render inside `this.rail.root` (the settled list and the anchorless
-  // section) and they render in the SHEET now — every one of them a thread card
-  // with a `.gly-thread-reply` box and a `data-draft` key. Both the surface they
-  // left and the surface they arrived at are already here, so no reply box has
-  // become unwalkable. That is worth stating rather than trusting, because this
-  // list's whole failure mode is a card moving to a root nobody added: had the
-  // settled cards moved to a fifth surface instead, this comment would be the
-  // change that was missed.
-  //
-  // THE SHEET GOES FIRST, AND ONLY WHILE IT IS OPEN, because it is the surface
-  // in this list that COLLIDES with the others. It renders `railThreads ∪
-  // overallThreads` plus the settled region, so its reply boxes carry exactly
-  // the `data-draft` keys the rail's and the panel's do — and both
-  // `carryDrafts` and `restoreDrafts` take the FIRST field under a key. First
-  // therefore has to mean "the one the reviewer can actually type into", which
-  // the sheet is whenever it is up: it is `inset: 0` at `z-index: 45`, and
-  // `railSurfaces` now hides the rail outright at EVERY width the sheet is open
-  // at rather than only below the breakpoint. Closed, it keeps its last render
-  // in the DOM, so listing it unconditionally would let a stale hidden field
-  // shadow the rail's live one.
-  draftRoots(): HTMLElement[] {
-    const roots: HTMLElement[] = [];
-    if (this.sheetOpen && this.sheet) {
-      roots.push(this.sheet.root);
-    }
-    roots.push(this.rail.root);
-    if (this.overall) {
-      roots.push(this.overall.root);
-    }
-    return roots;
-  }
-
-  // A field carries its own key in the DOM so capture needs to know nothing
-  // about what built it — the pairing survives a card that moved between the
-  // band and the anchorless section, or between the rail and the overall card.
-  draftFields(): HTMLTextAreaElement[] {
-    const out: HTMLTextAreaElement[] = [];
-    for (const root of this.draftRoots()) {
-      for (const el of root.querySelectorAll<HTMLTextAreaElement>(
-        '[data-draft]',
-      )) {
-        out.push(el);
-      }
-    }
-    return out;
-  }
-
-  captureDrafts(): {
-    key: string;
-    value: string;
-    start: number | null;
-    end: number | null;
-    focused: boolean;
-  }[] {
-    return this.draftFields().map((el) => ({
-      key: el.dataset.draft || '',
-      value: el.value,
-      // selectionStart is null on some input types; the arithmetic that clamps
-      // these treats a non-finite bound as "the end", which is where a caret
-      // that cannot be read belongs.
-      start: el.selectionStart,
-      end: el.selectionEnd,
-      focused: document.activeElement === el,
-    }));
-  }
-
-  restoreDrafts(
-    saved: {
-      key: string;
-      value: string;
-      start: number | null;
-      end: number | null;
-      focused: boolean;
-    }[],
-  ) {
-    if (!saved.length) {
-      return;
-    }
-    const fields = new Map<string, HTMLTextAreaElement>();
-    for (const el of this.draftFields()) {
-      const key = el.dataset.draft || '';
-      if (!fields.has(key)) {
-        fields.set(key, el);
-      }
-    }
-    const carried = carryDrafts(
-      saved,
-      Array.from(fields, ([key, el]) => ({ key, value: el.value })),
-    );
-    for (const put of carried) {
-      const el = fields.get(put.key);
-      if (!el) {
-        continue;
-      }
-      el.value = put.value;
-      if (put.focus) {
-        // Focus BEFORE the selection: focusing a textarea moves the caret to
-        // the end of its value, so the order is what decides whether the caret
-        // lands where the reviewer left it or where the browser prefers.
-        el.focus();
-      }
-      try {
-        el.setSelectionRange(put.start, put.end);
-      } catch {
-        // A field that cannot carry a selection still carries its text.
-      }
-    }
-  }
-
-  paintRail() {
-    // Read first, and out here rather than inside the rebuild: the drafts have
-    // to be lifted off the OLD cards before a single one is destroyed.
-    const drafts = this.captureDrafts();
-    const editing = this.editingThread
-      ? this.draftFields().find(
-          (el) => el.dataset.draft === `edit:${this.editingThread}`,
-        )
-      : undefined;
-    const editWords = editing && {
-      value: editing.value,
-      typed: editing.value !== editing.dataset.opened,
-    };
-    this.paintRailCards();
-    // EVERY SURFACE THIS DESTROYS IS REBUILT BEFORE THE RESTORE, or being in
-    // draftRoots() buys it nothing. The sheet used to be repainted at the FOOT
-    // of this function, after the restore had already run — so the restore
-    // wrote into sheet fields that were about to be destroyed, and then they
-    // were. Being in the list and being inside the capture/restore window are
-    // two separate requirements and a surface needs both.
-    //
-    // It is safe here, before paintAnchors: paintSheet sets `this.cards` aside
-    // and puts it back, so nothing it builds reaches the anchor pass either
-    // way, and its cards are in flow and never positioned.
-    if (this.sheetOpen) {
-      this.paintSheet();
-    }
-    // Then put back, and only then measure. A restored reply is a taller card
-    // than the empty one that replaced it, and stacking against the empty
-    // height is exactly the stale-geometry overlap this pass also fixes.
-    this.restoreDrafts(drafts);
-    // AN EDIT WHOSE INSTRUCTION LEFT TAKES ITS WORDS SOMEWHERE THAT STAYS. The
-    // instruction was sent, deleted or retracted between polls, so no card
-    // carries its edit box any more, and restoreDrafts had nowhere to put
-    // them. A box nobody typed in has nothing to keep. See strandEdit.
-    if (
-      this.editingThread &&
-      !this.draftFields().some(
-        (el) => el.dataset.draft === `edit:${this.editingThread}`,
-      )
-    ) {
-      this.editingThread = null;
-      if (editWords && editWords.typed && editWords.value.trim()) {
-        this.strandEdit(editWords.value);
-      }
-    }
-    // Watch the new cards before the first measure, so a card that grows
-    // between now and the reviewer's next scroll re-stacks the ones below it
-    // instead of being drawn over them.
-    this.watchCards();
-    // Last, and after every card is in the DOM at its real height: a card's
-    // position is measured from its own height, and a card that is not laid
-    // out has none.
-    this.paintAnchors();
-    // EVERY REBUILD MAKES NEW BUTTONS, so a sealed review has to disable them
-    // again — the seal is a state, and this function destroys the elements
-    // that were carrying it.
-    this.applySealedVerbs();
-    // And the light, for the same reason one line up: the card that was lit is
-    // a DIFFERENT ELEMENT now and carries none of the old one's classes. The
-    // run is held on the App precisely so this line can put it back — and if
-    // the run it was about has been decided there is no card for it any more,
-    // `litRuns` refuses, and the light goes out. The prose's half needs no such
-    // help; a decoration is re-derived by the redraw rather than wiped by it.
-    this.paintLit();
-  }
-
   // sendReply AND decideButton ARE DELETED, and they went with the card that
   // was their only site. `sendReply` POSTed /_galley/reply and `decideButton`
   // POSTed /_galley/accept and /_galley/reject; all three endpoints are 404 on
@@ -2528,12 +2062,11 @@ Object.assign(App.prototype, pendingMethods);
 // The review sheet — the narrow layout's bottom bar and the full-screen list
 // it opens — is its own module too — see web/sheet.ts — mixed in for the
 // same reason.
-Object.assign(App.prototype, sheetMethods);
 // The one card component — threadCard and its bubble and overall-card
 // wearings — and paintAnchors, the placement pass that puts every card
 // beside its own mark or block, are their own module too — see
 // web/cards.ts — mixed in for the same reason.
-Object.assign(App.prototype, cardMethods);
+Object.assign(App.prototype, tabMethods);
 // The comment composer — its popover, its placement, its two sends — and the
 // refused-fence note that shares its deny line, are their own module too —
 // see web/composer.ts — mixed in for the same reason.
@@ -2723,17 +2256,6 @@ export function spanIn(doc: PMNode, place: Place | null): Span | null {
 
 // sectionSpan and indexOfChild moved to web/figures.ts with the block grip
 // and figurePairs, their only readers.
-
-// cssEscape wraps CSS.escape, which every browser this editor supports has —
-// but jsdom and some headless harnesses do not, and a delegated listener that
-// throws takes every later one down with it. The fallback is deliberately
-// narrow: a run is a hex token from the Go side, so quoting is enough.
-function cssEscape(value: string): string {
-  const s = String(value);
-  return typeof CSS !== 'undefined' && CSS.escape
-    ? CSS.escape(s)
-    : s.replace(/["\\]/g, '\\$&');
-}
 
 // sameWords compares two words-by-ID maps. Cheap, and the reason
 // paintNoteWords can run on every editor update without dispatching one.

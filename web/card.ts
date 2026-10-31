@@ -50,7 +50,6 @@
 
 // The pure half of the collapse, which stays where probe.mjs can drive it with
 // no browser. See the paragraph above about the split.
-import { stackCards, RAIL_GAP } from './rail.ts';
 
 /**
  * cardShell builds the one card anatomy: an `<article class="gly-card">` with a
@@ -170,7 +169,7 @@ export function revealOn(
  *  wants `block: 'nearest'` rather than centring a whole column. The PREFERENCE
  *  is the same question wherever it is asked, so it has one answer here rather
  *  than a `matchMedia` call per call site. */
-export function motion(): ScrollBehavior {
+function motion(): ScrollBehavior {
   const reduce =
     typeof window.matchMedia === 'function' &&
     window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -438,6 +437,23 @@ type CardMeasurement = {
  *   container's own top, in the same coordinates as every anchorTop
  * @returns the height written
  */
+// The distance between two cards in a column; editor.css's --gly-rail-gap.
+export const RAIL_GAP = 10;
+
+export function stackCards<T extends { anchorTop: number; height: number }>(
+  cards: T[],
+  gap = RAIL_GAP,
+  ceiling = -Infinity,
+): (T & { top: number })[] {
+  const sorted = cards.slice().sort((a, b) => a.anchorTop - b.anchorTop);
+  let floor = ceiling;
+  return sorted.map((card) => {
+    const top = Math.max(card.anchorTop, floor);
+    floor = top + card.height + gap;
+    return { ...card, top };
+  });
+}
+
 export function placeCards(
   container: HTMLElement,
   measured: CardMeasurement[],
@@ -558,14 +574,4 @@ export function growthWatch(schedule: () => void): {
       return !!observer;
     },
   };
-}
-
-export function anchorNote(el: HTMLElement): HTMLElement {
-  let note = el.querySelector<HTMLElement>('.gly-card-note');
-  if (!note) {
-    note = document.createElement('div');
-    note.className = 'gly-card-note';
-    el.appendChild(note);
-  }
-  return note;
 }

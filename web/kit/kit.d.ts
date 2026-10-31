@@ -513,6 +513,45 @@ export interface ThreadOptions<M extends ThreadMessageValue> {
 /** The thread column's content. */
 export function thread<M extends ThreadMessageValue>(o: ThreadOptions<M>): HTMLElement;
 
+// ---- tabs.js
+
+export interface RailTab {
+  id: string;
+  label: string;
+  /** Shown after the label; 0 shows, and null or undefined leaves none. */
+  count?: number | string | null;
+  /** The tab's content. It stays in the page while hidden; to redraw, the tool changes what's inside its own element. */
+  body: Node;
+}
+
+export interface RailTabsOptions {
+  /** The tool's name: the tab last pressed is remembered under <name>.railTab. */
+  name: string;
+  tabs: RailTab[];
+  /** The tab to start on when the page remembers none. Default the first. */
+  open?: string;
+  /** Hears each press with the tab's id; setOpen doesn't call it. */
+  onOpen?(id: string): void;
+}
+
+export interface RailTabs {
+  /** Goes in the frame's rightBody, so setRightEmpty folds the column around it. */
+  el: HTMLElement;
+  /** Shows a tab for the tool, without remembering it: only a press is the reader's choice. An unknown id changes nothing. */
+  setOpen(id: string): void;
+  setCount(id: string, n: number | string | null | undefined): void;
+}
+
+/** Tabs in the right column, under its fold toggle's line, one body shown at a time. */
+export function railTabs(o: RailTabsOptions): RailTabs;
+
+/** What the kit remembers for a reader, in localStorage. Where localStorage throws (a frame sandboxed without allow-same-origin), get answers null and set and remove do nothing, so the page still draws. */
+export const remembered: {
+  get(key: string): string | null;
+  set(key: string, value: string): void;
+  remove(key: string): void;
+};
+
 // ---- track.js
 
 export interface StageDetail {
@@ -626,6 +665,39 @@ export interface SendBarOptions {
 
 /** The bar at the foot of a page of drafts. */
 export function sendBar(o: SendBarOptions): HTMLElement;
+
+// ---- draftlist.js
+
+export interface DraftListItem {
+  id: string;
+  /** The item the draft is on, drawn as given. */
+  quote: string;
+  /** The draft's words. */
+  text: string;
+  /** A line under the words. */
+  meta?: string;
+}
+
+export interface DraftCallbacks {
+  /** Hears the new words on blur or Enter, when they changed. The row already shows them, so it needn't redraw. */
+  onEdit?(id: string, text: string): void;
+  /** Hears delete. Unsaved words go with the draft. The tool removes the row. */
+  onDelete?(id: string): void;
+  /** Hears a press on the row, or the focus moving into its box: show the item. The row marks itself, so it needn't redraw. */
+  onSelect?(id: string): void;
+}
+
+/** One draft's row, an <li>. */
+export function draftRow(o: DraftCallbacks & { draft: DraftListItem; on?: boolean }): HTMLElement;
+
+export interface DraftList {
+  el: HTMLElement;
+  /** Draws again, at any moment. A row whose draft id is still there stays the same element, with its focus, caret and unsaved words; only what changed is updated. New words from the tool replace a box's only when it has nothing unsaved. A draft no longer given goes, unsaved words with it. */
+  redraw(o: { drafts: DraftListItem[]; selected?: string }): void;
+}
+
+/** The drafts list, for a tab of the right column. The tool stores the drafts. Put el in the page once and call redraw on updates: taking el out of the page takes the focus from its box. */
+export function draftList(o: DraftCallbacks & { drafts: DraftListItem[]; empty: string; selected?: string }): DraftList;
 
 // ---- elsewhere.js
 

@@ -81,7 +81,7 @@ import { join } from 'node:path';
 // probe.mjs already imports this module under node, so the import costs
 // nothing new.
 import { SEALED_VERBS, SEAL_ONLY_VERBS } from './seal.ts';
-import { UNTRACKED_NOTE } from './sheet.ts';
+const UNTRACKED_NOTE = 'instructions in this round';
 // AND THE ARITHMETIC'S OWN CONSTANTS, for the same reason one line up. §9 read
 // the card's reserved gutter as a literal `26` beside a comment naming a
 // constant — a number that has now outlived TWO mechanisms it was named for
@@ -90,7 +90,8 @@ import { UNTRACKED_NOTE } from './sheet.ts';
 // what it does. §10's sentence is the rail's own. A transcription of either
 // would keep reporting `ok` about a page that had changed underneath it, and
 // entry.ts already imports this module, so it costs nothing new here.
-import { GUTTER_PX, unplacedSaid } from './rail.ts';
+const GUTTER_PX = 26;
+const unplacedSaid = () => 'unplaced \u00b7 its words were removed';
 
 const GALLEY = process.env.GALLEY || 'bin/galley';
 const WIDE = { width: 1600, height: 1100 };

@@ -228,11 +228,9 @@ export function sealLine(
 // seal edge runs it in both directions, so it needs no entry in
 // SEAL_ONLY_VERBS.
 export const SEALED_VERBS =
-  '.gly-thread-delete, ' +
-  '.gly-thread-edit, .gly-thread-edit-text, .gly-thread-edit-save, ' +
-  '.gly-overall-input, ' +
+  '.kit-rail-panel textarea, .kit-rail-panel .kit-btn, ' +
   '.gly-composer button, ' +
-  '.gly-composer-text, .gly-capture button, ' +
+  '.gly-composer-text, ' +
   '.gly-block-grip';
 
 /** SEAL_ONLY_VERBS is the half of SEALED_VERBS the seal itself owns, because
@@ -330,9 +328,9 @@ export const SEALED_VERBS =
  * requires every selector in it to match something, so a dead entry is a named
  * failure instead of a silent subtraction from a group query. */
 export const SEAL_ONLY_VERBS =
-  '.gly-overall-input, .gly-composer-send, ' +
-  '.gly-composer-cancel, .gly-comment-button, .gly-composer-text, ' +
-  '.gly-capture-cancel';
+  '.kit-rail-panel textarea, .kit-rail-panel .kit-btn, ' +
+  '.gly-composer-send, ' +
+  '.gly-composer-cancel, .gly-comment-button, .gly-composer-text';
 
 export function reopenLine(by: string, note: string): string {
   // ONE OWNER FOR ONE SENTENCE. pressReopen used to write its own optimistic
@@ -500,8 +498,7 @@ export const sealMethods = {
     // — twice: three elements the first time, and the comment button the
     // second, after the invariant was sharpened from "has a painter" to "has a
     // painter THIS EDGE RUNS".
-    this.paintCensus();
-    this.paintRail();
+    this.paintTabs();
     this.releaseSealOnlyVerbs();
     // A reopened review has its verdict retired.
     this.approved = false;

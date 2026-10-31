@@ -61,7 +61,8 @@ type Options struct {
 // finding no live entry to writing its own, so the saved documents are opened
 // by the one serve that won, before its entry can be found. There is no idle
 // exit. On the way out every document is flushed and closed and stays in
-// docs.json: a stop is not a close.
+// docs.json: a stop is not a close. That happens in OnStop, before the entry
+// goes, so a restart can't start the new server while this one is still flushing.
 func Run(ctx context.Context, o Options) error {
 	if o.Log == nil {
 		o.Log = io.Discard
@@ -75,6 +76,7 @@ func Run(ctx context.Context, o Options) error {
 	h := NewHost()
 	h.sessions, h.log, h.savePath = o.Sessions, o.Log, DocsPath()
 	var watching sync.WaitGroup
+	closed := make(chan error, 1)
 	err := pageserve.Run(ctx, pageserve.Options{
 		Live: Live(), Assets: page.With(pageAssets()), API: h.Handler(), Events: h.events,
 		Tabs: func(t *localweb.Tabs) { h.tabs = t },
@@ -88,9 +90,21 @@ func Run(ctx context.Context, o Options) error {
 				h.watch(ctx, o.Every)
 			}()
 		},
+		OnStop: func(context.Context) {
+			watching.Wait()
+			closed <- h.closeAll()
+		},
 	})
 	watching.Wait()
-	return errors.Join(err, h.closeAll())
+	// A start that failed never reached OnStop, and one that overran is still in
+	// it; what is left to close here is whatever it hasn't taken.
+	err = errors.Join(err, h.closeAll())
+	select {
+	case closing := <-closed:
+		err = errors.Join(err, closing)
+	default:
+	}
+	return err
 }
 
 // Runtime is what the server says about one open document. URL is its base,

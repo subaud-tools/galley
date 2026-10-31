@@ -24,7 +24,6 @@
 // every other mixin wiring, not a cycle: bar.ts never imports from entry.ts.
 
 import { getJSON, postJSON, routes } from './net.ts';
-import { railSurfaces } from './rail.ts';
 import { agentHolds, roundInHand } from './roundbar.ts';
 import { age } from './suggestions.ts';
 import { roundCards, STAGE_READING } from './versions.ts';
@@ -331,92 +330,6 @@ export const barMethods = {
     this.status.title =
       'everything you do applies to the document as it happens — ' +
       'your instructions go to the agent as one round when you press Revise';
-  },
-
-  // --- the count on the narrow layout's bottom bar ---
-
-  paintCensus(this: AppShell) {
-    const marked = this.comments.length;
-    const parts = [`Instructions · ${marked}`];
-    // THE WHOLE-DOCUMENT CONVERSATION IS THE HANDLE'S TO COUNT, and counting it
-    // here as well is how `3 pending · 3 threads` came to sit beside
-    // `1 doc note` on a document holding three conversations, one of which was
-    // that note. Two surfaces, one partition, each naming its own side of it.
-    //
-    // THIS IS NOT A COUNT OF THE RAIL'S CARDS, and it must not be read as one.
-    // It counts every open conversation that is not about the whole file, and
-    // the rail cards only the ones with a PLACE in the document — so on a
-    // document holding an anchorless thread the bar says one more than the map
-    // shows, correctly, and `paintRailCards`' notice is what reconciles them.
-    // A version of this comment claimed the sum WAS what the rail holds; it was
-    // written when the anchorless cards were still in the rail and it survived
-    // them leaving, which is the shape this file's own entries warn about.
-    if (this.bar) {
-      this.bar.count.textContent = parts.join(' · ');
-      this.bar.count.disabled = false;
-    }
-  },
-
-  // --- which surfaces are on screen ---
-
-  // paintSurfaces is the ONLY place any of the three surfaces is shown or
-  // hidden. Every other piece of code sets state and calls this, so "rail and
-  // sheet are both rendered" is not a bug that can be introduced by adding a
-  // fourth caller — railSurfaces decides, once, from the width and the state.
-  // surfaces is that decision, asked. It exists because there are now TWO
-  // callers — this paints from it, and the bubble asks it whether the rail is
-  // already carrying conversations — and two spellings of the same width test
-  // is exactly how the two come to disagree about which surface owns a thread.
-  surfaces(this: AppShell): {
-    rail: boolean;
-    bar: boolean;
-    sheet: boolean;
-    collapsed: boolean;
-  } {
-    return railSurfaces({
-      width: window.innerWidth || document.documentElement.clientWidth || 0,
-      sheetOpen: this.sheetOpen,
-    });
-  },
-
-  paintSurfaces(this: AppShell) {
-    const s = this.surfaces();
-    const history = !!(this.versionsPanel && this.versionsPanel.open);
-    this.rail.root.hidden = history || !s.rail;
-    this.bar.root.hidden = history || !s.bar;
-    this.sheet.root.hidden = history || !s.sheet;
-    // Below the breakpoint `railSurfaces` forces `collapsed` regardless of any
-    // control — there is no rail to be beside, so `main` recentres to the
-    // document's own measure. See `body.gly-collapsed > main`.
-    document.body.classList.toggle('gly-collapsed', s.collapsed);
-    // The readout's last clause is width-dependent — the standing sentence is
-    // the sheet's head below the breakpoint and the readout's own above it — so
-    // crossing the breakpoint has to repaint it. This is the one place that
-    // decides what a width means, so it is the one place that can.
-    //
-    // A WIDTH THAT CHANGES ON A RESIZE IS FINE; ON A CLICK IT IS NOT. This runs
-    // on opening the sheet as well, which does not cross the breakpoint, so
-    // the clause it writes is unchanged there and the readout's box does not
-    // move — which is what motion.mjs holds.
-    this.paintReadout();
-    if (s.rail) {
-      // Hidden cards measure zero, so anything painted while collapsed has to
-      // be re-measured the moment the rail comes back.
-      this.scheduleAnchors();
-    } else {
-      // THE CARD GOES WITH THE COLUMN IT IS IN. The capture card is a child of
-      // the rail and positioned against the window at the moment it opened; a
-      // rail that has just been hidden takes it off screen with it, and leaving
-      // it "open" would mean the next width change put a half-typed instruction
-      // back at coordinates measured for a window that no longer exists.
-      this.closeCapture();
-    }
-    // THE LIGHT GOES WHERE THE RAIL GOES. Opening the sheet over the prose
-    // takes the band's cards off the page, and the light says *the
-    // card over there is about these words* — `litRuns` refuses when there is
-    // no card, so this call is only what makes it happen at the moment the
-    // surface changes rather than at the next hover.
-    this.paintLit();
   },
 
   // --- the mode toggle ---

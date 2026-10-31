@@ -22,21 +22,21 @@
 // `this` IS TYPED AGAINST `AppShell` (web/appshell.ts) — see that file's own
 // header for the this-typing decision.
 
-import { censusCounts } from './rail.ts';
-import type { PendingThread } from './rail.ts';
+import type { PendingThread } from './tabs.ts';
 import { getJSON, postJSON, routes } from './net.ts';
 import { runFor } from './runs.ts';
 import { arrivalMessage, queueArrivals, holdLabel } from './arrivals.ts';
 import {
   agentHolds,
   draftCountWords,
+  messageLine,
   primaryWords,
   roundStages,
   sendFace,
 } from './roundbar.ts';
 import { STAGE_READING } from './versions.ts';
 import type { AppShell, ArrivalItem } from './appshell.ts';
-import type { ReviseStateView, MessageView } from './wire';
+import type { ReviseStateView } from './wire';
 import { messagePill } from './kit/dom.js';
 import type { SuggestionLike } from './suggestions.ts';
 
@@ -73,14 +73,8 @@ export const REVISE_IDLE = 'Revise';
 
 /** The line under a held Revise's pill: the harness is holding the wake
  * because the agent is mid-turn. */
-export const MESSAGE_HELD_LINE =
-  'the agent is mid-turn; it reads this when the turn ends';
-
 /** The line under a Revise's pill: the agent's note, or the mid-turn line
  * while the harness holds it. */
-function messageLine(m: MessageView): string {
-  return m.held ? MESSAGE_HELD_LINE : m.line;
-}
 /**
  * reviseSeconds is R10: Revise says how long it has been, until the revision
  * LANDS. Whole seconds, floored; a clock that skewed backwards reads 0.
@@ -156,8 +150,8 @@ export function verdictLabel(view: VerdictView | null | undefined): string {
   if (Array.isArray(instructions)) {
     return instructions.length > 0 || hasChanges ? REVISE_IDLE : APPROVE_IDLE;
   }
-  const counts = censusCounts(view);
-  return counts.threads > 0 || hasChanges ? REVISE_IDLE : APPROVE_IDLE;
+  const threads = (view && view.comments) || [];
+  return threads.length > 0 || hasChanges ? REVISE_IDLE : APPROVE_IDLE;
 }
 
 // The body postVerdict sends. `verdict`/`approveOnAnswer` are the two real
@@ -182,7 +176,7 @@ export const verdictMethods = {
     holdOn.classList.toggle('gly-reserved', !this.holding);
     hold.title = this.holding
       ? 'show the arrivals that landed while you were holding — they are already in the document'
-      : 'keep new arrivals out of the rail — they still land in the document, they just wait for a card';
+      : 'keep new arrivals quiet — they still land in the document, they just wait';
     hold.classList.toggle('gly-on', this.holding);
   },
 
@@ -317,6 +311,7 @@ export const verdictMethods = {
       (opens) => this.openStage(opens),
       this.versionsButton,
     );
+    this.paintChat();
   },
 
   // askRevise is the PRIMARY's press, and it only decides. In History it is the
@@ -410,7 +405,6 @@ export const verdictMethods = {
           // what just went to the agent (only FILED instructions travel), and
           // leaving it open reads as pending work that is not. Close it and
           // discard — openCapture clears the box on the next open.
-          this.closeCapture();
           // AND THE TRAIL SETTLES ON SEND. The reviewer's hand edits were the
           // round's outgoing message; pressing Revise hands them off, so the
           // ghosts and glows that were "what am I about to tell the agent"
@@ -687,7 +681,7 @@ export const verdictMethods = {
       }
     }
     this.paintMode();
-    this.paintRail();
+    this.paintTabs();
     if (batch.length === 0) {
       return;
     }
@@ -696,7 +690,6 @@ export const verdictMethods = {
     this.arrivalQueue = queueArrivals(this.arrivalQueue, batch);
     this.stripBatch = batch;
     this.showStrip(arrivalMessage(batch));
-    this.pulseCensus();
     this.clearNewLater();
   },
 };

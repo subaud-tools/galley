@@ -1,27 +1,35 @@
 // shell.ts — the page around the editor, from the family kit: the bar with its
-// switcher and Approve, the left index of open reviews, the thread column, and
-// the centre card the editor sits in. The front page takes the bar from here too.
+// switcher and Approve, the left index of open reviews, the right column's tabs,
+// and the centre card the editor sits in. The front page takes the bar from here too.
 //
 // Both pages read one GET /api/pages, on the first draw and on each `pages`
 // event, and a switch between them is a navigation.
 
 import {
   bar,
+  buttons,
   card,
   createApi,
+  createDrafts,
+  draftList,
   frame,
   h,
   indexRow,
   indexSection,
   keepElsewhere,
   live,
+  railTabs,
   sendBar,
   stageTrack,
   thread,
+  threadMessage,
   type BarHandle,
+  type Frame,
+  type ThreadMessageValue,
 } from '/_kit/kit.js';
 import { docHref, pageIdOf, stateWords, switcherItems } from './pagelist.ts';
-import type { GalleyChrome } from './roundbar.ts';
+import type { GalleyChrome, TabActions } from './roundbar.ts';
+import { strandedValue, type EditRowValue } from './tabs.ts';
 import type { PageView } from './wire.d.ts';
 
 // The tool's name, for the bar and for what the frame remembers.
@@ -128,6 +136,216 @@ function makeSendBar(): HTMLElement {
   return el;
 }
 
+// Below this the index starts folded.
+const INDEX_FITS_WIDTH = 1240;
+
+const TAB_INSTRUCTIONS = 'instructions';
+const TAB_CHAT = 'chat';
+const CHAT_HINT = 'Ask about the whole document, sent with the next Revise';
+const REVERT_NOTE =
+  'this puts the words back and drops your undo history — press again';
+
+/** A hand edit's row: the words it took out, the words it put in, and Revert. */
+function editRow(e: EditRowValue, revert: (key: string) => void): HTMLElement {
+  return h(
+    'li',
+    { class: 'kit-draft-row gly-edit-row', 'data-edit-key': e.key },
+    h('span', { class: 'kit-label' }, e.head),
+    h(
+      'p',
+      { class: 'gly-edit-words' },
+      e.before ? h('del', null, e.before) : null,
+      e.before && e.after ? ' ' : null,
+      e.after ? h('ins', null, e.after) : null,
+    ),
+    e.armed ? h('span', { class: 'kit-meta' }, REVERT_NOTE) : null,
+    e.key
+      ? buttons([
+          {
+            label: e.armed ? 'Revert?' : 'Revert',
+            danger: e.armed,
+            run: () => revert(e.key),
+          },
+        ])
+      : null,
+  );
+}
+
+/** The right column: the kit's two tabs, each built once so a box keeps its words,
+ * and what the editor paints them through. */
+function makeTabs(
+  cols: Frame,
+  doc: string,
+): Pick<
+  GalleyChrome,
+  | 'wireTabs'
+  | 'paintDrafts'
+  | 'paintChat'
+  | 'showRow'
+  | 'openChat'
+  | 'keepInChat'
+  | 'showComposer'
+  | 'composerGone'
+> {
+  let act: TabActions | null = null;
+  const callbacks = {
+    onEdit: (key: string, text: string) => act?.edit(key, text),
+    onDelete: (key: string) => act?.remove(key),
+    onSelect: (key: string) => act?.select(key),
+  };
+  const textList = draftList({
+    drafts: [],
+    empty: 'No instructions yet.',
+    ...callbacks,
+  });
+  const chatList = draftList({ drafts: [], empty: '', ...callbacks });
+  const edits = h('ul', { class: 'kit-draft-rows gly-edit-rows' });
+  const instructions = h(
+    'div',
+    { class: 'gly-tab' },
+    h('div', { id: 'gly-composer-slot' }),
+    h('div', { class: 'kit-label' }, 'This round · on the text'),
+    textList.el,
+    edits,
+    h(
+      'p',
+      { class: 'kit-meta gly-tab-hint' },
+      'Select words in the document to add one.',
+    ),
+  );
+
+  const words = createDrafts();
+  const box = words.box(TAB_CHAT, CHAT_HINT, 3);
+  box.box.id = 'gly-chat-box';
+  box.box.setAttribute('aria-label', CHAT_HINT);
+  const send = () => {
+    const text = words.take(TAB_CHAT).trim();
+    if (text && act) {
+      void act.file(text).then((ok) => {
+        if (!ok) {
+          words.restore(TAB_CHAT, text);
+        }
+      });
+    }
+  };
+  const chat = thread<ThreadMessageValue>({
+    id: TAB_CHAT,
+    name: 'Chat about the whole document',
+    note: { el: box.el, box: box.box, send },
+  });
+  // The kit draws the thread whole, and drawing it again would take the box out
+  // of the page, so its messages are kept in a list of their own in its place.
+  const said = h('ul', { class: 'kit-thread-msgs' });
+  const none = chat.querySelector('.kit-empty')!;
+  const told = h(
+    'div',
+    { class: 'gly-chat-said' },
+    none.cloneNode(true),
+    said,
+    h('div', { class: 'gly-chat-drafts' }, chatList.el),
+  );
+  none.replaceWith(told);
+
+  const tabs = railTabs({
+    name: NAME,
+    tabs: [
+      { id: TAB_INSTRUCTIONS, label: 'Instructions', body: instructions },
+      { id: TAB_CHAT, label: 'Chat', body: chat },
+    ],
+    onOpen: (id) => {
+      inFront = id;
+      gaveWay = '';
+    },
+  });
+  // Which tab is showing, and the one the composer took the place of. The kit
+  // remembers a press but doesn't say what it has open.
+  let inFront = tabs.el
+    .querySelector('.kit-ctl.on')
+    ?.textContent?.startsWith('Chat')
+    ? TAB_CHAT
+    : TAB_INSTRUCTIONS;
+  let gaveWay = '';
+  cols.rightBody?.append(tabs.el);
+  const show = (id: string) => {
+    inFront = id;
+    tabs.setOpen(id);
+  };
+  // A fold is held on a card until the card changes, and each ask is a new one:
+  // something the reader has to see opens the column even if they had folded it.
+  let asks = 0;
+  const unfold = () => {
+    asks += 1;
+    cols.setRightEmpty(false, `${doc}/${asks}`);
+  };
+  cols.setRightEmpty(false, doc);
+
+  let drawnEdits = '';
+  let drawnSaid = '';
+  return {
+    wireTabs(actions) {
+      act = actions;
+    },
+    paintDrafts(v) {
+      textList.redraw({ drafts: v.text, selected: v.selected });
+      chatList.redraw({ drafts: v.chat, selected: v.selected });
+      tabs.setCount(TAB_INSTRUCTIONS, v.counts.instructions);
+      tabs.setCount(TAB_CHAT, v.counts.chat);
+      const key = JSON.stringify(v.edits);
+      if (key !== drawnEdits) {
+        drawnEdits = key;
+        edits.replaceChildren(
+          ...v.edits.map((e) => editRow(e, (k) => act?.revert(k))),
+        );
+      }
+      told.classList.toggle('gly-chat-holds', v.chat.length > 0);
+    },
+    paintChat(messages) {
+      const key = JSON.stringify(messages);
+      if (key !== drawnSaid) {
+        drawnSaid = key;
+        said.replaceChildren(...messages.map((m) => threadMessage(m)));
+        told.classList.toggle('gly-chat-told', messages.length > 0);
+      }
+    },
+    showRow(key) {
+      show(TAB_INSTRUCTIONS);
+      gaveWay = '';
+      unfold();
+      const row = [
+        ...textList.el.querySelectorAll<HTMLElement>('[data-draft-id]'),
+      ].find((r) => r.dataset.draftId === key);
+      row?.scrollIntoView({ block: 'nearest' });
+    },
+    openChat() {
+      show(TAB_CHAT);
+      gaveWay = '';
+      unfold();
+      box.box.focus();
+    },
+    keepInChat(kept) {
+      const next = strandedValue(words.get(TAB_CHAT), kept);
+      if (next !== null) {
+        words.restore(TAB_CHAT, next);
+      }
+      show(TAB_CHAT);
+      unfold();
+    },
+    showComposer() {
+      if (inFront !== TAB_INSTRUCTIONS) {
+        gaveWay = inFront;
+        show(TAB_INSTRUCTIONS);
+      }
+      unfold();
+    },
+    composerGone() {
+      if (gaveWay) {
+        show(gaveWay);
+        gaveWay = '';
+      }
+    },
+  };
+}
+
 /** Builds the page around the editor's <main>: the rounds, the centre card and
  * the send bar. Approve asks the editor's own verdict, so a press can't seal over
  * unsent work: with drafts it offers Revise & Approve. */
@@ -141,9 +359,15 @@ export function mountShell(verdict: () => void): void {
   const name = document.getElementById('editor')?.dataset.doc ?? '';
   const cols = frame({
     name: NAME,
-    left: { panel: 'index', label: 'Reviews' },
+    // With both columns open a narrow window leaves the prose a few words a line,
+    // and the switcher on the bar lists the same reviews.
+    left: {
+      panel: 'index',
+      label: 'Reviews',
+      folded: window.innerWidth < INDEX_FITS_WIDTH,
+    },
     centre: { label: 'Document' },
-    right: { panel: 'thread', label: 'Thread' },
+    right: { panel: 'thread', label: 'Instructions and chat' },
   });
   const crumb = h('span', { class: 'kit-card-crumb' }, name);
   const stages = h('div', { class: 'gly-stages' });
@@ -175,10 +399,7 @@ export function mountShell(verdict: () => void): void {
   editorCard.classList.add('gly-editor-card');
   editorCard.querySelector('.kit-card-body')?.replaceChildren(main);
   cols.centre.append(stages, editorCard, makeSendBar());
-  cols.rightBody?.append(
-    thread({ empty: 'Select an instruction to see its thread.' }),
-  );
-  cols.setRightEmpty(true, `${id}/`);
+  const tabs = makeTabs(cols, id);
   app.append(b.el, cols.left!, cols.centre, cols.right!);
   // The editor's one readout is the bar's status.
   const status = b.el.querySelector('.kit-status');
@@ -189,6 +410,7 @@ export function mountShell(verdict: () => void): void {
   }
   let drawn = '';
   const chrome: GalleyChrome = {
+    ...tabs,
     paintPrimary(label) {
       b.setPrimary(label ? { label, run: verdict } : null);
     },

@@ -20,7 +20,7 @@
 // without the other the grips overlap by exactly the difference.
 
 import type { Node as PMNode } from '@tiptap/pm/model';
-import { elide, type PendingThread } from './rail.ts';
+import { elide, type PendingThread } from './tabs.ts';
 
 // The top-level node types that get a grip, in the browser schema's names —
 // which are also the Go side's BlockKind strings, so a BlockRef's `kind`

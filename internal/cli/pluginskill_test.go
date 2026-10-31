@@ -132,28 +132,12 @@ func TestSkillsInstallWritesThePluginSkill(t *testing.T) {
 	}
 }
 
-// The channel rewrites an installed copy that differs from the binary's, and
-// says so on stderr only: its stdout is the MCP stream.
-func TestChannelStartRefreshesAStaleSkill(t *testing.T) {
-	home := skillHome(t)
-	dir := filepath.Join(home, ".pi", "agent", "skills", "reviewing-a-document")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	dest := filepath.Join(dir, "SKILL.md")
-	if err := os.WriteFile(dest, []byte("---\nname: reviewing-a-document\n---\nold\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	var errw strings.Builder
-	stdout, _ := captureOutput(t, func() { refreshSkill(&errw) })
-	if stdout != "" {
-		t.Errorf("the refresh wrote to stdout, the MCP stream: %q", stdout)
-	}
-	if got, err := os.ReadFile(dest); err != nil || string(got) != pluginSkill(t) {
-		t.Errorf("the stale skill was not refreshed (%v):\n%s", err, got)
-	}
-	if !strings.Contains(errw.String(), dest) {
-		t.Errorf("the refresh did not name the path it rewrote on stderr: %q", errw.String())
+// The channel refreshes the skill under its own name: pageserve looks for one
+// named after the tool unless it is told.
+func TestChannelRefreshesTheSkillByItsName(t *testing.T) {
+	c := shell()
+	if c.SkillName != "reviewing-a-document" || c.Skill == nil {
+		t.Fatalf("the channel would not refresh galley's skill: name %q, skill set %t", c.SkillName, c.Skill != nil)
 	}
 }
 

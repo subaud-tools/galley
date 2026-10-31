@@ -49,6 +49,7 @@ import {
   primaryWords,
   roundStages,
   sendFace,
+  MESSAGE_HELD_LINE,
 } from './roundbar.ts';
 
 import {
@@ -146,7 +147,6 @@ import {
   clockTime,
   VERDICT_ENTRUSTED,
   VERDICT_DISCARDED,
-  MESSAGE_HELD_LINE,
 } from './verdict.ts';
 import { MESSAGE_STATES } from './kit/msgstate.js';
 import {
@@ -176,7 +176,6 @@ import {
   arrivalNeedsStrip,
   queueArrivals,
   nextArrival,
-  holdLabel,
   arrivalAuthor,
   ARRIVAL_AGENT,
 } from './arrivals.ts';
@@ -211,24 +210,22 @@ import {
   trailDecorations,
 } from './trail.ts';
 import {
-  stackCards,
-  railSurfaces,
-  censusCounts,
-  unplacedSaid,
-  decidable,
   stepPending,
   keyTargetIsEditable,
   threadLabel,
   growOnInput,
   HEAD_QUOTE_CHARS,
   overallThreads,
-  railThreads,
+  textThreads,
   threadPlacement,
-  carryDrafts,
-  RAIL_GAP,
-  RAIL_MIN_WIDTH,
-} from './rail.ts';
-import { strandedValue } from './cards.ts';
+  strandedValue,
+  textDrafts,
+  chatDrafts,
+  editRows,
+  tabCounts,
+  chatMessages,
+} from './tabs.ts';
+import { stackCards, RAIL_GAP } from './card.ts';
 import { submitOnEnter } from './kit/enter.js';
 
 let failures = 0;
@@ -4427,186 +4424,6 @@ const unplacedEntry = (c) => {
 }
 
 {
-  // ONE SURFACE, TWO STATES. This is the invariant the whole narrow layout
-  // rests on, so it is asserted directly rather than inferred from the CSS.
-  const wide = railSurfaces({
-    width: 1400,
-    collapsed: false,
-    sheetOpen: false,
-  });
-  check(
-    'a wide viewport gets the rail and nothing else',
-    wide.rail && !wide.bar && !wide.sheet,
-    wide,
-  );
-
-  const collapsed = railSurfaces({
-    width: 1400,
-    collapsed: true,
-    sheetOpen: false,
-  });
-  check(
-    'collapsing hides the rail without summoning the sheet',
-    !collapsed.rail && !collapsed.bar && !collapsed.sheet,
-    collapsed,
-  );
-
-  // THE SHEET IS THE REVIEW'S LIST AT EVERY WIDTH, and this is the check that
-  // had to change. It used to read `sheet === false` at 1400 whatever
-  // `sheetOpen` said — correct while the sheet was the rail's REPLACEMENT for
-  // the widths the rail does not exist at, and a straight regression the moment
-  // settled and anchorless conversations moved into it: `↺ reopen` is the only
-  // way back from a mis-clicked `✓ resolve`, and it would have lived on a
-  // surface no desktop reviewer could open. Run red against the tracked build
-  // it reports `{rail: true, sheet: false}`.
-  const wideSheet = railSurfaces({
-    width: 1400,
-    collapsed: false,
-    sheetOpen: true,
-  });
-  check(
-    'a wide viewport can open the sheet — the settled conversations live there now',
-    wideSheet.sheet === true,
-    wideSheet,
-  );
-  // AND THE RAIL GOES WHEN IT DOES. One surface, one state: the invariant
-  // below is not weakened by the sheet becoming reachable, it is enforced from
-  // the other side.
-  check(
-    'and the rail is not painted underneath it',
-    wideSheet.rail === false,
-    wideSheet,
-  );
-
-  const narrow = railSurfaces({
-    width: 800,
-    collapsed: false,
-    sheetOpen: false,
-  });
-  check(
-    'a narrow viewport forces collapse and shows the bottom bar',
-    !narrow.rail && narrow.bar && narrow.collapsed === true,
-    narrow,
-  );
-
-  const sheet = railSurfaces({ width: 800, collapsed: false, sheetOpen: true });
-  check(
-    'the sheet never renders beside the rail',
-    sheet.sheet === true && sheet.rail === false,
-    sheet,
-  );
-
-  // ONE SURFACE, ONE STATE — stated over every combination rather than over the
-  // one that used to be unreachable. This is the invariant railSurfaces exists
-  // for and it survives the sheet becoming a wide-screen surface unchanged.
-  const every = [];
-  for (const width of [800, 991, RAIL_MIN_WIDTH, 1400]) {
-    for (const collapsed of [false, true]) {
-      for (const sheetOpen of [false, true]) {
-        every.push({
-          at: { width, collapsed, sheetOpen },
-          got: railSurfaces({ width, collapsed, sheetOpen }),
-        });
-      }
-    }
-  }
-  check(
-    'rail and sheet cannot both be true at any width, collapse or sheet state',
-    every.every((e) => !(e.got.rail && e.got.sheet)),
-    every.filter((e) => e.got.rail && e.got.sheet),
-  );
-
-  // The boundary is 992 INCLUSIVE of the rail — the handoff's "wide (>=992px)".
-  check(
-    'the surface boundary is exactly RAIL_MIN_WIDTH',
-    railSurfaces({ width: RAIL_MIN_WIDTH, collapsed: false, sheetOpen: false })
-      .rail === true &&
-      railSurfaces({
-        width: RAIL_MIN_WIDTH - 1,
-        collapsed: false,
-        sheetOpen: false,
-      }).bar === true,
-  );
-}
-
-{
-  // The census counts THE SERVER'S ANSWER. This is the check that documents the
-  // constraint: censusCounts is handed the /_galley/pending payload and has no
-  // access to a card list, so there is no path by which it can report what was
-  // rendered instead of what is pending.
-  const view = { comments: [{ key: 'cm-1' }, { key: 'cm-2' }] };
-  const c = censusCounts(view);
-  check('the census counts every thread', c.threads === 2, c);
-  check(
-    'an empty payload counts to zero rather than throwing',
-    censusCounts({}).threads === 0 && censusCounts(undefined).threads === 0,
-  );
-  // The payload carries no suggestions, so the census has no suggestion half
-  // left: nothing beside the thread numbers.
-  check(
-    'the census reports thread numbers and nothing else',
-    Object.keys(c).sort().join(',') === 'threads',
-    Object.keys(c),
-  );
-
-  // The total is still every open conversation, which is the number Approve
-  // is withheld on. A doc instruction ALONE must not read as a settled document.
-  check(
-    'a lone open doc instruction still counts in the total verdictLabel reads',
-    censusCounts({
-      comments: [{ key: 'cd-1', anchor: 'document' }],
-    }).threads === 1,
-  );
-  check(
-    'and verdictLabel still refuses Approve on it',
-    verdictLabel({
-      comments: [{ key: 'cd-1', anchor: 'document' }],
-    }) === REVISE_IDLE,
-  );
-}
-
-{
-  // ✓ ALL IS DELETED, AND SO ARE THE TEN CHECKS ON ITS COPY. `SWEEP_TITLE`,
-  // `SWEEP_ACCEPT`, `SWEEP_SETTLE`, `sweepLabel` and `sweepSaid` were the
-  // tooltip, the label and the after-sentence of a button that POSTed
-  // /_galley/sweep — a 404 on the rounds-only server, on a control `makeCensus`
-  // had already stopped appending to the strip. Neither population it swept
-  // exists: there are no proposals to accept and no conversations to settle.
-  //
-  // WHAT THE CHECKS WERE FOR IS RECORDED IN rail.ts RATHER THAN LOST. They read
-  // the reviewer-visible STRINGS and not the predicate, deliberately, because
-  // the defect was a tooltip promising "open questions survive" over a predicate
-  // (`Answered()` = the agent spoke last) that closed every agent question
-  // nobody had replied to — a check on the predicate would have been green
-  // through the whole of it. That rule outlives the button and is written down
-  // where the constants were.
-
-  // Unplaced instructions are complete cards in the rail now; this is the
-  // section label above them, not a direction to another surface.
-  // IT NAMES THE STATE, IT DOES NOT COUNT IT. `1 unplaced instruction` put a
-  // number where the reviewer can already see the cards, and said nothing about
-  // WHY the section exists — the fact that explains it (the words these
-  // instructions were about are not in the document any more) was being carried
-  // by an apologising sentence inside every card, which is deleted.
-  check(
-    'the rail head names what happened to an unplaced instruction',
-    unplacedSaid(1) === 'unplaced \u00b7 its words were removed',
-    unplacedSaid(1),
-  );
-  check(
-    'and the plural keeps a count, because "its words" is false of several',
-    unplacedSaid(3) === 'unplaced \u00b7 3 \u00b7 their words were removed',
-    unplacedSaid(3),
-  );
-  check(
-    'and it says nothing when every instruction is placed',
-    unplacedSaid(0) === '' &&
-      unplacedSaid(undefined) === '' &&
-      unplacedSaid(-1) === '',
-  );
-}
-
-{
   const runs = ['a', 'b', 'c'];
   check('j steps forward and wraps', stepPending(runs, 'c', 1) === 'a');
   check('k steps back and wraps', stepPending(runs, 'a', -1) === 'c');
@@ -5215,113 +5032,278 @@ const unplacedEntry = (c) => {
 // comment lost its place when nothing of the sort happened.
 
 {
-  const range = threadLabel({ heading: 'the request path' });
   check(
-    'a range thread is labelled by the text it highlights',
-    range.label === 'the request path' && range.adrift === false,
-    range,
+    'a draft on words quotes them whole',
+    threadLabel({ heading: 'the request path' }) === '“the request path”',
   );
-
-  const orphan = threadLabel({ heading: 'gone' }, { anchored: false });
-  // THE APOLOGY IS DELETED AND THE FACT IS KEPT. `adrift` is still the only
-  // thing that discriminates this population — it dashes the card and withholds
-  // the jump — but the grey sentence it used to carry ("this instruction is not
-  // tied to a mark — its original highlight is gone; you can still delete it")
-  // told the reviewer about a verb they were looking at and never said WHICH
-  // WORDS went. The card quotes its lost anchor now, struck through in the
-  // removal colour; the section head names the state once.
   check(
-    'a range thread with no mark is the only one called adrift',
-    orphan.adrift === true && orphan.note === '',
-    orphan,
+    'a whole-document draft says so',
+    threadLabel({ anchor: 'document' }) === 'Whole document',
   );
-
-  const doc = threadLabel({
-    anchor: 'document',
-    heading: 'the whole document',
-  });
   check(
-    'a document thread is about the whole document, and is never adrift',
-    doc.label === 'whole document' && doc.adrift === false && doc.note === '',
-    doc,
+    'a draft on a heading names its section',
+    threadLabel({
+      anchor: 'block',
+      blockKind: 'heading',
+      heading: '## Design',
+    }) === 'On §Design',
   );
-
-  const heading = threadLabel({
-    anchor: 'block',
-    blockKind: 'heading',
-    heading: '## Design',
-  });
   check(
-    'a thread on a heading cards as a section thread',
-    heading.label === 'on §Design' && heading.adrift === false,
-    heading,
+    'a draft on a block names the block',
+    threadLabel({ anchor: 'block', heading: 'flow.png' }) === 'On flow.png',
   );
-
-  const block = threadLabel({
-    anchor: 'block',
-    blockKind: 'image',
-    heading: 'the request path (flow.png)',
-  });
   check(
-    'a thread on a block names the block',
-    block.label === 'on the request path (flow.png)' && block.adrift === false,
-    block,
+    'a figure rectangle says it is a region',
+    threadLabel({ anchor: 'block', heading: 'x', region: { x: 0 } }) ===
+      'On a region of the figure',
   );
-
-  // --- AND THE HEAD IS BOUNDED, WHICH IS §7 OF THE LIVE REVIEW ---
-  //
-  // Court filed an instruction on a passage spanning many blocks and the card
-  // that appeared wore the WHOLE passage as its head: roughly twenty lines of
-  // capitals, a card that was mostly its own title. The composer's head had
-  // carried a stated bound since it was written (COMPOSER_QUOTE_CHARS) and the
-  // CARD's had none, so the two surfaces quoted the same anchor a moment apart
-  // and only one of them cut it.
-  //
-  // READ AGAINST THE APP'S OWN RESERVE, not a copy of it: `HEAD_QUOTE_CHARS`
-  // is imported, so retuning the bound with the rail's width or the head's type
-  // moves this check with it rather than leaving it asserting a number nothing
-  // uses any more.
-  const longSaid =
-    'Four Cognito behaviors that shaped this Each of these was measured ' +
-    'rather than read, and each explains a decision above that otherwise ' +
-    'looks arbitrary.';
-  const long = threadLabel({ heading: longSaid });
-  check(
-    'a card head quotes a bounded anchor, not the whole selected passage',
-    long.label.length === HEAD_QUOTE_CHARS &&
-      long.label.endsWith('\u2026') &&
-      longSaid.startsWith(long.label.slice(0, -1)),
-    long,
-  );
-  // THE NEWLINES GO WITH IT. A selection spanning blocks arrives with the block
-  // boundaries in it, and a head is ONE LINE of chrome — a bound that counted
-  // characters and kept the newlines would still draw a paragraph.
-  const wrapped = threadLabel({ heading: 'first block\n\nsecond block' });
-  check(
-    'and a multi-block anchor is flattened to one line',
-    wrapped.label === 'first block second block',
-    wrapped,
-  );
-  // THE BLOCK BRANCHES ARE BOUND BY THE SAME FUNCTION, because a section
-  // heading can be as long as any sentence and the § branch had its own
-  // spelling of the label. One cut, two callers.
   const longHeading = threadLabel({
     anchor: 'block',
     blockKind: 'heading',
-    heading: `## ${longSaid}`,
+    heading: `## ${'long words '.repeat(20)}`,
   });
   check(
-    'a long section heading is bounded too',
-    longHeading.label.startsWith('on \u00a7') &&
-      longHeading.label.endsWith('\u2026') &&
-      longHeading.label.length === HEAD_QUOTE_CHARS + 4,
+    'a long section heading is bounded and on one line',
+    longHeading.endsWith('\u2026') &&
+      longHeading.length === HEAD_QUOTE_CHARS + 4,
     longHeading,
   );
-  // A SHORT ANCHOR IS UNTOUCHED, which is the half a bound gets wrong by
-  // ellipsizing everything. `elide` cuts only past the reserve.
+}
+
+// --- the right column's two tabs ---
+
+{
+  let filedAt = 0;
+  const draft = (key, extra) => ({
+    key,
+    heading: '',
+    entries: [
+      { author: 'court', at: `2026-10-31T0${filedAt++}`, text: `words ${key}` },
+    ],
+    run: '',
+    anchor: '',
+    anchorKey: '',
+    blockKind: '',
+    region: null,
+    instruction: true,
+    ...extra,
+  });
+  const threads = [
+    draft('t', { run: 'r1', heading: 'some words' }),
+    draft('b', { anchor: 'block', anchorKey: 'k1', heading: 'a block' }),
+    draft('f', { anchor: 'block', anchorKey: 'k1', region: { x: 0.1 } }),
+    draft('g', { anchor: 'block', anchorKey: 'gone', heading: 'left' }),
+    draft('d', { anchor: 'document' }),
+  ];
+  const blocks = [{ key: 'k1', index: 3 }];
+  const rows = textDrafts(threads, blocks);
   check(
-    'and an anchor inside the bound is left exactly as it was',
-    threadLabel({ heading: 'the request path' }).label === 'the request path',
+    'text, block and figure drafts are rows in Instructions, whole-document ones are not',
+    rows.map((r) => r.id).join('') === 'tbfg',
+    rows,
+  );
+  check(
+    'a row carries its quote and its words',
+    rows[0].quote === '“some words”' && rows[0].text === 'words t',
+    rows[0],
+  );
+  check(
+    'a draft whose words left says so on its row',
+    rows[3].meta.includes('its words were removed') &&
+      !rows[0].meta.includes('removed'),
+    rows,
+  );
+  const dated = (key, at) => ({
+    ...draft(key),
+    entries: [{ author: 'court', at, text: key }],
+  });
+  check(
+    'rows keep the order they were filed in, whatever order the server lists them',
+    textDrafts(
+      [
+        dated('c', '2026-10-31T03:00:00Z'),
+        dated('a', '2026-10-31T01:00:00Z'),
+        dated('b', '2026-10-31T02:00:00Z'),
+      ],
+      [],
+    )
+      .map((r) => r.id)
+      .join('') === 'abc',
+  );
+  check(
+    'a whole-document draft is a row in Chat',
+    chatDrafts(threads)
+      .map((r) => r.id)
+      .join('') === 'd',
+  );
+  const changes = [
+    { key: 'c1', kind: 'changed', before: 'old', after: 'new' },
+    { kind: 'removed', before: 'gone' },
+  ];
+  const edits = editRows(changes, 'c1');
+  check(
+    'a hand edit is a "your edit" row with its old and new words',
+    edits[0].head === 'your edit · changed' &&
+      edits[0].before === 'old' &&
+      edits[0].after === 'new',
+    edits,
+  );
+  check(
+    'only the pressed edit is armed, and one with no key cannot be',
+    edits[0].armed && !edits[1].armed && edits[1].key === '',
+    edits,
+  );
+  const counts = tabCounts(threads, changes);
+  check(
+    'Instructions counts its drafts and the hand edits; Chat counts its drafts',
+    counts.instructions === 6 && counts.chat === 1,
+    counts,
+  );
+  check(
+    'no drafts and no payload count as none',
+    tabCounts(null, undefined).instructions === 0 &&
+      tabCounts(null, undefined).chat === 0,
+  );
+}
+
+{
+  const round = (n, extra) => ({
+    n,
+    at: `2026-10-31T0${n}:00:00Z`,
+    authors: '',
+    reason: 'revise',
+    instruction: '',
+    answers: 0,
+    asked: '',
+    changed: 0,
+    ...extra,
+  });
+  const asked = round(1, { instructions: ['one', 'two'] });
+  const landed = round(2, {
+    reason: 'landed',
+    instruction: 'Fixed both.',
+    answers: 1,
+    askedInstructions: ['one', 'two'],
+    changed: 2,
+  });
+  check('no rounds, no messages', chatMessages(null, null).length === 0);
+  const sent = chatMessages([asked], {
+    state: 'with_agent',
+    line: 'on it',
+    held: false,
+  });
+  check(
+    "a Revise sent carries its round, its asks and the server's state",
+    sent.length === 1 &&
+      sent[0].from === 'court' &&
+      sent[0].words === 'Revise · round 1' &&
+      sent[0].state === 'with_agent' &&
+      sent[0].stateLine === 'on it' &&
+      sent[0].text.includes('2 instructions sent') &&
+      sent[0].text.includes('· two'),
+    sent,
+  );
+  const held = chatMessages([asked], { state: 'sent', line: '', held: true });
+  check(
+    'a message the agent holds says so under its pill',
+    held[0].stateLine === MESSAGE_HELD_LINE,
+    held,
+  );
+  const answered = chatMessages([asked, landed], {
+    state: 'answered',
+    line: 'Fixed both.',
+    held: false,
+  });
+  check(
+    'the note is said once, by the agent, not again under the pill',
+    answered[0].state === 'answered' && answered[0].stateLine === undefined,
+    answered,
+  );
+  check(
+    'the track counts what a finished round asked, not the note that answered it',
+    roundStages({
+      rounds: [asked, landed],
+      drafts: 0,
+      live: false,
+      sealed: false,
+      verdict: '',
+      reading: 0,
+      history: false,
+    })[0].count === '2 instructions',
+  );
+  check(
+    'the answer note follows the Revise it answers, dated when it was sent',
+    answered.length === 2 &&
+      answered[0].at === asked.at &&
+      answered[1].from === 'agent' &&
+      answered[1].words === 'round 1 answered' &&
+      answered[1].text === 'Fixed both.',
+    answered,
+  );
+  const next = round(3, { instructions: ['three'] });
+  const two = chatMessages([asked, landed, next], {
+    state: 'sent',
+    line: '',
+    held: false,
+  });
+  check(
+    'an earlier round keeps its answer and reads answered from its record',
+    two.length === 3 &&
+      two[0].state === 'answered' &&
+      two[1].text === 'Fixed both.' &&
+      two[2].words === 'Revise · round 2' &&
+      two[2].state === 'sent',
+    two,
+  );
+  const could = round(2, {
+    reason: COULD_NOT,
+    instruction: 'could not: no such section',
+    answers: 1,
+    askedInstructions: ['one', 'two'],
+  });
+  const cannot = chatMessages([asked, could], null);
+  check(
+    "a cannot is the agent's words, and the Revise reads failed",
+    cannot.length === 2 &&
+      cannot[0].state === 'failed' &&
+      cannot[1].from === 'agent' &&
+      cannot[1].words === 'round 1: could not' &&
+      cannot[1].text === 'no such section',
+    cannot,
+  );
+  const declined = chatMessages([asked], {
+    state: 'declined',
+    line: 'not doing that',
+    held: false,
+  });
+  check(
+    "a decline with no round of its own still shows the agent's words",
+    declined.length === 2 &&
+      declined[1].words === 'round 1 declined' &&
+      declined[1].text === 'not doing that',
+    declined,
+  );
+  const silent = chatMessages(
+    [asked, round(2, { reason: 'landed', answers: 1, changed: 3 })],
+    null,
+  );
+  check(
+    'an answer with no note still says the document moved',
+    silent[1].text.includes('History') && silent[0].state === 'answered',
+    silent,
+  );
+  check(
+    'a Revise of hand edits alone has no asks to list',
+    chatMessages([round(1, { instruction: '', asked: '' })], null).length === 0,
+  );
+  const outside = chatMessages(
+    [round(1, { reason: 'outside', instruction: '' }), asked],
+    null,
+  );
+  check(
+    'a change from outside the editor is no message, and still takes its number',
+    outside.length === 1 && outside[0].words === 'Revise · round 2',
+    outside,
   );
 }
 
@@ -5385,56 +5367,6 @@ const unplacedEntry = (c) => {
   );
 }
 
-// AND THE CAP IS ONE RULE FOR ALL THREE BOXES. The whole-document box, the
-// composer and the edit box are one design: one type, one padding and one cap,
-// half the window, read off the BUILT stylesheet (a separate esbuild output the
-// binary embeds). No other rule may give any of them a cap of its own, or the
-// three grow to three different heights again.
-{
-  let css = '';
-  try {
-    css = readFileSync(
-      new URL('../internal/serve/assets/editor.css', import.meta.url),
-      'utf8',
-    );
-  } catch {
-    css = '';
-  }
-  const boxes = [
-    '.gly-overall-input',
-    '.gly-composer-text',
-    '.gly-thread-edit-text',
-  ];
-  // INNERMOST RULES ONLY: a body may hold no brace, so a rule inside
-  // `@media (…) { … }` is read as itself rather than folded into the media
-  // block's body, where its selector could not be seen.
-  const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({
-    sel: m[1].split(',').map((x) => x.trim()),
-    body: m[2],
-  }));
-  const shared = rules.find(
-    (r) =>
-      boxes.every((b) => r.sel.includes(b)) &&
-      /max-height:\s*50vh/.test(r.body),
-  );
-  check(
-    'the three comment boxes share one rule: one font, one cap at half the window',
-    !!shared && /font:\s*13px\/1\.5/.test(shared.body),
-    shared,
-  );
-  const ownCaps = rules.filter(
-    (r) =>
-      r !== shared &&
-      r.sel.some((x) => boxes.includes(x)) &&
-      /max-height/.test(r.body),
-  );
-  check(
-    'and none of the three carries a cap of its own',
-    !!css && ownCaps.length === 0,
-    ownCaps,
-  );
-}
-
 // --- the overall thread ---
 //
 // R7: there was nowhere to say anything about the file as a whole. The rail
@@ -5459,16 +5391,16 @@ const unplacedEntry = (c) => {
   );
   check(
     'and the rail keeps everything that is not one',
-    railThreads(threads)
+    textThreads(threads)
       .map((t) => t.key)
       .join('') === 'bd',
-    railThreads(threads),
+    textThreads(threads),
   );
   // Asserted as a PARTITION rather than as two filters: every thread lands in
   // exactly one region, which is the property "nothing is dropped" actually
   // depends on. Two separate membership checks would still pass on the day a
   // third state fell through both of them.
-  const all = [...overallThreads(threads), ...railThreads(threads)]
+  const all = [...overallThreads(threads), ...textThreads(threads)]
     .map((t) => t.key)
     .sort();
   check(
@@ -5645,19 +5577,13 @@ const unplacedEntry = (c) => {
     figure.where === 'block' && figure.index === 4,
     figure,
   );
-  check(
-    'and its region travels with it, so the card can meet the pin',
-    figure.region && figure.region.y === 0.5,
-    figure,
-  );
-
   const section = threadPlacement(
     { anchor: 'block', anchorKey: 'bk-head' },
     blocks,
   );
   check(
     'a block thread with no region is placed at its block',
-    section.where === 'block' && section.index === 0 && section.region === null,
+    section.where === 'block' && section.index === 0,
     section,
   );
 
@@ -5730,114 +5656,6 @@ const unplacedEntry = (c) => {
 // protection. This is that protection, as arithmetic over field keys — value,
 // caret and focus, because restoring the text alone still takes the caret out
 // of the sentence.
-
-{
-  const saved = [
-    {
-      key: 'reply:k1',
-      value: 'that is not what the spec',
-      start: 9,
-      end: 9,
-      focused: true,
-    },
-    { key: 'reply:k2', value: '', start: 0, end: 0, focused: false },
-    {
-      key: 'reply:k3',
-      value: 'half a thought',
-      start: 14,
-      end: 14,
-      focused: false,
-    },
-  ];
-  const fields = [
-    { key: 'reply:k1', value: '' },
-    { key: 'reply:k2', value: '' },
-    { key: 'reply:k3', value: '' },
-  ];
-  const put = carryDrafts(saved, fields);
-  const k1 = put.find((p) => p.key === 'reply:k1');
-  check(
-    'a half-typed reply comes back with its text, its caret and its focus',
-    !!k1 &&
-      k1.value === 'that is not what the spec' &&
-      k1.start === 9 &&
-      k1.focus === true,
-    k1,
-  );
-  check(
-    'an empty unfocused field is not a draft and is left alone',
-    !put.some((p) => p.key === 'reply:k2'),
-    put,
-  );
-  // Unfocused but written-in: the reviewer typed, clicked into the document,
-  // and a poll landed. The words are still theirs.
-  const k3 = put.find((p) => p.key === 'reply:k3');
-  check(
-    'text typed and then left is carried too, without stealing focus',
-    !!k3 && k3.value === 'half a thought' && k3.focus === false,
-    k3,
-  );
-
-  // A thread resolved while its reply was being written. Nothing here creates
-  // a card, so the draft is dropped rather than resurrected against one.
-  check(
-    'a draft for a card that no longer exists is dropped, not resurrected',
-    carryDrafts(saved, [{ key: 'reply:k9', value: '' }]).length === 0,
-  );
-
-  // A selection, not just a caret — a reviewer who swept a phrase to replace it
-  // must not have the range collapsed under them by a poll.
-  const swept = carryDrafts(
-    [{ key: 'r', value: 'the whole phrase', start: 4, end: 9, focused: true }],
-    [{ key: 'r', value: '' }],
-  );
-  check(
-    'a selected range in a reply survives as a range',
-    swept[0].start === 4 && swept[0].end === 9,
-    swept,
-  );
-
-  // Bounds are clamped against the value actually restored: a caret past the
-  // end of the text is a throw from setSelectionRange in some browsers and a
-  // silently wrong caret in the rest.
-  const past = carryDrafts(
-    [{ key: 'r', value: 'short', start: 99, end: 120, focused: true }],
-    [{ key: 'r', value: '' }],
-  );
-  check(
-    'a caret past the end of the text is clamped to it',
-    past[0].start === 5 && past[0].end === 5,
-    past,
-  );
-
-  // A rebuilt field that somehow arrives with text of its own knows something
-  // this side does not, so its text wins — but the caret and the focus are
-  // still the reviewer's.
-  const fresh = carryDrafts(
-    [{ key: 'r', value: 'mine', start: 2, end: 2, focused: true }],
-    [{ key: 'r', value: 'the server put this here' }],
-  );
-  check(
-    'a field rebuilt with content of its own keeps it, and still takes focus back',
-    fresh[0].value === 'the server put this here' && fresh[0].focus === true,
-    fresh,
-  );
-
-  // Two fields under one key is a caller bug; the first is taken so the
-  // behaviour is at least deterministic rather than DOM-order dependent.
-  const dupe = carryDrafts(
-    [
-      { key: 'r', value: 'first', start: 5, end: 5, focused: true },
-      { key: 'r', value: 'second', start: 6, end: 6, focused: false },
-    ],
-    [{ key: 'r', value: '' }],
-  );
-  check(
-    'a duplicated key resolves to the first draft, deterministically',
-    dupe.length === 1 && dupe[0].value === 'first',
-    dupe,
-  );
-}
 
 // --- did the reveal's scroll actually happen? ---
 //
@@ -6307,28 +6125,6 @@ function bindsContentField(src) {
       'and no surface in the bundle names a vendor',
       !/claude/i.test(src) && src.includes(' suggested '),
     );
-    // INVERTED, AND THE INVERSION IS THE RULING. It read *the whole-doc
-    // composer lives in the instruction rail*, and it was green over both of
-    // the defects the first real review reported: the composer scrolled out of
-    // reach, and opening it slid every anchored card 39.29px off its mark. The
-    // rail holds live work only — *here is what needs you, beside the text it
-    // is about* — and a `+ add` button needs nothing and is beside nothing.
-    // Capture has no button now: a click on blank panel space, a right-click
-    // anywhere below the bar, and `.gly-capture` for the typing. The bar's
-    // `+ Instruction` is asserted ABSENT for the same reason as the old handle. The old handle's sentence is
-    // asserted ABSENT, because a rail that grew one back is the defect
-    // returning and a check that only looked for the new string would not see
-    // it. `gly-overall-rail` stays: the instructions already FILED are still
-    // the rail's, which is the half that never had to move.
-    check(
-      'capture has no button of its own, in the bar or the rail',
-      src.includes('gly-capture') &&
-        !src.includes('+ Instruction') &&
-        src.includes('gly-overall-rail') &&
-        src.includes('add an instruction on the whole doc') &&
-        !src.includes('+ instruction on the whole document'),
-    );
-
     // The trail: the ghost and the highlight. Written red-first against the
     // pre-trail bundle — a binary embedding that bundle records nothing however
     // green the source tree is.
@@ -6371,10 +6167,8 @@ function bindsContentField(src) {
     // count is on its own named control beside History, not hidden inside the
     // verdict button's label.
     check(
-      'the built bundle carries the count on the bottom bar and History beside the rounds',
-      src.includes('Instructions · ') &&
-        src.includes('gly-versions-open') &&
-        src.includes('gly-discard'),
+      'the built bundle carries History beside the rounds',
+      src.includes('gly-versions-open') && src.includes('gly-discard'),
     );
 
     // THE SEAL. A binary embedding a pre-seal bundle serves a page that keeps
@@ -6450,7 +6244,8 @@ function bindsContentField(src) {
     // which this codebase rates as worse than absent.
     check(
       'the built bundle carries the sealed bar and its dead verbs',
-      src.includes('gly-seal-off') && src.includes('.gly-overall-input, '),
+      src.includes('gly-seal-off') &&
+        src.includes('.kit-rail-panel textarea, '),
     );
     // AND THE BOX A COMMENT IS TYPED INTO, which is asserted separately because
     // it was added for a reason neither list's tail records: `submitOnEnter`
@@ -6493,7 +6288,7 @@ function bindsContentField(src) {
     // review's own list for the life of the tab.
     check(
       'the built bundle carries the verbs the seal owns in both directions',
-      src.includes('.gly-overall-input, .gly-composer-send, ') &&
+      src.includes('.kit-btn, .gly-composer-send') &&
         src.includes('.gly-comment-button, .gly-composer-text'),
     );
     // And the Strike button is GONE — with its class, its label and its
@@ -6682,29 +6477,6 @@ function bindsContentField(src) {
       check(
         'a queue with nothing live left steps nowhere',
         nextArrival(q2, []).arrival === null,
-      );
-    }
-
-    {
-      // HOLD IS A QUEUE OVER WHAT IS DISPLAYED, NOT A GATE ON THE DOCUMENT. The
-      // suggestions are in the CRDT either way; hold decides which of them the
-      // rail draws a card for, and nothing else.
-      check(
-        'the button says what pressing it does, both ways',
-        holdLabel(false, 0) === '⏸ hold' &&
-          holdLabel(true, 3) === '▶ release · 3',
-      );
-      check(
-        'holding nothing still says so honestly',
-        holdLabel(true, 0) === '▶ release · 0',
-      );
-
-      // The census takes the SERVER's payload and never the rail's hold, which
-      // is what lets the count keep telling the truth while the rail holds its
-      // tongue.
-      check(
-        'the census is not filtered by hold',
-        censusCounts({ comments: [{ key: 'a' }, { key: 'b' }] }).threads === 2,
       );
     }
 
@@ -6961,35 +6733,6 @@ function bindsContentField(src) {
       // check below asserts their ABSENCE instead, which is a claim that can go red.
     }
 
-    {
-      // A ✓ THAT CANNOT WORK IS NOT OFFERED, and this is the block that says so.
-      //
-      // The measurement behind `decidable` was made against a card that no longer
-      // exists: `arrivals.ts`'s `batchRows` paired a revision's runs against the
-      // whole pending list with NO kind filter, and the revision receipt built its
-      // ✓ from every row it got, so a revision carrying a comment put the comment's
-      // run into POST /_galley/accept — 200 before the server learned to refuse it,
-      // the reviewer's highlight lifted, the conversation left anchored to nothing,
-      // and an `approved` row filed against the agent in the population every
-      // proposal number is computed from.
-      //
-      // THE CARD IS DELETED AND THE PREDICATE IS NOT, which is the reason this
-      // block was rewritten rather than removed with it. `decidable` was never the
-      // card's rule; it is suggest.Kind.Decidable's answer, carried onto the wire
-      // per entry, and three surfaces still read it — the rail's card loop, the
-      // sheet's, and stepOrder. What is asserted here is the predicate itself, and
-      // the two checks that prove it is not a `kind !== 'comment'` in disguise fail
-      // against one, in opposite directions.
-      check(
-        'an entry the SERVER calls decidable is offered, whatever its kind reads',
-        decidable({ kind: 'comment', decidable: true }) === true,
-      );
-      check(
-        'an entry with no answer on it is not offered — absent means no',
-        decidable({ kind: 'insert' }) === false && decidable(null) === false,
-      );
-    }
-
     // THE MODE IS A SWITCH WITH ONE LABEL, not a badge with two.
     //
     // It used to read `on ask` / `● live`, and this block used to assert both
@@ -7043,10 +6786,6 @@ function bindsContentField(src) {
       );
     }
 
-    check(
-      'the built bundle carries the instruction rail',
-      src.includes('gly-rail') && src.includes('gly-card'),
-    );
     // AND NOT ONE OF THE FIVE MECHANISMS THAT MANAGED ITS OVERFLOW. Dimming was
     // struck from this design once, came back bounded by a cap, and is now gone
     // with the fixed column that made it necessary — along with the clusters it
@@ -7063,87 +6802,25 @@ function bindsContentField(src) {
         !src.includes('gly-fold-more') &&
         !src.includes('and 1 more '),
     );
-    // AND NOTHING REPLACED THEM. The rail was four sections — anchored cards,
-    // anchorless, settled, changed — and it is the map and a notice. Each of
-    // the three left for its own reason (see makeRail), and this asserts the
-    // ABSENCE, because a bundle is the one place a section can come back
-    // without a source reader noticing. Run red against the tracked bundle it
-    // reports `gly-rail-anchorless` and `gly-rail-settled` both present.
-    check(
-      'the built bundle has one section after the map, and it is a notice',
-      src.includes('gly-rail-notice') &&
-        !src.includes('gly-rail-anchorless') &&
-        !src.includes('gly-rail-settled'),
-    );
-    // THE EMPTY RAIL TEACHES, AND THE SETTLED NOTICE IT REPLACED IS ASSERTED
-    // ABSENT. An Approve-faced primary already says the document is settled, so
-    // the notice was a second, quieter voice for it; what a cold-open page
-    // never said is how to ask for a change at all. Run red against the tracked
-    // bundle it reports the old sentence present and the new one missing.
-    check(
-      'the built bundle carries the teaching empty state, and not the settled notice',
-      src.includes('Select any words in the document to ask for a change.') &&
-        src.includes('go to the agent as one round.') &&
-        src.includes('gly-rail-teach') &&
-        !src.includes('nothing pending — the document is settled'),
-    );
-    // §2.2: the whole-document instruction is a card in the rail and nothing
-    // else — that part is unchanged. WHERE IT IS ASKED FOR IS NOT: the handle
-    // was the rail's own first card, then the bar's `+ Instruction`, and is the
-    // panel's blank space now, named in plain words by the empty panel's hint
-    // (no "click here" button: the click is the door, the sentence names it), for the
-    // reason spelled where `+ instruction on the whole document` is asserted
-    // absent above. The verb carries no count, because the count is on the
-    // primary and the cards are directly underneath it.
-    check(
-      'the built bundle offers the whole-document instruction from the PANEL',
-      src.includes(
-        'Or click anywhere in this panel to ask about the whole document.',
-      ) &&
-        !src.includes('gly-rail-teach-ask') &&
-        !src.includes('+ Instruction') &&
-        !src.includes('Whole-document instruction · '),
-    );
-    // §2.3: an instruction is editable. Both the verb and the endpoint it
-    // reaches, because a button that posts nothing is the shape a check that
-    // reads a class name cannot see.
-    check(
-      'the built bundle carries the edit verb and the one op it posts',
-      (src.includes('gly-thread-edit') && src.includes('"edit"')) ||
-        src.includes("op:'edit'") ||
-        src.includes('op: "edit"'),
-    );
-    // An instruction whose highlight disappeared remains a full card in the
-    // rail; it is not replaced by copy pointing at the removed sheet.
-    check(
-      'the built bundle keeps unplaced instructions in the rail',
-      src.includes('its words were removed') &&
-        src.includes('gly-rail-unplaced'),
-    );
-
-    check(
-      'the built bundle carries the sheet',
-      src.includes('gly-sheet') && src.includes('gly-bottombar'),
-    );
     // The breakpoint is a number in two files and they must be the same number.
     // A rem-based media query and a px-based JS check agree at the default font
     // size and disagree at every other one — and the way that disagreement shows
     // up on screen is the rail and the sheet at the same time.
     check(
+      'the margin card layer is out of the bundle, and the tabs are in',
+      !src.includes('gly-rail-band') &&
+        !src.includes('gly-capture') &&
+        !src.includes('gly-sheet') &&
+        !src.includes('gly-bottombar') &&
+        src.includes('gly-composer-slot') &&
+        src.includes('railTabs') &&
+        src.includes('draftList'),
+    );
+    check(
       'the built bundle carries the keyboard stepper',
-      src.includes('keydown') && src.includes('gly-stepped'),
+      src.includes('keydown') && src.includes('stepOrder'),
     );
 
-    // `instruction · <about> · <age>` is COMPOSED now — the head joins its
-    // clauses, so the literal `instruction · ` a minifier could once be relied
-    // on to emit is not in the bundle any more. The claim is the same one; it
-    // is asserted through the pieces the bundle really carries.
-    check(
-      'the built bundle carries the established card and instruction language',
-      src.includes('gly-thread') &&
-        src.includes('gly-instruction-actions') &&
-        /\["instruction",|\['instruction',/.test(src),
-    );
     // THE SETTLED REGION IS GONE FROM THE SHEET TOO. Nothing resolves an
     // instruction any more — a sent one leaves with its round and a retracted
     // one is deleted — so there is no settled thread for a region to hold, and
@@ -7165,19 +6842,6 @@ function bindsContentField(src) {
         !src.includes('gly-note-settled') &&
         !src.includes('glySettledNotes'),
     );
-    // Delete: the second verb, its endpoint, its two-step arming, and the
-    // reopen that makes "keeps the history" true.
-    check(
-      'the built bundle carries delete, armed rather than instant',
-      src.includes('/_galley/instruction/delete') &&
-        src.includes('gly-thread-delete') &&
-        src.includes('delete?'),
-    );
-    check(
-      'an instruction card does not render a reopen affordance',
-      src.includes('gly-instruction-actions') &&
-        !src.includes('gly-thread-reopen'),
-    );
     // A confirm() would block the whole page — and this page has a websocket
     // under it. The arming IS the confirmation.
     check(
@@ -7198,7 +6862,7 @@ function bindsContentField(src) {
     check(
       'the built bundle carries region picking',
       src.includes('gly-region-draft') &&
-        src.includes('on figure region') &&
+        src.includes('On a region of the figure') &&
         src.includes('Mark a region') &&
         !src.includes('comment on a region'),
     );
@@ -7222,38 +6886,6 @@ function bindsContentField(src) {
       src.includes('gly-block-grip') &&
         src.includes('Add an instruction on ') &&
         !src.includes('instruct on this whole code block'),
-    );
-
-    // R7. The placeholder is §11's verbatim string, and a bundle that lost it
-    // is a document with nowhere to comment on the whole file, looking exactly
-    // like a document that has one. It is no longer the ONLY affordance — the
-    // bar's door and the right-click menu are two more, which is R7 answered
-    // three ways instead of one — so the box it labels is asserted with them.
-    check(
-      'the built bundle carries the overall thread and the box it is written in',
-      src.includes('add an instruction on the whole doc') &&
-        src.includes('gly-overall') &&
-        src.includes('gly-capture'),
-    );
-    // AND THE TWO DOORS TO IT, WHICH IS WHERE THE VERB WENT. The panel's blank
-    // space (its pointer is `gly-panel-door`) and the right-click menu are one decision seen twice: capture is chrome,
-    // and the rail holds only the work. A bundle carrying neither is a document
-    // whose whole-file instruction cannot be started at all.
-    // `contextmenu` ALONE IS NOT A READ. The bundle carries third-party code
-    // that names the event too, so the word is present whether galley claims
-    // the gesture or not — measured: re-pointing the listener at `mousedown`
-    // left a check on that string green. What only this menu puts in the
-    // bundle is its own rows and their classes, so those are what is read.
-    check(
-      'the built bundle offers capture from the panel AND from a right-click',
-      src.includes('gly-panel-door') &&
-        src.includes('gly-menu-item') &&
-        src.includes('gly-menu-detail') &&
-        src.includes('Instruction on the whole document') &&
-        // A SELECTION'S RIGHT-CLICK IS THE BROWSER'S, so the passage row and
-        // galley's Copy row are gone; asserted absent so neither grows back.
-        !src.includes('Instruction on this passage') &&
-        !src.includes('not just the selection'),
     );
 
     // THE CENSUS STRIP SURVIVES ITS SWEEP. `✓ all` is deleted — it POSTed
@@ -7320,18 +6952,6 @@ function bindsContentField(src) {
       src.includes('below your viewport') &&
         src.includes('edits while you read — show me steps through them'),
     );
-    // The count is the durable record, so its pulse is what outlives the strip.
-    // THE CARD'S "new" BADGE IS NOT, and this check used to read it here.
-    // `gly-new` and `gly-new-badge` were `suggestionCard`'s — the amber border
-    // and the badge an arriving PROPOSAL wore — and that card is deleted,
-    // because the rounds-only wire carries no proposals for one to be built
-    // from. Asserted absent so the pair cannot come back on a card that has no
-    // arrivals to announce.
-    check(
-      'the built bundle carries the census pulse, and no proposal-card badge',
-      src.includes('gly-pulse') && !src.includes('gly-new'),
-    );
-
     // The wiring MOVED out of the shell's inline script and into the bundle,
     // because only the bundle polls and only a poller can count until the
     // revision lands. A bundle without it leaves a Revise button nothing wires.
@@ -7395,24 +7015,17 @@ function bindsContentField(src) {
       'and the copy that failed a reviewer is gone from it',
       !src.includes('on ask'),
     );
-    // The instruction sheet says what it contains. The old proposal-era copy
-    // contradicted rounds, where both parties' edits land in the document.
-    check(
-      'the built bundle names the instruction sheet without proposal-era copy',
-      src.includes('instructions in this round') &&
-        !src.includes('your edits apply — the agent proposes'),
-    );
     check(
       'and the old untracked admission is gone from it',
       !src.includes('formatting and structure apply untracked'),
     );
 
     check(
-      'the stylesheet breaks at the same pixel the bundle does',
+      "the stylesheet's narrow History breaks at the same pixel the bundle does",
       readFileSync(
         new URL('../internal/serve/assets/editor.css', import.meta.url),
         'utf8',
-      ).includes('992px') && src.includes('992'),
+      ).includes('991px') && src.includes('992'),
     );
   }
 }
@@ -7449,17 +7062,6 @@ function bindsContentField(src) {
         !css.includes('gly-fold-more') &&
         !css.includes('gly-drafting'),
     );
-    // The destructive verb is at the FAR END of the row — that margin is what
-    // stops a slip aimed at ✓ resolve from landing on it — and it is never the
-    // louder of the two.
-    // Out of resolve's way, but NOT flush to the right edge: `margin-left:auto`
-    // was measured pushing it under the rail on the full-width overall panel,
-    // where the click never landed at all.
-    check(
-      'the stylesheet puts delete out of resolve\u2019s way without exiling it',
-      /\.gly-thread-delete\{[^}]*margin-left:2rem/.test(css) &&
-        !/\.gly-thread-delete\{[^}]*margin-left:auto/.test(css),
-    );
     check(
       'a block note\u2019s words keep their line breaks and wrap',
       /\.gly-note-words\{[^}]*white-space:pre-wrap/.test(css) &&
@@ -7490,34 +7092,6 @@ function bindsContentField(src) {
       'the built stylesheet lights the words, and names a colour for both themes',
       /\.gly-lit\{[^}]*background:var\(--gly-lit-bg/.test(css) &&
         (css.match(/--gly-lit-bg:/g) || []).length === 2,
-    );
-    // THE RAIL IS NOT FIXED, AND IT STILL STARTS AT THE BAR'S MEASURED FOOT.
-    // Read off the built stylesheet for the reason above, and asserted as two
-    // halves that are easy to think are one. ABSOLUTE is what makes it scroll
-    // with the prose. `top` is a SEPARATE question, and this check used to
-    // require the bar's height be ABSENT from the rule — on the reasoning that
-    // a sticky bar is in flow, so a rail at the page's top begins below it for
-    // free. That is true of a flow sibling and false of an out-of-flow box:
-    // absolute positioning against the initial containing block put `top: 0` at
-    // document y 0, under the opaque bar, and everything paintAnchors did not
-    // place by hand was drawn there (see §10a of layers.mjs). The offset is
-    // back and it is MEASURED — a constant is what the fold made wrong, in the
-    // other direction.
-    //
-    // AND THE OFFSET NOW CARRIES A SECOND TERM, WHICH IS ONE NUMBER WITH
-    // HISTORY'S. The rail begins at the bar's measured foot PLUS the reserved
-    // sub-bar row (`--gly-rail-top`), because History's rail hangs off the same
-    // token — before that the two columns jumped 64px apart on a mode switch,
-    // measured 52.2 against 116.2 at 1440. The bar's measured height is still
-    // required to be in there: that is the half a constant got wrong when the
-    // bar folded, and it is a different claim from the row being reserved.
-    check(
-      'the built stylesheet has the rail scrolling with the document, from the bar’s measured foot',
-      /\.gly-rail\{[^}]*position:absolute/.test(css) &&
-        /\.gly-rail\{[^}]*top:calc\(var\(--gly-bar-h[^}]*var\(--gly-rail-top/.test(
-          css,
-        ) &&
-        !/\.gly-rail\{[^}]*position:fixed/.test(css),
     );
     // AND BOTH RAILS HANG OFF THE ONE TOKEN. Read off the BUILT stylesheet
     // because that is what the binary embeds: a rule that agreed in the source
@@ -7575,10 +7149,6 @@ function bindsContentField(src) {
       'and the button is disabled as well as invisible while it is reserved',
       bundle.includes('gly-reserved') && /\.disabled=!/.test(bundle),
     );
-    check(
-      'the panel is a band with a column in it, not a card in the chrome',
-      bundle.includes('gly-overall-inner'),
-    );
     // Hold's own click swaps its label for a wider one. Two labels in one grid
     // cell is what makes the button as wide as the wider of them at all times.
     check(
@@ -7628,15 +7198,6 @@ function bindsContentField(src) {
       !bundle.includes('gly-proposal-reply') &&
         !bundle.includes('gly-thread-reply'),
     );
-    // And the declined head spans both outputs: the bundle writes the
-    // `declined · <label>` head, the stylesheet paints it — one class,
-    // PAINT ONLY, because a kind-rule that declared `position` once took
-    // every replace card out of the band's absolute placement.
-    check(
-      'an instruction card keeps the established card paint',
-      bundle.includes('gly-instruction-actions') && css.includes('.gly-thread'),
-    );
-
     // --- the whole-document instruction has no panel to be set on ---
     //
     // IT IS A CARD IN THE RAIL, ONCE (spec §2.2). The three checks that used to
@@ -7650,10 +7211,6 @@ function bindsContentField(src) {
       'nothing about the whole document floats over the prose any more',
       !/\.gly-overall\{position:fixed/.test(css) &&
         !css.includes('.gly-overall-inner{max-width:calc(var(--gly-col)'),
-    );
-    check(
-      'and the rail spelling is the only spelling left',
-      css.includes('.gly-overall-rail') && !/\.gly-overall\{/.test(css),
     );
     // §2.2's invariant, from the one side probe can reach with no browser: the
     // note node is STILL IN THE SCHEMA and is merely not painted. A bundle that
@@ -7698,35 +7255,6 @@ function bindsContentField(src) {
       'and it hangs off the bar’s MEASURED height, watched for change',
       bundle.includes('ResizeObserver') && /kit-bar["']\)/.test(bundle),
     );
-    // AND OPENING IT FLOWS IN THE PANEL AND RE-FLOORS THE CARDS, WHICH IS THE
-    // FOURTH ANSWER THIS CHECK HAS HAD.
-    //
-    // It first asserted *opening it no longer schedules a re-measure*, sound
-    // while the panel was chrome floating off the bar: no mark moved. Then the
-    // panel became the rail's first card, directly above `.gly-rail-band`, so
-    // opening it moved the BAND rather than the marks — and `paintAnchors`
-    // writes every card as a band-LOCAL top, so the map went 55.59px stale with
-    // the old proxy still green; it was inverted to demand the re-measure. Then
-    // the card became `position: absolute` and left the flow, so it moved
-    // nothing and the check demanded it place itself against `chromeFrame` and
-    // schedule no repaint.
-    //
-    // The card is back in the flow now, ON PURPOSE — a child of the
-    // whole-document panel, so it reads as one of the cards rather than a
-    // shadowed box floating over them, which is what Court reported. Opening it
-    // moves the band, so the map has to re-floor, and the 39.29px staleness the
-    // in-flow version had before is answered by the repaint rather than by
-    // fleeing the flow. `openCapture` is read for the two things that make the
-    // new contract true: it does NOT write a `top` (it is flowed, not placed)
-    // and it DOES call `scheduleAnchors` (the repaint that re-floors the
-    // anchored cards on their marks). The pixels themselves are rounds-ux.mjs's
-    // before/after comparison of every card in the band.
-    check(
-      'opening capture flows in the panel and re-floors the cards',
-      /openCapture\([^)]*\)\{[\s\S]{0,600}?scheduleAnchors/.test(bundle) &&
-        !/openCapture\([^)]*\)\{[\s\S]{0,600}?style\.top=/.test(bundle),
-    );
-
     // Revise is the second, and the only one that keeps changing after the
     // click: `Revise` → `revising · 0s` → `· 10s` → `· 100s`. Both labels are
     // laid out at once and the digits have their own reserve inside the
@@ -8378,8 +7906,18 @@ function bindsContentField(src) {
   );
   const opened = { n: 1, reason: 'opened', answers: 0, instructions: [] };
   const ask = { n: 2, reason: 'revise', answers: 0, instructions: ['a', 'b'] };
-  const ans = { n: 3, reason: 'revised', answers: 2, instructions: ['a', 'b'] };
-  const could = { n: 5, reason: 'could-not', answers: 4, instructions: ['c'] };
+  const ans = {
+    n: 3,
+    reason: 'revised',
+    answers: 2,
+    askedInstructions: ['a', 'b'],
+  };
+  const could = {
+    n: 5,
+    reason: 'could-not',
+    answers: 4,
+    askedInstructions: ['c'],
+  };
   const ask2 = { n: 4, reason: 'revise', answers: 0, instructions: ['c'] };
   const stages = (o) =>
     roundStages({

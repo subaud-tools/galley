@@ -1,8 +1,7 @@
-// web/composer.ts owns the one popover a reviewer types an instruction
-// into — the bar, its deny line, the form, and the note — and everything
-// that decides where it sits: placeComposerButton (show/hide/keep off the
-// current selection), placeComposer (the below-or-flipped-above arithmetic),
-// headComposer (the `INSTRUCTION · ON "…"` head), and the two sends,
+// web/composer.ts owns the one box a reviewer types an instruction on the text
+// into — the bar, its deny line, the form, and the note, in the Instructions
+// tab — and what decides when it shows: placeComposerButton (show/hide/keep off
+// the current selection), headComposer (the `INSTRUCTION · ON "…"` head), and the two sends,
 // sendComment and fileBlockComment, both POSTing to /_galley/instruct.
 // It also owns the refusal note — makeRefusal, refuse, paintRefusal,
 // dismissRefusal, pulseFence, hideRefusal — which reads and writes
@@ -23,7 +22,7 @@
 // block grip, which opens a section's composer.
 
 import { postJSON, routes } from './net.ts';
-import { growOnInput, elide, AUTHOR } from './rail.ts';
+import { growOnInput, elide, AUTHOR } from './tabs.ts';
 import { submitOnEnter } from './kit/enter.js';
 import { literalHit } from './suggestions.ts';
 import type { LiteralHit } from './suggestions.ts';
@@ -121,7 +120,6 @@ export interface Composer {
   // anchor is what the composer was last placed against, in PAGE coordinates
   // so a scroll between placing the button and opening the form does not move
   // it. See placeComposer and openComposerForm.
-  anchor?: { top: number; left: number; bottom: number; gap: number } | null;
 }
 
 export const composerMethods = {
@@ -443,7 +441,10 @@ export const composerMethods = {
         e.preventDefault();
       }
     });
-    document.body.appendChild(root);
+    // In the Instructions tab, where what it files lands.
+    (document.getElementById('gly-composer-slot') ?? document.body).appendChild(
+      root,
+    );
 
     // ONE OPENING. `Add instruction` on the popover is the door; a right-click
     // on a selection is the browser's own menu. See openComposerForm.
@@ -506,14 +507,6 @@ export const composerMethods = {
     // The anchor is never null here: every path that shows the composer
     // places it in the same call, and hideComposer clears the anchor only as
     // it hides the root, which the guard above has already turned away.
-    const a = c.anchor;
-    if (a) {
-      this.placeComposer(
-        { top: a.top - window.scrollY, left: a.left - window.scrollX },
-        { bottom: a.bottom - window.scrollY },
-        a.gap,
-      );
-    }
     c.input.focus();
   },
 
@@ -537,10 +530,10 @@ export const composerMethods = {
    */
   menuItems(this: AppShell): MenuItem[] {
     const items: MenuItem[] = [];
-    if (!this.rail.root.hidden) {
+    if (!this.sealed) {
       items.push({
         label: 'Instruction on the whole document',
-        run: () => this.openCapture(),
+        run: () => window.galleyChrome?.openChat(),
       });
     }
     return items;
@@ -566,7 +559,7 @@ export const composerMethods = {
       return true;
     }
     return !el.closest(
-      '.kit-bar, .kit-stages, .kit-sendbar, .gly-bottombar, .gly-menu, .gly-verdict-menu, ' +
+      '.kit-bar, .kit-stages, .kit-sendbar, .gly-menu, .gly-verdict-menu, ' +
         '.kit-share-menu, .gly-composer, .gly-bubble, .gly-versions, ' +
         'input, textarea, select, [contenteditable]',
     );
@@ -660,95 +653,8 @@ export const composerMethods = {
     c.note.textContent = '';
     c.note.classList.remove('gly-quiet');
 
-    const start = this.editor.view.coordsAtPos(next.from);
-    const end = this.editor.view.coordsAtPos(next.to);
-    this.placeComposer(start, end);
+    window.galleyChrome?.showComposer();
     this.headComposer(next.target);
-  },
-
-  // placeComposer is the ONE arithmetic that decides where the popover sits,
-  // and it exists because there were two copies of it that disagreed with the
-  // design in the same way.
-  //
-  // IT WAS ANCHORED ABOVE THE SELECTION AND SO COVERED IT. `top = start.top +
-  // scrollY - 40` puts the composer's own top forty pixels above the FIRST line
-  // of the selection — and the composer is taller than forty pixels the moment
-  // its form opens, so the box grows down THROUGH the phrase it is about.
-  // Measured on the fixture at 1440×900 before this change: composer top
-  // 155.41 against a selection bottom of 215.41, sixty pixels of overlap, with
-  // the reviewer typing an instruction about words the popover had hidden.
-  //
-  // THE ONE-BUTTON BAR hangs off the selection's end and flips above only when
-  // there is genuinely no room below for its own height — it never grows, so
-  // its own height is all it asks for. The flip reads the composer's OWN
-  // measured height rather than a guessed one, for the reason `--gly-bar-h`
-  // exists: a box whose height is a constant somebody typed is a box that is
-  // wrong the first time its contents change.
-  //
-  // THE OPEN FORM STAYS WITH ITS WORDS (formSeat). It opens directly beneath
-  // its block or selection, at the height it opens at. Where that does not
-  // fit, the PAGE is scrolled just far enough that it does, rather than the
-  // box being hung somewhere else: a box hung from the window's foot opened
-  // far below a code block, over the next block, and read as being about
-  // that one. It goes above only for words near the window's foot with more
-  // room above them, or where the page cannot scroll far enough. Then its
-  // growth is held to the room the window has (capForm), so a box that grows
-  // with what is typed never runs off the window and never back over the
-  // words; past that it scrolls inside itself.
-  //
-  // NOTHING HERE MAY ANIMATE AND NOTHING MAY REFLOW. The composer is
-  // `position: absolute` on `document.body` — never inside `.ProseMirror`,
-  // where it would be CONTENT and the next projection would write it to the
-  // author's file — so it cannot displace prose, and this writes `top`/`left`
-  // and no transition, so opening it moves nothing that was not clicked. The
-  // one scroll is the page's, and it is the reviewer's own press that asks
-  // for it.
-  placeComposer(
-    this: AppShell,
-    start: { top: number; left: number },
-    end: { bottom: number },
-    gap = 8,
-  ) {
-    const c = this.composer;
-    // NOR PAST THE WINDOW'S RIGHT EDGE: in a narrow window a box starting at
-    // its anchor's left would run off the side, so it keeps its width and
-    // comes in from the edge instead.
-    const room =
-      document.documentElement.clientWidth -
-      c.root.getBoundingClientRect().width;
-    const left = `${Math.max(0, Math.min(start.left, room)) + window.scrollX}px`;
-    c.anchor = {
-      top: start.top + window.scrollY,
-      left: start.left + window.scrollX,
-      bottom: end.bottom + window.scrollY,
-      gap,
-    };
-    // The cap a previous placement wrote is not this one's, and the height
-    // read next is the box as it opens.
-    c.input.style.maxHeight = '';
-    const height = c.root.offsetHeight;
-    const seat = c.form.hidden
-      ? barSeat(start.top, end.bottom, gap, height)
-      : formSeat(start.top, end.bottom, gap, height);
-    let top = seat.top;
-    if (seat.scroll > 0) {
-      const was = window.scrollY;
-      window.scrollBy(0, seat.scroll);
-      top -= window.scrollY - was;
-    }
-    // NEVER OUTSIDE THE WINDOW, whatever the anchor: a selection scrolled
-    // past either edge still gets a box the reviewer can see. A hung box
-    // spans [top - height, top] and any other spans [top, top + height]; where
-    // the box is taller than the window, its top edge is the one kept.
-    const low = seat.hang ? height : 0;
-    const high = seat.hang ? window.innerHeight : window.innerHeight - height;
-    top = Math.max(low, Math.min(top, high));
-    c.root.style.top = `${top + window.scrollY}px`;
-    c.root.style.left = left;
-    c.root.style.transform = seat.hang ? 'translateY(-100%)' : '';
-    if (!c.form.hidden) {
-      capForm(c, seat.hang ? top - gap : window.innerHeight - top - gap);
-    }
   },
 
   // headBlockComposer is the head for a block grip's composer: what the
@@ -809,8 +715,6 @@ export const composerMethods = {
     this.composer.target = '';
     this.composer.range = null;
     this.composer.key = null;
-    this.composer.anchor = null;
-    this.composer.input.style.maxHeight = '';
     this.composer.block = null;
     this.composer.opener = null;
     this.composer.grip = null;
@@ -819,6 +723,7 @@ export const composerMethods = {
     // A block grip disables send for a block the server has not listed yet;
     // the next composer starts from the seal's answer, never from that.
     this.composer.send.disabled = !!this.sealed;
+    window.galleyChrome?.composerGone();
   },
 
   // clearScope takes the block grip's outline away. Only when there is one:
@@ -1159,83 +1064,4 @@ export function composerPlacement(
  */
 export function holdsWords(c: Composer): boolean {
   return !c.root.hidden && !c.form.hidden && c.input.value.trim() !== '';
-}
-
-// Where a composer goes: `top` in the window before any scroll, whether it is
-// hung by its bottom edge (so it grows upward, away from the words), and how
-// far the page has to scroll for it to fit.
-interface Seat {
-  top: number;
-  hang: boolean;
-  scroll: number;
-}
-
-// barSeat places the one-button bar: below the words if its own height fits,
-// above them if it fits there, and from the window's foot as a last resort.
-function barSeat(
-  startTop: number,
-  endBottom: number,
-  gap: number,
-  height: number,
-): Seat {
-  const below = endBottom + gap;
-  if (window.innerHeight - below >= height) {
-    return { top: below, hang: false, scroll: 0 };
-  }
-  const above = startTop - gap;
-  return {
-    top: above >= height ? above : window.innerHeight,
-    hang: true,
-    scroll: 0,
-  };
-}
-
-// How low in the window words have to end before the open form may go above
-// them instead of below: the last 15%. Anything higher, even in the window's
-// lower half, keeps its box beneath it and the page scrolls to make room —
-// the box beside a block is the box about it.
-const NEAR_FOOT = 0.85;
-
-// formSeat places the open form at the height it opens at. See placeComposer.
-function formSeat(
-  startTop: number,
-  endBottom: number,
-  gap: number,
-  height: number,
-): Seat {
-  const view = window.innerHeight;
-  const below = endBottom + gap;
-  if (below + height <= view) {
-    return { top: below, hang: false, scroll: 0 };
-  }
-  const above = startTop - gap;
-  if (
-    endBottom >= view * NEAR_FOOT &&
-    above > view - below &&
-    above >= height
-  ) {
-    return { top: above, hang: true, scroll: 0 };
-  }
-  // Just far enough, and never further than the page can go.
-  const spare = document.documentElement.scrollHeight - view - window.scrollY;
-  const scroll = Math.max(0, Math.min(below + height + gap - view, spare));
-  if (below - scroll + height > view && above >= height) {
-    // The page cannot scroll far enough and there is room above.
-    return { top: above, hang: true, scroll: 0 };
-  }
-  return { top: below, hang: false, scroll };
-}
-
-// capForm holds the open form's growth to `space`, the room the window has on
-// the side it grows into, by capping its textarea. The stylesheet's
-// `max-height` stays the upper bound, and this only ever lowers it; nor below
-// the height the box opened at, which the placement has already made room
-// for. growOnInput reads whichever cap is in force back after it writes.
-function capForm(c: Composer, space: number) {
-  const box = c.input.offsetHeight;
-  const cap = space - (c.root.offsetHeight - box);
-  const css = parseFloat(getComputedStyle(c.input).maxHeight);
-  if (!Number.isFinite(css) || cap < css) {
-    c.input.style.maxHeight = `${Math.max(cap, box)}px`;
-  }
 }
