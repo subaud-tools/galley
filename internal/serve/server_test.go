@@ -271,9 +271,8 @@ func TestOpenPicksATab(t *testing.T) {
 	}
 }
 
-// galley's page doesn't check in yet: a page holding the document over its
-// websocket still means no second tab.
-func TestOpenOpensNoSecondTabForAPageOnTheWebsocket(t *testing.T) {
+// The page checks in with its tab id, so a websocket that has not is no tab.
+func TestOpenAsksTheTabsAndNotTheWebsocket(t *testing.T) {
 	t.Setenv("GALLEY_HOME", t.TempDir())
 	r := startServe(t, Options{Sessions: presence(t), Every: time.Hour})
 	doc := writeDoc(t, "doc.md", "# T\n\nHello.\n")
@@ -286,8 +285,8 @@ func TestOpenOpensNoSecondTabForAPageOnTheWebsocket(t *testing.T) {
 	_ = resp.Body.Close()
 	defer func() { _ = conn.Close() }()
 	drainHandshake(t, conn, crdt.New())
-	if got := r.open(t, doc, DocOptions{}); got.Tab != TabReused {
-		t.Fatalf("Tab = %q, want %q", got.Tab, TabReused)
+	if got := r.open(t, doc, DocOptions{}); got.Tab != TabOpened {
+		t.Fatalf("Tab = %q, want %q: a page that has not checked in is no tab", got.Tab, TabOpened)
 	}
 }
 

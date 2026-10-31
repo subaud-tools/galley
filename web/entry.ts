@@ -2136,7 +2136,10 @@ class App implements AppState {
     const notice = document.createElement('div');
     notice.className = 'gly-rail-notice';
     root.append(band, notice);
-    document.body.appendChild(root);
+    // Beside the prose, in the centre card: right: 0 is the card's edge.
+    (document.querySelector('.gly-editor-card') ?? document.body).appendChild(
+      root,
+    );
     return { root, notice, band };
   }
 
@@ -2281,7 +2284,8 @@ class App implements AppState {
       document.documentElement.clientHeight || window.innerHeight || 0;
     const head = document.querySelector('.gly-bar');
     const foot = this.bar && this.bar.root;
-    const top = head ? head.getBoundingClientRect().height : 0;
+    // Its foot, not its height: the strip is sticky under the kit's bar.
+    const top = head ? head.getBoundingClientRect().bottom : 0;
     const bottom =
       foot && !foot.hidden ? foot.getBoundingClientRect().height : 0;
     return { top, bottom: view - bottom };

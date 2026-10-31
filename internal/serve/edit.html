@@ -3,7 +3,8 @@
   The edit-mode shell. Deliberately almost empty: it names the document, gives
   the editor bundle somewhere to mount, and offers the one control that does
   not belong to the editor (Revise). Every piece of editing logic lives in
-  /_galley/editor.js, built by `just assets`.
+  /_galley/editor.js, built by `just assets`, which also moves this markup into
+  the kit's frame (web/shell.ts).
 
   {{.Title}} and {{.Room}} are filled by html/template, which escapes both for
   the context they land in — so a document called `weird".md` cannot break out
@@ -16,6 +17,8 @@
 <base href="{{.Base}}/">
 <title>{{.Title}} — galley</title>
 <link rel="icon" type="image/svg+xml" href="{{.Base}}/_galley/favicon.svg">
+<script src="/_kit/boot.js" data-tool="galley"></script>
+<link rel="stylesheet" href="/_kit/kit.css">
 <link rel="stylesheet" href="{{.Base}}/_galley/editor.css">
 <style>
   /* The shell's own chrome only. The document's typography is editor.css's
@@ -231,10 +234,11 @@
     cursor: default;
     opacity: 0.6;
   }
-  main { max-width: 46rem; margin: 0 auto; padding: 32px 20px 40vh; }
+  :where(body, .kit-card-body) > main { max-width: 46rem; margin: 0 auto; padding: 32px 20px 40vh; }
 </style>
 </head>
 <body>
+<div class="kit-page"><div id="app" class="kit-app"></div></div>
 <header class="gly-bar">
   <span class="gly-doc">
     <svg class="gly-mark" viewBox="0 0 64 64" aria-hidden="true" focusable="false">
@@ -250,7 +254,7 @@
 <main>
   <div id="editor" data-room="{{.Room}}" data-doc="{{.Title}}" data-page-mode="{{if .PageMode}}1{{end}}" data-preview="{{.PreviewURL}}" data-can-share="{{if .CanShare}}1{{end}}"></div>
 </main>
-<script src="{{.Base}}/_galley/editor.js" defer></script>
+<script type="module" src="{{.Base}}/_galley/editor.js"></script>
 <script>
 (function () {
   var mount = document.getElementById('editor');

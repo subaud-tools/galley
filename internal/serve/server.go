@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 
 	tools "github.com/subaud-tools/tools-common"
 	"github.com/subaud-tools/tools-common/localweb"
+	"github.com/subaud-tools/tools-common/localweb/page"
 	"github.com/subaud-tools/tools-common/pageserve"
 )
 
@@ -32,6 +34,15 @@ func Running() (pageserve.Entry, error) { return Live().Running() }
 // which may be a temp dir deleted later.
 func Process() pageserve.Process {
 	return pageserve.Process{Live: Live(), Args: []string{"serve"}, Dir: StateDir()}
+}
+
+// pageAssets is what is served at the root: the front page and its bundle.
+func pageAssets() fs.FS {
+	sub, err := fs.Sub(assets, "assets")
+	if err != nil {
+		panic(err) // the embed directive guarantees the directory
+	}
+	return sub
 }
 
 // Options configures Run.
@@ -65,7 +76,7 @@ func Run(ctx context.Context, o Options) error {
 	h.sessions, h.log, h.savePath = o.Sessions, o.Log, DocsPath()
 	var watching sync.WaitGroup
 	err := pageserve.Run(ctx, pageserve.Options{
-		Live: Live(), API: h.Handler(), Events: h.events,
+		Live: Live(), Assets: page.With(pageAssets()), API: h.Handler(), Events: h.events,
 		Tabs: func(t *localweb.Tabs) { h.tabs = t },
 		Port: o.Port, Version: o.Version, Log: o.Log, Ready: o.Ready,
 		OnStart: func(ctx context.Context, url string) {

@@ -16,8 +16,8 @@
 // someone opened the page.
 
 import { readFileSync } from 'node:fs';
-import { Script } from 'node:vm';
 
+import { transformSync } from 'esbuild';
 import { Extension, getSchema } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import TableRow from '@tiptap/extension-table-row';
@@ -34,6 +34,15 @@ import { EditorState, TextSelection } from '@tiptap/pm/state';
 import { ReplaceStep } from '@tiptap/pm/transform';
 import { Slice } from '@tiptap/pm/model';
 import { ySyncPluginKey } from 'y-prosemirror';
+import {
+  docHref,
+  folderGroups,
+  pageFilters,
+  pageIdOf,
+  statePills,
+  stateWords,
+  switcherItems,
+} from './pagelist.ts';
 
 import {
   suggestionPlugin,
@@ -6052,6 +6061,78 @@ function bindsContentField(src) {
   return false;
 }
 
+// --- the open reviews: the switcher, the index and the front page ---
+
+{
+  const pages = [
+    { id: 'a', name: 'shopify.md', folder: 'counterbell', state: 'agent' },
+    { id: 'b', name: 'privacy.md', folder: 'counterbell', state: 'you' },
+    { id: 'c', name: 'master.md', folder: 'resume', state: 'approved' },
+  ];
+  const went = [];
+  const items = switcherItems(pages, 'a', (id) => went.push(id));
+  check(
+    'the switcher lists what needs you first, and marks the page you are on',
+    items.map((i) => i.label).join() === 'privacy.md,shopify.md,master.md' &&
+      items[1].current === true &&
+      items[0].current === false,
+    items,
+  );
+  check(
+    'each switcher row says where its review stands, by who it waits on',
+    items.map((i) => `${i.tone} ${i.detail}`).join() ===
+      'you counterbell · waiting on you,working counterbell · with the agent,idle resume · approved',
+    items,
+  );
+  items[0].onClick();
+  check('a switcher row goes to its review', went.join() === 'b', went);
+  check(
+    'a review’s address is under its base',
+    docHref('a b') === '/api/docs/a%20b/',
+    docHref('a b'),
+  );
+  check(
+    'the page knows its review from its address, and the front page has none',
+    pageIdOf('/api/docs/abc/') === 'abc' && pageIdOf('/') === '',
+    pageIdOf('/api/docs/abc/'),
+  );
+  check(
+    'the words for a state are the mockup’s',
+    stateWords('you') === 'waiting on you' &&
+      stateWords('agent') === 'with the agent' &&
+      stateWords('approved') === 'approved',
+  );
+  check(
+    'the status pills count each state',
+    statePills(pages)
+      .map((p) => `${p.value}:${p.count}`)
+      .join() === 'you:1,agent:1,approved:1',
+    statePills(pages),
+  );
+  const groups = folderGroups(pages);
+  check(
+    'reviews group by folder, and a folder with one waiting on you is edged',
+    groups.map((g) => `${g.folder}:${g.pages.length}:${g.edge}`).join() ===
+      'counterbell:2:signal,resume:1:',
+    groups,
+  );
+  const shown = (states, folders) =>
+    pageFilters(pages, states, folders)
+      .map((p) => p.id)
+      .join();
+  check(
+    'nothing chosen shows every review',
+    shown([], []) === 'a,b,c',
+    shown([], []),
+  );
+  check(
+    'a state and a folder each narrow it',
+    shown(['you'], []) === 'b' &&
+      shown([], ['resume']) === 'c' &&
+      shown(['you'], ['resume']) === '',
+  );
+}
+
 // --- the built bundle ---
 
 {
@@ -6063,12 +6144,12 @@ function bindsContentField(src) {
     check('the built bundle exists', false, String(path));
   }
   if (src) {
-    // Compiled, not run: an IIFE bundle's first act in node would be to look
-    // for a DOM that is not there. Compiling proves it parses, which is the
-    // failure a bad build actually produces.
+    // Parsed, not run: an ES module's first act in node would be to import the
+    // kit from a server that is not there. Parsing is the failure a bad build
+    // actually produces.
     let parsed = true;
     try {
-      new Script(src, { filename: 'editor.js' });
+      transformSync(src, { format: 'esm', loader: 'js' });
     } catch (err) {
       parsed = false;
       check('the built bundle parses', false, err.message);
@@ -7958,7 +8039,9 @@ function bindsContentField(src) {
     check(
       'History uses the page layout rather than a full-screen overlay',
       /\.gly-versions\{[^}]*position:relative/.test(roundsCss) &&
-        /body\.gly-history-mode>main\{display:none/.test(roundsCss),
+        /body\.gly-history-mode \.kit-card-body>main\{display:none/.test(
+          roundsCss,
+        ),
     );
     // BELOW the bottom bar, which carries the count, the step and the way back
     // at narrow widths. A record must never be what covers them.
@@ -8161,8 +8244,7 @@ function bindsContentField(src) {
     "the built bundle builds the kit's Share menu and carries its stylesheet",
     bundle.includes('kit-share-menu') &&
       css.includes('.kit-share-menu') &&
-      !css.includes('.gly-share-menu') &&
-      !bundle.includes('/_kit/'),
+      !css.includes('.gly-share-menu'),
   );
 }
 

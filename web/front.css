@@ -1,0 +1,12 @@
+/* front.css — the front page's own layout, and galley's colours for the kit. */
+@import './tools.css';
+
+.kit-app { grid-template-columns: minmax(0, 1fr); }
+.kit-bar .kit-brand img { display: block; }
+.gly-front {
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+  max-width: 760px;
+  padding: 20px;
+}

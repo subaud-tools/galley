@@ -697,8 +697,10 @@ export class VersionsPanel {
     body.append(this.paper, this.rail);
 
     root.append(sub, body);
-    // In body, never inside the editable node. See the header.
-    document.body.appendChild(root);
+    // In the centre card, never inside the editable node. See the header.
+    (document.querySelector('.kit-card-body') ?? document.body).appendChild(
+      root,
+    );
     this.root = root;
     this.sub = sub;
     this.body = body;

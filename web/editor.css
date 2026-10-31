@@ -1,9 +1,9 @@
 /* Share's menu is tools-common's (web/kit/, refreshed from the module go.mod
-   pins by `just assets`), bundled in here so galley serves nothing new and
-   loads none of kit.css. Its --share-* properties are set to galley's own
+   pins by `just assets`), bundled in here until the send bar takes Share. Its --share-* properties are set to galley's own
    tokens beside the verdict menu below. An @import must come first. So does
    the kit's message pill (kit/msgpill.css, cut out of kit.css by the same
    copy); its --kit-* properties are set on `.gly-msg` below. */
+@import './tools.css';
 @import "./kit/share.css";
 @import "./kit/msgpill.css";
 
@@ -50,7 +50,7 @@
    today, and "by hand" is the whole of what keeps them agreeing. THE TOP BAR
    IS AUTHORED IN BOTH FILES TOO, and that one has already cost something: four
    rules in this stylesheet exist ONLY to win source-order ties against the
-   shell, each of them documented as such where it sits — `body > .gly-bar`
+   shell, each of them documented as such where it sits — `.kit-card-body > .gly-bar`
    twice (the wide justification and the narrow gap, `body >` purely to reach
    (0,1,1) against a bare `.gly-bar` in a later stylesheet), `.gly-bar
    .gly-status` (scoped to (0,2,0) for the same reason), and the shell's own
@@ -881,7 +881,7 @@
    offset is added exactly once, in that one function.
 
    The document column reserves the rail's width rather than running underneath
-   it: `body > main` is centred in the WHOLE viewport, so without the
+   it: `.kit-card-body > main` is centred in the WHOLE viewport, so without the
    reservation the prose runs under the rail and any mark under there is
    unclickable. That reservation is UNCHANGED by the rail leaving `fixed`, and
    it is what keeps the two columns apart at every width the rail renders at:
@@ -978,7 +978,7 @@
      than `display` on the landing, so the paper and the rail begin at the same
      y whichever stage is on screen — the landing rail used to sit exactly this
      40px below the paper it is a map of. In the DRAFT there is no sub-bar at
-     all and the row is reserved anyway, by `body > main`'s top padding and the
+     all and the row is reserved anyway, by `.kit-card-body > main`'s top padding and the
      rail's own `top`, so the two modes are the same column geometry. That row
      is empty in the draft today; the better long-term answer is to give it
      something useful to do there, which needs a product decision about what.
@@ -993,12 +993,12 @@
    declares `padding: 32px 20px 40vh`; this overrides the top of it only, and
    wins on specificity (0,0,2 against the inline block's 0,0,1) rather than on
    source order. Both columns then hang off one number — see --gly-rail-top. */
-body > main {
+.kit-card-body > main {
   padding-top: var(--gly-rail-top);
 }
 
 @media (min-width: 992px) {
-  body > main {
+  .kit-card-body > main {
     max-width: calc(var(--gly-col) + var(--gly-rail-w) + var(--gly-gutter) * 2);
     padding-right: calc(var(--gly-rail-w) + var(--gly-gutter) * 2);
   }
@@ -1006,7 +1006,7 @@ body > main {
 /* Collapsed: the rail is gone and the document recentres wider. Not inside the
    media query — below RAIL_MIN_WIDTH `railSurfaces` forces this regardless of
    viewport width, because there is no rail there to be beside. */
-body.gly-collapsed > main { max-width: var(--gly-col-wide); padding-right: var(--gly-gutter); }
+body.gly-collapsed .kit-card-body > main { max-width: var(--gly-col-wide); padding-right: var(--gly-gutter); }
 
 /* THE GRIP'S GUTTER, AT EVERY WIDTH. Each block grip hangs off the column's
    left edge into `--gly-grip-gutter`, so the text must start at least that far
@@ -1041,9 +1041,9 @@ body.gly-collapsed > main { max-width: var(--gly-col-wide); padding-right: var(-
   );
 }
 @media (min-width: 992px) {
-  body:not(.gly-page) > main { padding-left: var(--gly-grip-inset); }
+  body:not(.gly-page) .kit-card-body > main { padding-left: var(--gly-grip-inset); }
 }
-body.gly-collapsed:not(.gly-page) > main {
+body.gly-collapsed:not(.gly-page) .kit-card-body > main {
   padding-left: var(--gly-grip-inset-wide);
 }
 
@@ -2034,7 +2034,7 @@ html.gly-panel-door {
      showed up as the sheet's cards sitting narrower and inboard of where
      the prose actually sits. Horizontal insets belong to the head and the
      body themselves now, so each measures against the full viewport the
-     way `body > main` does, at every width.
+     way `.kit-card-body > main` does, at every width.
 
      THE 52px AT THE FOOT IS THE BOTTOM BAR'S, and it is the reason that bar is
      drawn OVER this surface rather than hidden by it: 40px of bar plus this
@@ -2057,7 +2057,7 @@ html.gly-panel-door {
 /* The document's own measure, centred — not the full window. A card sized for
    a 300px rail read as a different kind of thing stretched to 870px, so the
    sheet is set at the measure the PROSE takes when nothing is beside it:
-   `body.gly-collapsed > main` is `--gly-col-wide`, and the rail is never beside
+   `body.gly-collapsed .kit-card-body > main` is `--gly-col-wide`, and the rail is never beside
    the prose while this surface is up, because `railSurfaces` hides it
    underneath the sheet at every width.
 
@@ -2122,7 +2122,7 @@ html.gly-panel-door {
    rule is (0,1,0) in a <style> that loads after this file, so a bare class
    here loses the tie on source order. */
 @media (min-width: 992px) {
-  body > .gly-bar { justify-content: flex-end; }
+  .kit-card-body > .gly-bar { justify-content: flex-end; }
 }
 
 /* THE STATUS MAY NOT DECIDE WHERE THE BAR FOLDS.
@@ -2868,7 +2868,7 @@ html.gly-panel-door {
      sitting under the bottom bar. This is a tighter fit, not a guarantee of
      one — a long enough document name still folds the bar, which is what
      folding is for. */
-  body > .gly-bar { gap: 8px; }
+  .kit-card-body > .gly-bar { gap: 8px; }
 
   /* The strip's copy of the count used to be hidden HERE, because below the
      breakpoint it printed twice — in this strip and in `.gly-bar-count` at the
@@ -3121,7 +3121,7 @@ html.gly-panel-door {
   background: var(--gly-bg);
   color: var(--gly-fg);
 }
-body.gly-history-mode > main {
+body.gly-history-mode .kit-card-body > main {
   display: none;
 }
 /* THIS PANEL IS THE ELEMENT THAT TAUGHT THE PRODUCT WHAT `hidden` COSTS — it
@@ -3266,7 +3266,7 @@ body.gly-history-mode > main {
   align-items: start;
   max-width: calc(var(--gly-col) + var(--gly-rail-w) + var(--gly-gutter) * 2);
   margin: 0 auto;
-  /* TWO gutters on the right, which is `body > main`'s own arithmetic said
+  /* TWO gutters on the right, which is `.kit-card-body > main`'s own arithmetic said
      again — one gutter left the paper 20px wider than the draft's. */
   padding: var(--gly-page-pad) calc(var(--gly-rail-w) + var(--gly-gutter) * 2) 40vh var(--gly-gutter);
 }
@@ -3952,7 +3952,7 @@ body.gly-history-mode > main {
    the pressed state, the layout and the sticky position that differ. */
 body.gly-page .gly-viewbar {
   position: sticky;
-  top: var(--gly-bar-h, 3.4rem);
+  top: calc(var(--gly-kit-bar) + var(--gly-bar-h, 3.4rem));
   z-index: 6;
   display: flex;
   justify-content: center;
@@ -3992,7 +3992,7 @@ body.gly-page .gly-view-btn.is-active {
    Both and Content. There is ONE scroll: fitIframe (web/preview.ts) sizes the
    iframe to its own content height, so neither pane scrolls internally and the
    window scrolls both together. */
-body.gly-page > main {
+body.gly-page .kit-card-body > main {
   max-width: none;
   padding-right: calc(var(--gly-rail-w) + var(--gly-gutter) * 2);
 }
@@ -4069,3 +4069,38 @@ body.gly-page.gly-view-content #editor .ProseMirror {
 body.gly-page .ProseMirror p.gly-shell-marker {
   display: none;
 }
+
+/* --- the page on the family kit (web/shell.ts) ---
+
+   The kit's frame scrolls each column on its own. The editor's marks, cards and
+   popovers measure against the WINDOW's scroll (window.scrollY in composer,
+   cards, suggestions, versions), so the window keeps scrolling here: the bar and
+   both side columns stick, and the centre flows. It goes back to the frame's own
+   scroll with the card layer, in the plan's thread task. */
+:root { --gly-kit-bar: 52px; }
+.kit-page, .kit-app { height: auto; min-height: 100vh; }
+.kit-app { overflow: visible; }
+.kit-app > .kit-bar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--kit-bg);
+}
+.kit-bar .kit-brand img { display: block; }
+.kit-app > .kit-left-col, .kit-app > .kit-right-col {
+  position: sticky;
+  top: var(--gly-kit-bar);
+  align-self: start;
+  height: calc(100vh - var(--gly-kit-bar));
+  z-index: 8;
+}
+.kit-app > .kit-mid { overflow: visible; min-width: 0; }
+/* The editor's own strip, until the send bar takes its controls. */
+.gly-editor-card { position: relative; padding-bottom: 0; }
+.gly-editor-card .gly-doc { display: none; }
+.gly-editor-card .kit-card-body { margin: 0; }
+.gly-editor-card .kit-card-body > .gly-bar { top: var(--gly-kit-bar); padding: 8px 0; background: var(--kit-card); }
+.gly-editor-card .kit-card-body > main { margin: 0 auto; }
+/* With no cards the column widens, and centred in the card it runs under the
+   rail's hint: in the window it had the width to clear it, in the card it has not. */
+body.gly-collapsed .gly-editor-card .kit-card-body > main { margin: 0; }

@@ -13,9 +13,8 @@ type PagesView struct {
 }
 
 // countPages counts each websocket upgrade to the room for as long as the
-// connection lasts: ygo's ServeHTTP returns only when the peer is gone. Besides
-// localweb.Tabs, whose list holds only pages that check in with a tab id: this
-// sees every page on the document, and the unload rule and Host.showIn ask it.
+// connection lasts: ygo's ServeHTTP returns only when the peer is gone. The
+// unload rule asks it.
 func (s *EditServer) countPages(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !gws.IsWebSocketUpgrade(r) {
