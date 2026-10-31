@@ -21,6 +21,8 @@ type Notifier struct {
 	Quiet time.Duration
 	// Log receives one line per fired or failed notification.
 	Log func(string)
+	// Dir is where Command runs; "": this process's directory.
+	Dir string
 
 	mu      sync.Mutex
 	timer   *time.Timer
@@ -111,7 +113,9 @@ func (n *Notifier) fire(fp string) {
 		return
 	}
 
-	out, err := exec.Command("sh", "-c", cmd).CombinedOutput()
+	c := exec.Command("sh", "-c", cmd)
+	c.Dir = n.Dir
+	out, err := c.CombinedOutput()
 	if logf == nil {
 		return
 	}

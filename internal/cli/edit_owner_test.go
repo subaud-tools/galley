@@ -2,12 +2,8 @@ package cli
 
 import (
 	"io"
-	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"github.com/subaud-tools/galley/internal/serve"
-	"github.com/subaud-tools/tools-common/pageserve"
 )
 
 // THE OWNER IS AN ARGUMENT, NEVER THE ENVIRONMENT. Under pi, in-process
@@ -61,60 +57,5 @@ func TestEditRefusesADeadOwnerBeforeListening(t *testing.T) {
 	entries, _ := live().List()
 	if len(entries) != 0 {
 		t.Fatalf("a refused editor still advertised: %+v", entries)
-	}
-}
-
-func advertFor(t *testing.T, room string) pageserve.Entry {
-	t.Helper()
-	entries, err := live().List()
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, e := range entries {
-		if e.Room == room {
-			return e
-		}
-	}
-	t.Fatalf("no advert for room %s", room)
-	return pageserve.Entry{}
-}
-
-func TestAdvertiseStampsTheExplicitOwner(t *testing.T) {
-	t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
-	dir := t.TempDir()
-	doc := writeDoc(t, dir, "doc.md", "# T\n\nHi.\n")
-	srv, err := serve.NewEdit(doc)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = srv.Close() })
-	ts := httptest.NewServer(srv.Handler())
-	defer ts.Close()
-
-	advertiseEdit(srv, ts.URL, "session-explicit")
-	if got := advertFor(t, srv.Room).Owner; got != "session-explicit" {
-		t.Fatalf("owner = %q, want session-explicit", got)
-	}
-}
-
-// The environment is NOT consulted, even when it names a session. This is the
-// whole fix: a polluted variable in the shell can no longer stamp an editor.
-func TestAdvertiseIgnoresTheEnvironment(t *testing.T) {
-	t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
-	t.Setenv("CLAUDE_CODE_SESSION_ID", "env-claude")
-	t.Setenv("AGENT_SESSION_ID", "env-agent")
-	dir := t.TempDir()
-	doc := writeDoc(t, dir, "doc.md", "# T\n\nHi.\n")
-	srv, err := serve.NewEdit(doc)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = srv.Close() })
-	ts := httptest.NewServer(srv.Handler())
-	defer ts.Close()
-
-	advertiseEdit(srv, ts.URL, "")
-	if got := advertFor(t, srv.Room).Owner; got != "" {
-		t.Fatalf("owner = %q, want unowned — the environment stamped the advert", got)
 	}
 }

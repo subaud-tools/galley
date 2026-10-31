@@ -144,7 +144,7 @@ func recordOpens(c *channel) *[]string {
 // gives the reviewer a dead page. Its entry is waited out and a fresh editor
 // takes its place.
 func TestOpenWaitsOutAnEditorThatDoesNotAnswer(t *testing.T) {
-	t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
+	isolate(t)
 	dir := t.TempDir()
 	doc := writeDoc(t, dir, "doc.md", "# T\n")
 	if err := live().AnnounceSession("session-me"); err != nil {
@@ -366,35 +366,23 @@ func TestSamePageComparesBothSpellings(t *testing.T) {
 // entry, the runtime file is the only record of the editor; one owned by
 // another session is reported as open, never stopped.
 func TestOpenDoesNotStopAnotherSessionsEndedReview(t *testing.T) {
-	t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
 	dir := t.TempDir()
 	doc := writeDoc(t, dir, "doc.md", "# T\n")
-	stops := 0
-	ed := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/_galley/revise":
-			_, _ = w.Write([]byte(`{"sealed":true}`))
-		case "/_galley/stop":
-			stops++
-			w.WriteHeader(http.StatusNoContent)
-		}
-	}))
-	t.Cleanup(ed.Close)
-	raw, err := json.Marshal(serve.Runtime{URL: ed.URL, Room: "doc", Page: doc, PID: os.Getpid(), Owner: "session-other"})
-	if err != nil {
+	rt := openOnServer(t, doc, serve.DocOptions{Owner: "session-other"})
+	if err := live().AnnounceSession("session-other"); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(serve.DefaultRuntimePath(doc), raw, 0o600); err != nil {
+	if err := postApprove(rt.URL); err != nil {
 		t.Fatal(err)
 	}
 
 	c := newChannel(dir, "session-me")
 	opened := recordOpens(c)
-	_, err = openDoc(t, c, doc)
+	_, err := openDoc(t, c, doc)
 	if err == nil || !strings.Contains(err.Error(), "already open") {
 		t.Fatalf("expected an already-open error, got %v", err)
 	}
-	if stops != 0 || len(*opened) != 0 {
-		t.Fatalf("stopped %d times, opened %v; another session's editor must be left alone", stops, *opened)
+	if _, ok := serve.FindRuntime(doc); !ok || len(*opened) != 0 {
+		t.Fatalf("still open %v, opened %v; another session's editor must be left alone", ok, *opened)
 	}
 }

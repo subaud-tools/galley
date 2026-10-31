@@ -8,7 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -19,7 +21,7 @@ import (
 // StateDir is galley serve's state directory.
 func StateDir() string { return tools.StateDir("galley") }
 
-// Live is where galley serve's entry is: StateDir/live/serve.json.
+// Live is where galley serve's entry is, under StateDir/live.
 func Live() pageserve.Live { return pageserve.LiveFor("galley") }
 
 // Running returns the live serve's entry, or pageserve.ErrNotRunning.
@@ -87,4 +89,60 @@ func Run(ctx context.Context, o Options) error {
 	})
 	watching.Wait()
 	return errors.Join(err, h.closeAll())
+}
+
+// Runtime is what the server says about one open document. URL is its base,
+// without the token: a caller sends the token in the header.
+type Runtime struct {
+	URL   string
+	Room  string
+	Page  string // the file under review
+	PID   int    // the `galley edit` holding it, 0 for none
+	Owner string
+}
+
+// AlreadyServing is the refusal: another live `galley edit` holds this
+// document. Typed so a caller can read the address out of it rather than
+// parsing the message.
+type AlreadyServing struct{ Runtime Runtime }
+
+func (e *AlreadyServing) Error() string {
+	return fmt.Sprintf("%s is already open at %s (pid %d) — use that address, or stop that editor first",
+		filepath.Base(e.Runtime.Page), e.Runtime.URL, e.Runtime.PID)
+}
+
+// FindRuntime asks the running server whether it holds this document, by any
+// path that names it: a page's .html or its content.md, in either spelling of
+// a symlinked directory. No server, or one that does not answer, holds nothing.
+func FindRuntime(path string) (Runtime, bool) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return Runtime{}, false
+	}
+	var docs []DocView
+	client := pageserve.NewClient(Live(), nil)
+	if _, err := client.Do(context.Background(), http.MethodGet, "/api/docs", nil, &docs); err != nil {
+		return Runtime{}, false
+	}
+	want := canonicalPath(abs)
+	for _, d := range docs {
+		if canonicalPath(d.Path) == want || canonicalPath(d.Page) == want {
+			return Runtime{URL: d.URL, Room: d.Room, Page: d.Page, PID: d.Editor, Owner: d.Owner}, true
+		}
+	}
+	return Runtime{}, false
+}
+
+// canonicalPath is what a path really is, so one file has one answer however
+// it was spelled: /tmp is /private/tmp on macOS. A path that does not resolve
+// (the file was deleted while under review) stands for itself, with its
+// directory resolved when that exists.
+func canonicalPath(abs string) string {
+	if real, err := filepath.EvalSymlinks(abs); err == nil {
+		return real
+	}
+	if dir, err := filepath.EvalSymlinks(filepath.Dir(abs)); err == nil {
+		return filepath.Join(dir, filepath.Base(abs))
+	}
+	return abs
 }

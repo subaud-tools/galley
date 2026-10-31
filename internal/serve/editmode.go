@@ -59,13 +59,15 @@ import (
 // Instructions live in the document as {>>note<<} blocks and in the ledger with
 // the round that carried them; stored versions are clean documents.
 type EditServer struct {
-	MdPath      string
-	RuntimePath string
-	Room        string
+	MdPath string
+	Room   string
 
 	// Base is the path this document's routes are mounted under, "" at the
 	// root. Set by Host before the document is served.
 	Base string
+
+	// HookDir is where OnRevise runs; "": this process's directory.
+	HookDir string
 
 	// Notify, when set, fires after the document settles. It exists so the
 	// reviewer never has to tell the agent to go and look.
@@ -472,15 +474,6 @@ func NewEdit(mdPath string) (*EditServer, error) {
 		// report a problem with something the user never mentioned.
 		return nil, fmt.Errorf("document: %w", err)
 	}
-	// ONE EDITOR PER DOCUMENT — see claimDocument, and the erasure it names.
-	// Asked here, before the second *crdt.Doc is built, because the second
-	// document is the harm; the advert is only how it is noticed. The claim is
-	// a READ, so two processes starting in the same instant can both pass it —
-	// the window is from here to the caller's announce, and the sequence this
-	// exists for (a second `galley edit`, minutes or hours later) is not in it.
-	if err := claimDocument(DefaultRuntimePath(abs)); err != nil {
-		return nil, err
-	}
 	// THE INLINE NOTES THE PARSE LIFTS ARE DISCARDED, and that is a deletion:
 	// a hand-typed {>>words<<} inside a sentence leaves the .md at the first
 	// projection. Comments hand-typed into the .md are not imported, by
@@ -536,12 +529,11 @@ func NewEdit(mdPath string) (*EditServer, error) {
 	}
 
 	s := &EditServer{
-		MdPath:      abs,
-		RuntimePath: DefaultRuntimePath(abs),
-		Room:        room,
-		doc:         doc,
-		yjs:         yjs,
-		root:        root,
+		MdPath: abs,
+		Room:   room,
+		doc:    doc,
+		yjs:    yjs,
+		root:   root,
 		// The trail survives a restart: it clears on the document VERDICT, not
 		// on the process ending (the 2026-08-15 trail spec — review-long,
 		// verdict-cleared). The epoch starts at 1 so the zero value — an
@@ -1383,9 +1375,6 @@ func (s *EditServer) Handler() http.Handler {
 	mux.HandleFunc("/_galley/share/html", s.handleShareHTML)
 	mux.HandleFunc("/_galley/share/md", s.handleShareMD)
 	mux.HandleFunc("/", s.handleEditRoot)
-	if s.Base == "" {
-		return refuseOtherSites(mux)
-	}
 	return mux
 }
 
@@ -2630,7 +2619,7 @@ func (s *EditServer) handleRevise(w http.ResponseWriter, r *http.Request) {
 				// sees ReviseInFlight report false rather than racing it.
 				close(done)
 			}()
-			runRevise(cmd, logf)
+			runRevise(cmd, s.HookDir, logf)
 		}()
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -3082,8 +3071,10 @@ func noteSuffix(note string) string {
 	return " — " + note
 }
 
-func runRevise(cmd string, logf func(string)) {
-	out, err := exec.Command("sh", "-c", cmd).CombinedOutput()
+func runRevise(cmd, dir string, logf func(string)) {
+	c := exec.Command("sh", "-c", cmd)
+	c.Dir = dir
+	out, err := c.CombinedOutput()
 	if logf == nil {
 		return
 	}

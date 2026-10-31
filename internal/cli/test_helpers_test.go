@@ -1,12 +1,19 @@
 package cli
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/subaud-tools/galley/internal/serve"
+	"github.com/subaud-tools/tools-common/pageserve"
 )
 
 // TestMain isolates the whole package's test run from the operator's real
@@ -41,6 +48,23 @@ func TestMain(m *testing.M) {
 			return 1
 		}
 
+		// No test reaches the real state: a command that starts the server,
+		// or asks for one, finds these. A test that does either calls isolate.
+		state, err := os.MkdirTemp("", "galley-cmd-test-state")
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "TestMain: mkdtemp:", err)
+			return 1
+		}
+		defer func() { _ = os.RemoveAll(state) }()
+		if err := os.Setenv("XDG_STATE_HOME", state); err != nil {
+			fmt.Fprintln(os.Stderr, "TestMain: setenv:", err)
+			return 1
+		}
+		if err := os.Setenv("GALLEY_LIVE_DIR", filepath.Join(state, "live")); err != nil {
+			fmt.Fprintln(os.Stderr, "TestMain: setenv:", err)
+			return 1
+		}
+
 		oldDir, hadDir := os.LookupEnv("GALLEY_CONFIG_DIR")
 		if err := os.Setenv("GALLEY_CONFIG_DIR", dir); err != nil {
 			fmt.Fprintln(os.Stderr, "TestMain: setenv:", err)
@@ -57,6 +81,56 @@ func TestMain(m *testing.M) {
 		return m.Run()
 	}()
 	os.Exit(code)
+}
+
+// isolate gives the test its own state directory and live directory, and stops
+// whatever server the test started before they are removed.
+func isolate(t *testing.T) {
+	t.Helper()
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := pageserve.Stop(ctx, serve.Live()); err != nil && !errors.Is(err, pageserve.ErrNotRunning) {
+			t.Errorf("stopping the test's server: %v", err)
+		}
+	})
+}
+
+// openOnServer runs the server in this process, under an isolated state
+// directory, and opens the document on it: what `galley edit` leaves behind,
+// for a test of what comes after.
+func openOnServer(t *testing.T, doc string, o serve.DocOptions) serve.Runtime {
+	t.Helper()
+	isolate(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	ready := make(chan string, 1)
+	go func() {
+		done <- serve.Run(ctx, serve.Options{Sessions: live(), Ready: func(u string) { ready <- u }})
+	}()
+	t.Cleanup(func() {
+		cancel()
+		<-done
+	})
+	select {
+	case <-ready:
+	case err := <-done:
+		t.Fatalf("the server exited: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("the server never became ready")
+	}
+	client := pageserve.NewClient(serve.Live(), nil)
+	in := serve.OpenRequest{Path: doc, DocOptions: o}
+	if _, err := client.Do(context.Background(), http.MethodPost, "/api/docs", in, nil); err != nil {
+		t.Fatal(err)
+	}
+	rt, ok := serve.FindRuntime(doc)
+	if !ok {
+		t.Fatalf("the server does not hold %s", doc)
+	}
+	return rt
 }
 
 // captureOutput runs fn with os.Stdout/os.Stderr redirected and returns what

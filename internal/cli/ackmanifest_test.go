@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -53,21 +52,13 @@ func TestBothCarriersLandTheSameManifest(t *testing.T) {
 			t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
 			dir := t.TempDir()
 			doc := writeDoc(t, dir, "doc.md", "# Title\n\nThe budget should stay explicit.\n")
-			srv, err := serve.NewEdit(doc)
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() { _ = srv.Close() })
-			srv.OnRevise = "true"
-			ts := httptest.NewServer(srv.Handler())
-			defer ts.Close()
-			advertise(t, doc, ts.URL, srv.Room)
+			base := openOnServer(t, doc, serve.DocOptions{OnRevise: "true"}).URL
 
 			// The reviewer asks, and presses.
-			postJSON(t, ts.URL+"/_galley/instruct", map[string]any{
+			postJSON(t, base+"/_galley/instruct", map[string]any{
 				"op": "comment", "target": "budget", "text": "bound it", "author": "court",
 			})
-			postJSON(t, ts.URL+"/_galley/revise", map[string]any{})
+			postJSON(t, base+"/_galley/revise", map[string]any{})
 			store := versions.Open(doc)
 			asked := list(t, store)
 			if len(asked) != 2 || len(asked[1].Asks) != 1 {
@@ -81,7 +72,7 @@ func TestBothCarriersLandTheSameManifest(t *testing.T) {
 			}
 			waitForImport(t, doc, "12 attempts")
 
-			carrier.send(t, newChannel(dir, ""), ts.URL, doc, []AckChange{
+			carrier.send(t, newChannel(dir, ""), base, doc, []AckChange{
 				{Quote: "of 12 attempts", Answers: []string{key}, Note: "Bounded the budget."},
 				{Quote: "a sentence nobody wrote", Answers: []string{key}, Note: "Fabricated."},
 			})
@@ -115,19 +106,6 @@ func TestChangesFlagRefusesWhatItCannotParse(t *testing.T) {
 	got, err := readChanges(`[{"quote":"a","answers":["k"],"note":"n"}]`)
 	if err != nil || len(got) != 1 || got[0].Quote != "a" || got[0].Answers[0] != "k" || got[0].Note != "n" {
 		t.Errorf("a well-formed manifest did not parse: %+v %v", got, err)
-	}
-}
-
-// advertise writes the <doc>.serve.json a local tool finds a running editor
-// through — the door FindRuntime opens, and so the door the MCP carrier takes.
-func advertise(t *testing.T, doc, url, room string) {
-	t.Helper()
-	raw, err := json.Marshal(serve.Runtime{URL: url, Room: room, Page: doc, PID: os.Getpid()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(serve.DefaultRuntimePath(doc), raw, 0o644); err != nil {
-		t.Fatal(err)
 	}
 }
 

@@ -47,51 +47,12 @@ func everyEndpoint(t *testing.T, fn func(t *testing.T, h http.Handler, e mutatin
 	}
 }
 
-func csrfRequest(e mutatingEndpoint, contentType, origin string) *http.Request {
+func csrfRequest(e mutatingEndpoint, contentType string) *http.Request {
 	r := httptest.NewRequest(http.MethodPost, e.path, strings.NewReader(e.body))
 	if contentType != "" {
 		r.Header.Set("Content-Type", contentType)
 	}
-	if origin != "" {
-		r.Header.Set("Origin", origin)
-		r.Header.Set("Sec-Fetch-Site", "cross-site")
-	}
 	return r
-}
-
-// Any page the user happens to have open could POST to 127.0.0.1:8123 and
-// rewrite their document — or, on /_galley/revise, make the server run its
-// configured shell command. Both endpoints answered CORS-simple requests, so a
-// plain auto-submitting form was enough; no fetch, no preflight, no CORS
-// headers needed.
-func TestCrossOriginPostIsRefusedOnEveryMutatingEndpoint(t *testing.T) {
-	everyEndpoint(t, func(t *testing.T, h http.Handler, e mutatingEndpoint) {
-		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, csrfRequest(e, "application/json", "https://evil.example"))
-		if rec.Code != http.StatusForbidden {
-			t.Fatalf("cross-origin POST %s: %d %s, want 403", e.path, rec.Code, rec.Body.String())
-		}
-	})
-}
-
-// sameSite falls back to comparing Origin's host against the request's Host
-// only when Sec-Fetch-Site did not already decide it — and csrfRequest always
-// sets Sec-Fetch-Site: cross-site whenever it sets Origin, so
-// TestCrossOriginPostIsRefusedOnEveryMutatingEndpoint above never exercises
-// that host-comparison branch on its own. An older browser, or a request that
-// simply omits the header, still carries Origin — so the mismatch must be
-// caught on Origin alone.
-func TestCrossOriginPostWithNoSecFetchSiteIsRefused(t *testing.T) {
-	everyEndpoint(t, func(t *testing.T, h http.Handler, e mutatingEndpoint) {
-		r := httptest.NewRequest(http.MethodPost, e.path, strings.NewReader(e.body))
-		r.Header.Set("Content-Type", "application/json")
-		r.Header.Set("Origin", "https://evil.example")
-		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, r)
-		if rec.Code != http.StatusForbidden {
-			t.Fatalf("cross-origin POST %s with no Sec-Fetch-Site: %d %s, want 403", e.path, rec.Code, rec.Body.String())
-		}
-	})
 }
 
 // The two content types a cross-site <form> can send without a preflight. They
@@ -102,7 +63,7 @@ func TestCorsSimpleContentTypesAreRefused(t *testing.T) {
 		t.Run(ct, func(t *testing.T) {
 			everyEndpoint(t, func(t *testing.T, h http.Handler, e mutatingEndpoint) {
 				rec := httptest.NewRecorder()
-				h.ServeHTTP(rec, csrfRequest(e, ct, ""))
+				h.ServeHTTP(rec, csrfRequest(e, ct))
 				if rec.Code != http.StatusUnsupportedMediaType {
 					t.Fatalf("POST %s as %s: %d %s, want 415", e.path, ct, rec.Code, rec.Body.String())
 				}

@@ -14,9 +14,8 @@ import (
 	"github.com/subaud-tools/tools-common/pageserve"
 )
 
-// buildGalley compiles the real binary once per test that needs it. The
-// advert is written before the first request is served, and this test only
-// reads the advert and probes the listener.
+// buildGalley compiles the real binary once per test that needs it: `galley
+// edit` starts the server from the binary it is.
 func buildGalley(t *testing.T) string {
 	t.Helper()
 	exe := filepath.Join(t.TempDir(), "galley")
@@ -59,7 +58,7 @@ func killEditor(t *testing.T, room string) {
 }
 
 func TestOpenSpawnsAnEditorOwnedByThisSession(t *testing.T) {
-	t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
+	isolate(t)
 	dir := t.TempDir()
 	doc := writeDoc(t, dir, "doc.md", "# T\n\nHello.\n")
 	if err := live().AnnounceSession("session-me"); err != nil {
@@ -101,10 +100,10 @@ func TestOpenSpawnsAnEditorOwnedByThisSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// THE RUNTIME FILE NAMES THE OWNER, so an approved review — whose registry
-	// entry is gone — can still be recognised as this session's.
+	// THE SERVER NAMES THE OWNER, so an approved review — whose registry entry
+	// is gone — can still be recognised as this session's.
 	if rt, ok := serve.FindRuntime(doc); !ok || rt.Owner != "session-me" {
-		t.Fatalf("runtime file %+v (found %v), want owner session-me", rt, ok)
+		t.Fatalf("the server says %+v (found %v), want owner session-me", rt, ok)
 	}
 	if again.Room != r.Room {
 		t.Fatalf("second open started a second editor: %s then %s", r.Room, again.Room)
@@ -122,7 +121,7 @@ func TestOpenSpawnsAnEditorOwnedByThisSession(t *testing.T) {
 // A REVIEW THAT HAS ENDED IS NOT HANDED BACK. After an approve the old
 // editor serves a sealed page; galley_open stops it and starts a fresh review.
 func TestOpenStartsAFreshReviewWhenTheLastOneEnded(t *testing.T) {
-	t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
+	isolate(t)
 	dir := t.TempDir()
 	doc := writeDoc(t, dir, "doc.md", "# T\n\nHello.\n")
 	if err := live().AnnounceSession("session-me"); err != nil {
@@ -266,7 +265,7 @@ func TestTailLinesReturnsTheLastN(t *testing.T) {
 // path meant galley_open never recognised the editor it had just spawned and
 // timed out on every HTML page. This drives the real binary end to end.
 func TestOpenAnHTMLPageResolvesTheAdvertisedContentFile(t *testing.T) {
-	t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
+	isolate(t)
 	dir := t.TempDir()
 	page := filepath.Join(dir, "post.html")
 	if err := os.WriteFile(page, []byte(minimalHTML), 0o644); err != nil {

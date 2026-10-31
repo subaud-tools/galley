@@ -225,8 +225,8 @@ func TestHostSamePathGetsTheSameID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if again != id || id != pageserve.Token(path) {
-		t.Fatalf("ids %s and %s, want both %s", id, again, pageserve.Token(path))
+	if want := pageserve.Token(canonicalPath(path)); again != id || id != want {
+		t.Fatalf("ids %s and %s, want both %s", id, again, want)
 	}
 	if docs := f.host.List(); len(docs) != 1 || docs[0].ID != id || docs[0].Path != path {
 		t.Fatalf("List = %+v, want the one document", docs)

@@ -3,11 +3,8 @@ package serve
 import (
 	"embed"
 	"encoding/json"
-	"fmt"
 	"mime"
-	"net"
 	"net/http"
-	"net/url"
 	"path"
 	"strconv"
 	"strings"
@@ -53,7 +50,7 @@ func serveAssetHint(name, contentType, hint string) http.HandlerFunc {
 // plain auto-submitting <form> is a "simple request", exempt from preflight,
 // and the attacker never has to read the response to have done the damage.
 //
-// Two checks here, and a third where no token stands in front of the route:
+// Two checks here, with localweb's token in front of every route:
 //
 //   - POST ONLY, and the Allow header says exactly that. The previous code
 //     also accepted PUT while advertising "Allow: POST"; a method the 405
@@ -62,13 +59,9 @@ func serveAssetHint(name, contentType, hint string) http.HandlerFunc {
 //     text/plain, application/x-www-form-urlencoded or multipart/form-data.
 //     Requiring anything else forces an attacker onto fetch/XHR, which needs a
 //     preflight this server never answers. This is the load-bearing half.
-//   - SAME-SITE ONLY, in refuseOtherSites, on a document served at the root.
-//     Under Host every route is behind localweb's token, which refuses a
-//     cookie sent with another Origin. Origin (sent by every browser on POST)
-//     must match the host being addressed, and an explicit cross-site
-//     Sec-Fetch-Site is refused outright. A request with NO Origin is allowed:
-//     that is the CLI and anything else that is not a browser, and it is not
-//     something a page can produce.
+//   - THE TOKEN IS NOT CHECKED HERE. Every route is behind localweb's, which
+//     refuses a cookie sent with another Origin. A client with the token in the
+//     header (the CLI) sends no Origin at all.
 func guard(w http.ResponseWriter, r *http.Request) bool {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
@@ -83,21 +76,6 @@ func guard(w http.ResponseWriter, r *http.Request) bool {
 	return true
 }
 
-// refuseOtherSites is the same-site check for a document with no token in front
-// of it. See guard.
-func refuseOtherSites(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPost && !sameSite(r) {
-			http.Error(w,
-				"refused: this request came from another site. galley serves your own machine "+
-					"with no authentication, so it only accepts requests from its own page or a local tool.",
-				http.StatusForbidden)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
 // isJSONContentType reports whether ct is application/json, ignoring
 // parameters (a charset is legal and common) and case.
 //
@@ -108,29 +86,6 @@ func refuseOtherSites(next http.Handler) http.Handler {
 func isJSONContentType(ct string) bool {
 	mediaType, _, err := mime.ParseMediaType(ct)
 	return err == nil && strings.EqualFold(mediaType, "application/json")
-}
-
-// sameSite reports whether the request can be trusted not to have been sent by
-// another site's page. See guard for the reasoning.
-func sameSite(r *http.Request) bool {
-	// Sent by every modern browser and by nothing else, so it is checked first
-	// and taken at face value when present. "none" is a user-initiated
-	// navigation, not a page acting on its own behalf.
-	switch r.Header.Get("Sec-Fetch-Site") {
-	case "cross-site", "same-site":
-		return false
-	}
-	origin := r.Header.Get("Origin")
-	if origin == "" {
-		// Not a browser: the CLI, curl, an agent. A page cannot suppress this
-		// header on a POST, so its absence is evidence, not a gap.
-		return true
-	}
-	u, err := url.Parse(origin)
-	if err != nil {
-		return false
-	}
-	return u.Host == r.Host
 }
 
 func decode(w http.ResponseWriter, r *http.Request, v any) bool {
@@ -165,18 +120,4 @@ func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	_ = json.NewEncoder(w).Encode(v)
-}
-
-// Listen binds the address and reports the URL to reach it on, so the caller can
-// print and open a port the OS chose.
-func Listen(addr string) (net.Listener, string, error) {
-	ln, err := net.Listen("tcp", addr)
-	if err != nil {
-		return nil, "", err
-	}
-	host := ln.Addr().String()
-	if tcp, ok := ln.Addr().(*net.TCPAddr); ok {
-		host = fmt.Sprintf("127.0.0.1:%d", tcp.Port)
-	}
-	return ln, "http://" + host, nil
 }

@@ -151,9 +151,13 @@ func newApp() *tools.App {
 			"The hook is told a round arrived, NOT to go read `galley pending` — a sent\n" +
 			"round is no longer pending, so the woken agent runs `galley wait <doc>`,\n" +
 			"which prints the captured round it was woken by.\n\n" +
-			"--owner <session-id> binds the editor to a session whose channel is live: the\n" +
-			"channel's galley_open tool passes it, and the editor stops when that session\n" +
-			"ends. Without --owner the editor belongs to no session.\n\n" +
+			"Starts `galley serve` if it is not running and opens the document on it, prints\n" +
+			"its address and stays until the document closes. Ctrl-C closes the document and\n" +
+			"leaves the server. --port reaches the server only when this command starts it;\n" +
+			"a server already running elsewhere is said on stderr, and the document opens there.\n\n" +
+			"--owner <session-id> binds the document to a session whose channel is live: the\n" +
+			"channel's galley_open tool passes it, and the document closes when that session\n" +
+			"ends. Without --owner it belongs to no session.\n\n" +
 			"--on-revise example:\n" +
 			"  galley edit doc.md --on-revise 'muster send <alias> " +
 			"\"galley: revision requested — run: galley wait <doc>\" " +

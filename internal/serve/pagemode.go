@@ -217,7 +217,7 @@ func (s *EditServer) pageBoundary() {
 //
 // It exists because a caller that resolves adverts (galley_open) matched on
 // the path it was GIVEN and so could never find the editor it had just
-// spawned for a page. The extension switch is routeEdit's, deliberately: the
+// spawned for a page. The extension switch is newServerFor's, deliberately: the
 // two must agree about what "an HTML page" is, and one of them has to say so.
 // Pure — it touches no disk and creates nothing.
 func AdvertisedPath(abs string) string {

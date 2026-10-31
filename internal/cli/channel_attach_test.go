@@ -2,7 +2,6 @@ package cli
 
 import (
 	"bufio"
-	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -11,7 +10,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -482,41 +480,5 @@ func TestChannelAttachesItsOwnEditorOutsideItsScope(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-// THE EDITOR HALF OF OPTION A. An editor is launched detached, so nothing but
-// this takes it down when the session that opened it ends — and an editor that
-// outlives its session is exactly the orphan the channel now refuses to adopt.
-// While the session's presence is live the editor keeps serving; once it is
-// gone for the debounced count of polls, the editor runs the same orderly stop
-// Ctrl-C does.
-func TestWatchSessionStopsTheEditor(t *testing.T) {
-	t.Setenv("GALLEY_LIVE_DIR", t.TempDir())
-	owner := "session-owning-this-editor"
-	if err := live().AnnounceSession(owner); err != nil {
-		t.Fatal(err)
-	}
-
-	stopped := make(chan struct{})
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go watchSession(ctx, owner, 15*time.Millisecond, 3, sync.OnceFunc(func() { close(stopped) }))
-
-	// While the session is live, the editor must keep serving.
-	select {
-	case <-stopped:
-		t.Fatal("the editor stopped while its session was still live")
-	case <-time.After(200 * time.Millisecond):
-	}
-
-	// The session ends — its presence goes — and the editor takes itself down.
-	if err := live().WithdrawSession(owner); err != nil {
-		t.Fatal(err)
-	}
-	select {
-	case <-stopped:
-	case <-time.After(2 * time.Second):
-		t.Fatal("the editor did not stop after its session ended")
 	}
 }

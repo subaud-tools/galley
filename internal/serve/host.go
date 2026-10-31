@@ -21,6 +21,7 @@ import (
 	"github.com/subaud-tools/galley/internal/docmodel"
 	"github.com/subaud-tools/galley/internal/htmlpage"
 	"github.com/subaud-tools/galley/internal/markdown"
+	tools "github.com/subaud-tools/tools-common"
 	"github.com/subaud-tools/tools-common/pageserve"
 )
 
@@ -41,31 +42,49 @@ type DocOptions struct {
 	OnRevise string        `json:"on_revise,omitempty"` // the command a Revise runs
 	OnSettle string        `json:"on_settle,omitempty"` // the command a settle in live mode runs
 	Quiet    time.Duration `json:"quiet,omitempty"`     // how long before a settle; 0: the default
+	// Root is a page's site root, its preview's assets served from there; "":
+	// the page's own directory. An error on anything but a page.
+	Root string `json:"root,omitempty"`
+	// Dir is where OnRevise and OnSettle run: the directory the document was
+	// opened from, since the server runs in its own. "": the server's.
+	Dir string `json:"dir,omitempty"`
 }
 
 // DocView is one open document as List reports it.
 type DocView struct {
-	ID   string `json:"id"`
-	Path string `json:"path"` // the path it was opened by: a page's own .html
+	ID    string `json:"id"`
+	Path  string `json:"path"`            // the path it was opened by: a page's own .html
+	Page  string `json:"page"`            // the file under review: a page's content.md
+	Room  string `json:"room"`            // its websocket room
+	URL   string `json:"url"`             // the document's base, without the token
+	Owner string `json:"owner,omitempty"` // the session it belongs to
+	// Editor is the `galley edit` holding it, 0 for none.
+	Editor int `json:"editor,omitempty"`
 }
 
 // OpenRequest is the body of POST /api/docs.
 type OpenRequest struct {
 	Path string `json:"path"` // absolute: the server runs in its own directory
+	// Editor is the pid of the `galley edit` that stays until the document
+	// closes; 0 for a caller that does not. Another live one is refused.
+	Editor int `json:"editor,omitempty"`
 	DocOptions
 }
 
 // OpenAnswer is what POST /api/docs answers. URL carries the token, so opening
 // it signs a browser in.
 type OpenAnswer struct {
-	ID  string `json:"id"`
-	URL string `json:"url"`
+	ID   string `json:"id"`
+	URL  string `json:"url"`
+	Page string `json:"page"` // the file under review
+	Room string `json:"room"`
 }
 
 // hostedDoc is one open document and its routes, built once.
 type hostedDoc struct {
 	path    string
 	options DocOptions
+	editor  int // the pid of the `galley edit` holding it; 0: none
 	server  *EditServer
 	handler http.Handler
 }
@@ -93,9 +112,9 @@ func NewHost() *Host {
 }
 
 // Open serves the document at path and returns its id, the same for the same
-// path always. A document already open keeps its server and its options: a
-// second server would be a second live document erasing the first (see
-// claimDocument).
+// path always, however it is spelled. A document already open keeps its server
+// and its options: two servers on one file each parse it into their own
+// document and project it over the other's, erasing it with nothing logged.
 func (h *Host) Open(path string, o DocOptions) (string, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -117,17 +136,19 @@ func (h *Host) openLocked(path string, o DocOptions) (id string, added bool, err
 	if err != nil {
 		return "", false, err
 	}
-	id = pageserve.Token(abs)
+	id = pageserve.Token(canonicalPath(abs))
 	if _, open := h.docs[id]; open {
 		return id, false, nil
 	}
-	s, err := newServerFor(abs)
+	s, err := newServerFor(abs, o.Root)
 	if err != nil {
 		return "", false, err
 	}
 	s.Base = strings.TrimSuffix(docsPrefix, "/") + "/" + id
 	s.Log = func(line string) { _, _ = fmt.Fprintf(h.log, "%s: %s\n", abs, line) }
 	s.OnRevise = o.OnRevise
+	s.HookDir = o.Dir
+	s.Notify.Dir = o.Dir
 	if o.Quiet > 0 {
 		s.Notify.Quiet = o.Quiet
 	}
@@ -137,6 +158,9 @@ func (h *Host) openLocked(path string, o DocOptions) (id string, added bool, err
 	}
 	// What the document arrived carrying is not news.
 	s.SeedNotify()
+	// The verdict withdraws the entry the channel attaches through, there and
+	// then: a scan after it must not attach and hear the verdict again.
+	s.OnApprove = func() { _ = h.sessions.Remove(s.Room) }
 	// The bar's Done closes the document, and only it.
 	s.OnStop = func() {
 		if err := h.Close(id); err != nil {
@@ -148,11 +172,17 @@ func (h *Host) openLocked(path string, o DocOptions) (id string, added bool, err
 }
 
 // newServerFor opens a page as a page and anything else as markdown.
-func newServerFor(abs string) (*EditServer, error) {
+func newServerFor(abs, root string) (*EditServer, error) {
 	switch strings.ToLower(filepath.Ext(abs)) {
 	case ".html", ".htm":
+		if root != "" {
+			return NewEditPageRoot(abs, root)
+		}
 		return NewEditPage(abs)
 	default:
+		if root != "" {
+			return nil, fmt.Errorf("--root applies to an HTML page, not %s", filepath.Ext(abs))
+		}
 		return NewEdit(abs)
 	}
 }
@@ -197,7 +227,10 @@ func (h *Host) List() []DocView {
 	defer h.mu.Unlock()
 	views := make([]DocView, 0, len(h.docs))
 	for id, d := range h.docs {
-		views = append(views, DocView{ID: id, Path: d.path})
+		views = append(views, DocView{
+			ID: id, Path: d.path, Page: d.server.MdPath, Room: d.server.Room,
+			URL: h.baseLocked(id), Owner: d.options.Owner, Editor: d.editor,
+		})
 	}
 	slices.SortFunc(views, func(a, b DocView) int { return strings.Compare(a.Path, b.Path) })
 	return views
@@ -260,6 +293,34 @@ func (h *Host) docURL(id string) string {
 	}
 	u.Path = path
 	return u.String()
+}
+
+// baseLocked is the document's base, without the token or a trailing slash: what
+// a client adds a route to. h.mu is held.
+func (h *Host) baseLocked(id string) string {
+	path := docsPrefix + id
+	u, err := url.Parse(h.address)
+	if err != nil || h.address == "" {
+		return path
+	}
+	return u.Scheme + "://" + u.Host + path
+}
+
+// hold records the `galley edit` holding the document, unless another live one
+// already does.
+func (h *Host) hold(id string, editor int) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	d, open := h.docs[id]
+	if !open {
+		return fmt.Errorf("document %s is not open", id)
+	}
+	if d.editor != editor && tools.PIDAlive(d.editor) {
+		return &AlreadyServing{Runtime: Runtime{URL: h.baseLocked(id), Room: d.server.Room, Page: d.server.MdPath, PID: d.editor, Owner: d.options.Owner}}
+	}
+	d.editor = editor
+	h.docs[id] = d
+	return nil
 }
 
 // watch checks the binary and the unload rules every tick until ctx ends, then
@@ -400,7 +461,18 @@ func (h *Host) handleOpen(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	writeJSON(w, OpenAnswer{ID: id, URL: h.docURL(id)})
+	if in.Editor != 0 {
+		if err := h.hold(id, in.Editor); err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+	}
+	d, open := h.doc(id)
+	if !open {
+		http.NotFound(w, r)
+		return
+	}
+	writeJSON(w, OpenAnswer{ID: id, URL: h.docURL(id), Page: d.server.MdPath, Room: d.server.Room})
 }
 
 // handleClose is DELETE /api/docs/{id}.

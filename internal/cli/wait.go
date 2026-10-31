@@ -353,6 +353,11 @@ func waitFor(baseURL, since string, timeout time.Duration) (waitResult, error) {
 			time.Sleep(waitBusyBackoff)
 			continue
 		}
+		if resp.StatusCode == http.StatusNotFound {
+			// The server has closed the document under this poll.
+			_ = resp.Body.Close()
+			return waitResult{}, errWaitStopped
+		}
 		var res waitResult
 		if err := decodeOK(resp, &res); err != nil {
 			return waitResult{}, err
