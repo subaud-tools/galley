@@ -1,3 +1,4 @@
+import { served } from './gateserve.mjs';
 import { spawn } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -8,7 +9,6 @@ import {
   counts,
   launchOrSkip,
   onCleanup,
-  until,
 } from './build/probe.mjs';
 // THE GATE READS THE APP'S OWN CONSTANTS, not a copy of them — the discipline
 // web/layers.mjs already states for SEALED_VERBS. A hand-copied label here goes
@@ -16,7 +16,6 @@ import {
 // about a control it can no longer find.
 
 const GALLEY = process.env.GALLEY || 'bin/galley';
-const PORT = Number(process.env.PORT || 8258);
 const dir = mkdtempSync(join(tmpdir(), 'galley-history-ux-'));
 const doc = join(dir, 'history-ux.md');
 // THE SECOND PARAGRAPH EXISTS FOR THE GHOST, AND ITS PUNCTUATION IS THE POINT.
@@ -32,25 +31,9 @@ writeFileSync(
     'Nothing else in the pipeline is told, which is a gap worth closing.\n',
 );
 
-// THE PORT IS THIS RUN'S, OR THE RUN DOES NOT START. The wait below is for
-// `/` answering, and a `galley edit` that could not bind exits while another
-// one goes on answering: another gate, or the last run's server still
-// stopping. The run then drives that server's document, and the first check
-// that reads the fixture's words times out (galley#10).
-const taken = await fetch(`http://127.0.0.1:${PORT}/`).then(
-  () => true,
-  () => false,
-);
-if (taken) {
-  console.log(
-    `port ${PORT} already answers: another galley is serving there (run the gates one at a time, or set PORT)`,
-  );
-  process.exit(1);
-}
-
 const server = spawn(
   GALLEY,
-  ['edit', doc, '--no-open', '--port', String(PORT), '--on-revise', 'true'],
+  ['edit', doc, '--no-open', '--on-revise', 'true'],
   {
     stdio: ['ignore', 'pipe', 'pipe'],
   },
@@ -177,8 +160,7 @@ async function addRangeInstruction(page, text) {
   await page.click('.gly-composer-send');
   await page.waitForFunction(
     async () =>
-      (await (await fetch('/_galley/pending')).json()).instructions.length ===
-      1,
+      (await (await fetch('_galley/pending')).json()).instructions.length === 1,
   );
 }
 
@@ -248,8 +230,7 @@ async function addOverallInstruction(page, text, want) {
   await page.locator('.gly-overall-input').press('Enter');
   await page.waitForFunction(
     async (n) =>
-      (await (await fetch('/_galley/pending')).json()).instructions.length ===
-      n,
+      (await (await fetch('_galley/pending')).json()).instructions.length === n,
     want,
   );
   // AND THE PAGE HAS FINISHED FILING IT. The server lists the instruction the
@@ -368,8 +349,8 @@ async function stateStart(page) {
 async function windowMark(page) {
   return page.evaluate(async () => {
     const [revise, versions] = await Promise.all([
-      fetch('/_galley/revise').then((r) => r.json()),
-      fetch('/_galley/versions').then((r) => r.json()),
+      fetch('_galley/revise').then((r) => r.json()),
+      fetch('_galley/versions').then((r) => r.json()),
     ]);
     return {
       handoff: revise.handoff,
@@ -398,7 +379,7 @@ async function responseWindowOpen(page, before, ms = 15000) {
 async function ack(page, state, note = '') {
   return page.evaluate(
     async ({ ackState, ackNote }) => {
-      const response = await fetch('/_galley/ack', {
+      const response = await fetch('_galley/ack', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ state: ackState, note: ackNote }),
@@ -410,8 +391,7 @@ async function ack(page, state, note = '') {
 }
 
 try {
-  const base = `http://127.0.0.1:${PORT}`;
-  await until(async () => (await fetch(base)).ok, 8000);
+  const { url } = await served(server);
 
   browser = await launchOrSkip({
     required: true,
@@ -427,7 +407,7 @@ try {
     dialogs += 1;
     await dialog.dismiss();
   });
-  await page.goto(base, { waitUntil: 'networkidle' });
+  await page.goto(url, { waitUntil: 'networkidle' });
   await page.waitForSelector('.ProseMirror');
   // The bar's readout is the fixed grammar now, so waiting for it is waiting
   // for the first round count to have landed — which is what this used to do
@@ -1005,8 +985,7 @@ try {
   await waitForWire(
     page,
     async () =>
-      (await (await fetch('/_galley/pending')).json()).instructions.length ===
-      2,
+      (await (await fetch('_galley/pending')).json()).instructions.length === 2,
   );
   await page.waitForSelector('.gly-overall-entries .gly-thread');
   const documentComment = await (async () => {
@@ -1425,13 +1404,12 @@ try {
   await waitForWire(
     page,
     async () =>
-      (await (await fetch('/_galley/pending')).json()).instructions.length ===
-      3,
+      (await (await fetch('_galley/pending')).json()).instructions.length === 3,
   );
   const blockKey = await page.evaluate(
     async () =>
       (
-        (await (await fetch('/_galley/pending')).json()).instructions.find(
+        (await (await fetch('_galley/pending')).json()).instructions.find(
           (i) => i.anchor === 'block',
         ) || {}
       ).key || '',
@@ -1497,7 +1475,7 @@ try {
     JSON.stringify(projected),
   );
   const removed = await page.evaluate(async (key) => {
-    const response = await fetch('/_galley/instruction/delete', {
+    const response = await fetch('_galley/instruction/delete', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ key }),
@@ -1507,8 +1485,7 @@ try {
   await waitForWire(
     page,
     async () =>
-      (await (await fetch('/_galley/pending')).json()).instructions.length ===
-      2,
+      (await (await fetch('_galley/pending')).json()).instructions.length === 2,
   );
   // AND OFF THE RAIL BEFORE ANYTHING ELSE IS PRESSED. The delete went over
   // the wire, not through the card, so the rail drops the card on its next
@@ -1596,7 +1573,7 @@ try {
   let editReached = false;
   for (let i = 0; i < 40 && !editReached; i++) {
     editReached = await page.evaluate(async () =>
-      (await (await fetch('/_galley/pending')).json()).instructions.some(
+      (await (await fetch('_galley/pending')).json()).instructions.some(
         (i) => i.text === 'Make the retry policy concrete, with numbers.',
       ),
     );
@@ -1640,7 +1617,7 @@ try {
   for (let i = 0; i < 40 && !editedOK; i++) {
     editedOK = await page.evaluate(
       async (want) =>
-        (await (await fetch('/_galley/pending')).json()).instructions.some(
+        (await (await fetch('_galley/pending')).json()).instructions.some(
           (i) => i.text === want,
         ),
       editedTo,
@@ -1669,7 +1646,7 @@ try {
     'this instruction was sent or deleted — your edit was not saved';
   const fileDocComment = (text) =>
     page.evaluate(async (said) => {
-      const res = await fetch('/_galley/instruct', {
+      const res = await fetch('_galley/instruct', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ op: 'comment_document', text: said }),
@@ -1702,7 +1679,7 @@ try {
   const savedWords = 'words typed into an edit\nthat the save could not keep';
   await openEditOn(savedKey, savedWords);
   const saveStatus = await page.evaluate(async (key) => {
-    await fetch('/_galley/instruction/delete', {
+    await fetch('_galley/instruction/delete', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ key }),
@@ -1727,7 +1704,7 @@ try {
   const polledWords = 'words still being typed when the card went';
   await openEditOn(polledKey, polledWords);
   await page.evaluate(async (key) => {
-    await fetch('/_galley/instruction/delete', {
+    await fetch('_galley/instruction/delete', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ key }),
@@ -1811,8 +1788,7 @@ try {
   await page.click('.gly-overall-entries .gly-thread-delete');
   await page.waitForFunction(
     async () =>
-      (await (await fetch('/_galley/pending')).json()).instructions.length ===
-      1,
+      (await (await fetch('_galley/pending')).json()).instructions.length === 1,
   );
 
   // NOTHING MOVES WHEN THE PRIMARY CHANGES ITS LABEL, which is the entire
@@ -1885,7 +1861,7 @@ try {
   for (let i = 0; i < 10; i++) {
     const d = await page.evaluate(async () =>
       JSON.stringify(
-        (await (await fetch('/_galley/pending')).json()).instructions.map(
+        (await (await fetch('_galley/pending')).json()).instructions.map(
           (x) => [x.key, x.run],
         ),
       ),
@@ -1907,7 +1883,7 @@ try {
   // blind is how a gate that was merely useless becomes one that is wrong.
   const pendingKeys = async () =>
     page.evaluate(async () =>
-      (await (await fetch('/_galley/pending')).json()).instructions.map(
+      (await (await fetch('_galley/pending')).json()).instructions.map(
         (x) => x.key,
       ),
     );
@@ -2066,7 +2042,7 @@ try {
   );
   const leftPending = await page.evaluate(
     async () =>
-      (await (await fetch('/_galley/pending')).json()).instructions.length,
+      (await (await fetch('_galley/pending')).json()).instructions.length,
   );
   check(
     'Revise sends and clears the instruction round',
@@ -2126,7 +2102,7 @@ try {
   // answer to which version is being shown, never off the cards, which is a
   // count of what this page managed to draw.
   const early = await page.evaluate(
-    async () => (await (await fetch('/_galley/versions')).json()).rounds,
+    async () => (await (await fetch('_galley/versions')).json()).rounds,
   );
   await page.click('.gly-versions-open');
   await page.waitForSelector('.gly-versions:not([hidden])');
@@ -2164,7 +2140,7 @@ try {
   async function agentReturns(next, manifest) {
     const roundsBefore = await page.evaluate(
       async () =>
-        (await (await fetch('/_galley/versions')).json()).rounds.length,
+        (await (await fetch('_galley/versions')).json()).rounds.length,
     );
     writeFileSync(doc, next);
     await page.waitForFunction(
@@ -2182,7 +2158,7 @@ try {
     const status = await page.evaluate(
       async (body) =>
         (
-          await fetch('/_galley/ack', {
+          await fetch('_galley/ack', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
@@ -2202,7 +2178,7 @@ try {
     await waitForWire(
       page,
       async (n) =>
-        (await (await fetch('/_galley/versions')).json()).rounds.length > n,
+        (await (await fetch('_galley/versions')).json()).rounds.length > n,
       roundsBefore,
       10000,
     );
@@ -2211,7 +2187,7 @@ try {
   async function sendRound(asks) {
     const already = await page.evaluate(
       async () =>
-        (await (await fetch('/_galley/pending')).json()).instructions.length,
+        (await (await fetch('_galley/pending')).json()).instructions.length,
     );
     for (const [i, ask] of asks.entries()) {
       await addOverallInstruction(page, ask, already + i + 1);
@@ -2222,7 +2198,7 @@ try {
     // while looking entirely correct, which is the exact mistake `joinTestimony`
     // refuses on the server side.
     const listed = await page.evaluate(async () =>
-      (await (await fetch('/_galley/pending')).json()).instructions.map((i) => [
+      (await (await fetch('_galley/pending')).json()).instructions.map((i) => [
         i.text,
         i.key,
       ]),
@@ -2286,7 +2262,7 @@ try {
   await waitForWire(
     page,
     async (want) =>
-      (await (await fetch('/_galley/pending')).json()).instructions.some(
+      (await (await fetch('_galley/pending')).json()).instructions.some(
         (i) => i.text === want,
       ),
     blockSaid,
@@ -2294,7 +2270,7 @@ try {
   await page.waitForTimeout(600);
   const blockShown = await page.evaluate(async (want) => {
     const key = (
-      (await (await fetch('/_galley/pending')).json()).instructions.find(
+      (await (await fetch('_galley/pending')).json()).instructions.find(
         (i) => i.text === want,
       ) || {}
     ).key;
@@ -2339,7 +2315,7 @@ try {
   );
 
   const record = await page.evaluate(
-    async () => (await (await fetch('/_galley/versions')).json()).rounds,
+    async () => (await (await fetch('_galley/versions')).json()).rounds,
   );
   const newest = record[record.length - 1].n;
 
@@ -2467,7 +2443,7 @@ try {
       () => null,
       async () =>
         page.evaluate(async (n) => {
-          const rounds = (await (await fetch('/_galley/versions')).json())
+          const rounds = (await (await fetch('_galley/versions')).json())
             .rounds;
           return {
             waitedFor: n,
@@ -2717,7 +2693,7 @@ try {
   );
   const view = await page.evaluate(
     async (n) =>
-      await (await fetch(`/_galley/versions/view?to=${n}&view=inplace`)).json(),
+      await (await fetch(`_galley/versions/view?to=${n}&view=inplace`)).json(),
     newest,
   );
   const reading = await page.evaluate(() => {
@@ -3095,7 +3071,7 @@ try {
     String(back.scroll),
   );
   const rounds = await page.evaluate(
-    async () => (await (await fetch('/_galley/versions')).json()).rounds.length,
+    async () => (await (await fetch('_galley/versions')).json()).rounds.length,
   );
   check(
     'leaving History leaves the record intact',
@@ -3338,7 +3314,7 @@ try {
   // The round is committed by the time `agentReturns` returns, so the record is
   // authoritative here and the strip is what has to catch up to it.
   const landedN = await page.evaluate(async () => {
-    const rounds = (await (await fetch('/_galley/versions')).json()).rounds;
+    const rounds = (await (await fetch('_galley/versions')).json()).rounds;
     return rounds[rounds.length - 1].n;
   });
   let stripUp = true;
@@ -3407,7 +3383,7 @@ try {
     };
   });
   const record6 = await page.evaluate(
-    async () => (await (await fetch('/_galley/versions')).json()).rounds,
+    async () => (await (await fetch('_galley/versions')).json()).rounds,
   );
   const arrivedRound = record6[record6.length - 1];
   check(
@@ -3598,7 +3574,7 @@ try {
   const cannotCode = await page.evaluate(
     async () =>
       (
-        await fetch('/_galley/cannot', {
+        await fetch('_galley/cannot', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -3871,7 +3847,7 @@ try {
     await page.fill('.gly-composer-text', 'tighten this passage');
     const before = await page.evaluate(
       async () =>
-        (await (await fetch('/_galley/pending')).json()).instructions.length,
+        (await (await fetch('_galley/pending')).json()).instructions.length,
     );
     await page.click('.gly-composer-send');
     // POLLED, NOT `waitForFunction(async …)`: an async page function returns a
@@ -3882,12 +3858,11 @@ try {
       await page.waitForTimeout(250);
       after = await page.evaluate(
         async () =>
-          (await (await fetch('/_galley/pending')).json()).instructions.length,
+          (await (await fetch('_galley/pending')).json()).instructions.length,
       );
     }
     const filed = await page.evaluate(async () => {
-      const list = (await (await fetch('/_galley/pending')).json())
-        .instructions;
+      const list = (await (await fetch('_galley/pending')).json()).instructions;
       const mine = list.filter((i) => i.text === 'tighten this passage');
       return {
         count: mine.length,
@@ -4085,7 +4060,7 @@ try {
   //
   // A sealed review is exactly when somebody wants to read what happened.
   await page.evaluate(() =>
-    fetch('/_galley/revise', {
+    fetch('_galley/revise', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ verdict: 'approve' }),

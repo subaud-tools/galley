@@ -51,22 +51,15 @@
 // chromium` once, or GALLEY_CHROME=<executable>. There is a `just align`
 // recipe, it is in `just gates`, and it is a step of its own in ci.yml.
 
+import { served } from './gateserve.mjs';
 import { spawn } from 'node:child_process';
 import { cpSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-  check as kitCheck,
-  counts,
-  launchOrSkip,
-  until as poll,
-} from './build/probe.mjs';
+import { check as kitCheck, counts, launchOrSkip } from './build/probe.mjs';
 
 const GALLEY = process.env.GALLEY || 'bin/galley';
-// Its own port. The gates bind fixed ports and run one at a time; 8266 is the
-// next free one after codeblock.mjs's pair (8264/8265).
-const PORT = Number(process.env.PORT || 8266);
 const HERE_DIR = dirname(fileURLToPath(import.meta.url));
 
 // THE FIXTURE, chosen for its DRIFT. galley-tools-index.html opens on a hero
@@ -120,11 +113,10 @@ const HERE = mkdtempSync(join(tmpdir(), 'galley-align-'));
 const PAGE = join(HERE, 'index.html');
 cpSync(FIXTURE, PAGE);
 
-const server = spawn(
-  GALLEY,
-  ['edit', PAGE, '--no-open', '--port', String(PORT)],
-  { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env } },
-);
+const server = spawn(GALLEY, ['edit', PAGE, '--no-open'], {
+  stdio: ['ignore', 'pipe', 'pipe'],
+  env: { ...process.env },
+});
 let serverSaid = '';
 for (const stream of [server.stdout, server.stderr]) {
   stream.on('data', (b) => {
@@ -164,9 +156,7 @@ process.on('exit', () => {
   }
 });
 
-const base = `http://127.0.0.1:${PORT}`;
-if (!(await poll(async () => (await fetch(`${base}/`)).ok, 20000)))
-  throw new Error('server never came up');
+const { url } = await served(server);
 
 browser = await launchOrSkip({
   required: true,
@@ -176,7 +166,7 @@ browser = await launchOrSkip({
 });
 const page = await browser.newPage({ viewport: { width: 1400, height: 1000 } });
 page.on('pageerror', (e) => console.log(`      [page error] ${e.message}`));
-await page.goto(`${base}/`, { waitUntil: 'networkidle' });
+await page.goto(url, { waitUntil: 'networkidle' });
 await page.waitForSelector('.ProseMirror', { timeout: 15000 });
 // The preview pane is the other half of every claim here: no iframe, no
 // measurement to align to.

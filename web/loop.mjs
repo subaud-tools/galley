@@ -131,6 +131,7 @@
 // any more — the justfile keeps a target for `rounds-ux` alone — so it is
 // spelled out here rather than pointed at a recipe that is not there.
 
+import { served } from './gateserve.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import {
   appendFileSync,
@@ -143,7 +144,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const GALLEY = process.env.GALLEY || 'bin/galley';
-const PORT = Number(process.env.PORT || 8254);
 
 // The fixture's five paragraphs each have one job, and none of them is padding.
 //
@@ -389,13 +389,9 @@ const JOURNAL = join(HERE, 'agent.jsonl');
 writeFileSync(DOC, FIXTURE);
 writeFileSync(JOURNAL, '');
 
-const server = spawn(
-  GALLEY,
-  ['edit', DOC, '--no-open', '--port', String(PORT)],
-  {
-    stdio: ['ignore', 'pipe', 'pipe'],
-  },
-);
+const server = spawn(GALLEY, ['edit', DOC, '--no-open'], {
+  stdio: ['ignore', 'pipe', 'pipe'],
+});
 // THE PIPES ARE DRAINED, AND THAT IS NOT TIDINESS. `stdio: 'pipe'` with no
 // reader fills a 64KB kernel buffer and then BLOCKS the writer, which stops
 // the server serving mid-run and presents as a hang with nothing to read.
@@ -408,7 +404,8 @@ for (const stream of [server.stdout, server.stderr]) {
   });
 }
 server.on('exit', (code, signal) => {
-  if (signal === 'SIGTERM') {
+  // A SIGTERM ends `galley edit` gracefully, with code 0: this gate's own shutdown.
+  if (signal === 'SIGTERM' || code === 0) {
     return;
   }
   console.log(
@@ -447,9 +444,7 @@ process.on('exit', () => {
   }
 });
 
-const base = `http://127.0.0.1:${PORT}`;
-if (!(await poll(async () => (await fetch(`${base}/`)).ok, 20000)))
-  throw new Error('server never came up');
+const { base, url } = await served(server);
 
 /** journal is everything the agent has said SO FAR. Re-read every time: the
  *  whole point of a file is that a running child's progress is legible without
@@ -484,7 +479,7 @@ browser = await launchOrSkip({
 });
 const page = await browser.newPage({ viewport: { width: 1400, height: 1000 } });
 page.on('pageerror', (e) => console.log(`      [page error] ${e.message}`));
-await page.goto(`${base}/`, { waitUntil: 'networkidle' });
+await page.goto(url, { waitUntil: 'networkidle' });
 await page.waitForSelector('.ProseMirror', { timeout: 15000 });
 await page.waitForTimeout(1000);
 
@@ -961,7 +956,7 @@ const spansIn = (text) =>
 // this repair with `{"unreadable": "missing"}`. Measured rather than assumed:
 // `galley edit` writes no `<doc>.comments.json` AT ALL, at any point in a
 // round. Open a document, file an instruction, press Revise, and the directory
-// holds the .md and the runtime `.serve.json` and nothing else.
+// holds the .md and nothing else.
 //
 // So this file has no sidecar claim to make, and inventing one would be a
 // count kept up. THE ASK'S DURABLE HOME IS THE ROUND LOG, which is read

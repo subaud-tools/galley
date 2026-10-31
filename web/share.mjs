@@ -31,6 +31,7 @@
 //   just build
 //   GALLEY="$PWD/bin/galley" node web/share.mjs
 
+import { served } from './gateserve.mjs';
 import { spawn } from 'node:child_process';
 import {
   cpSync,
@@ -54,19 +55,12 @@ import {
   SHARE_REPLY_MS,
   sharedLine,
 } from './share.ts';
-import {
-  check as kitCheck,
-  counts,
-  launchOrSkip,
-  until as poll,
-} from './build/probe.mjs';
+import { check as kitCheck, counts, launchOrSkip } from './build/probe.mjs';
 
 // The server offers the Shares only where it can put a file on the clipboard.
 const MAC = process.platform === 'darwin';
 
 const GALLEY = process.env.GALLEY || 'bin/galley';
-const PORT = Number(process.env.PORT || 8274);
-const PAGE_PORT = PORT + 2;
 const HERE_DIR = dirname(fileURLToPath(import.meta.url));
 const FIXTURE_PAGE = join(
   HERE_DIR,
@@ -124,15 +118,11 @@ process.on('exit', () => {
   }
 });
 
-function serve(target, port) {
-  const child = spawn(
-    GALLEY,
-    ['edit', target, '--no-open', '--port', String(port)],
-    {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, XDG_CONFIG_HOME: CONFIG, GALLEY_HOME: '' },
-    },
-  );
+function serve(target) {
+  const child = spawn(GALLEY, ['edit', target, '--no-open'], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, XDG_CONFIG_HOME: CONFIG, GALLEY_HOME: '' },
+  });
   let said = '';
   for (const stream of [child.stdout, child.stderr]) {
     stream.on('data', (b) => {
@@ -145,12 +135,7 @@ function serve(target, port) {
     }
   });
   children.push(child);
-  return `http://127.0.0.1:${port}`;
-}
-
-async function up(base) {
-  if (!(await poll(async () => (await fetch(`${base}/`)).ok, 20000)))
-    throw new Error(`${base} never came up`);
+  return served(child);
 }
 
 const approve = (base) =>
@@ -160,10 +145,8 @@ const approve = (base) =>
     body: JSON.stringify({ verdict: 'approve' }),
   });
 
-const base = serve(DOC, PORT);
-const pageBase = serve(PAGE, PAGE_PORT);
-await up(base);
-await up(pageBase);
+const { base, url: docURL } = await serve(DOC);
+const { base: pageBase, url: pageURL } = await serve(PAGE);
 
 browser = await launchOrSkip({
   required: true,
@@ -178,7 +161,7 @@ async function open(url) {
   });
   const page = await context.newPage();
   page.on('pageerror', (e) => console.log(`      [page error] ${e.message}`));
-  await page.goto(`${url}/`, { waitUntil: 'networkidle' });
+  await page.goto(url, { waitUntil: 'networkidle' });
   await page.waitForSelector('.ProseMirror', { timeout: 15000 });
   await page.waitForTimeout(1000);
   return page;
@@ -296,7 +279,7 @@ async function statusSays(page, want) {
 // --- a markdown review -------------------------------------------------------
 
 {
-  const page = await open(base);
+  const page = await open(docURL);
 
   check(
     'before approval the Share button is not on the bar',
@@ -338,7 +321,7 @@ async function statusSays(page, want) {
   check(
     'pressing it opens /_galley/render in a new tab, without an opener',
     opened.length === 1 &&
-      opened[0][0] === '/_galley/render' &&
+      opened[0][0] === `${new URL(base).pathname}/_galley/render` &&
       opened[0][1] === '_blank' &&
       String(opened[0][2] || '').includes('noopener'),
     opened,
@@ -507,7 +490,7 @@ async function statusSays(page, want) {
 // --- a page under review ------------------------------------------------------
 
 {
-  const page = await open(pageBase);
+  const page = await open(pageURL);
   check(
     'a page review has no HTML preview button',
     (await page.locator('.gly-preview-open').count()) === 0,

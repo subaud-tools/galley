@@ -479,6 +479,13 @@ livestructure: build
 revise: build
     GALLEY="$PWD/bin/galley" node web/revise.mjs
 
+# A server restart mid-Revise loses nothing. Two pages on the real server, one
+# holding an unsent comment and a hand edit, the other with a Revise window
+# open: the server stops and starts, both tabs reload by themselves, everything
+# is still there, and the agent's answer lands.
+restart: build
+    GALLEY="$PWD/bin/galley" node web/restart.mjs
+
 # THE MEASUREMENT THE DIFF RESTS ON, RE-RUN.
 #
 # internal/diff is a port of a spike that settled two things BY MEASURING — that
@@ -519,9 +526,10 @@ verify-web: check-entries types fmt-web-check lint-web complexity-ratchet dead-c
 # font-dependent, so it stays a local gate run by hand rather than one whose
 # red is ambiguous. Run it with `node web/layers.mjs`.
 #
-# ONE AT A TIME, and that is not caution — they bind fixed ports and running
-# two at once produces failures that look exactly like regressions. Two agents
-# lost a day to that.
+# Each run has a server and state folder of its own (web/gateserve.mjs), so a
+# gate never meets another's documents or the machine's own galley. They still
+# run one at a time, because the timings are chromium's and chromium is
+# sensitive to load.
 #
 # A KNOWN SECOND SPELLING, named rather than hidden: ci.yml runs these same
 # gates as separately-NAMED steps, deliberately, so a red check in the PR list
@@ -539,6 +547,7 @@ gates: build
     GALLEY="$PWD/bin/galley" node web/align.mjs
     GALLEY="$PWD/bin/galley" node web/livestructure.mjs
     GALLEY="$PWD/bin/galley" node web/revise.mjs
+    GALLEY="$PWD/bin/galley" node web/restart.mjs
     GALLEY="$PWD/bin/galley" node web/share.mjs
     cd web && GALLEY="$PWD/../bin/galley" node ./undo.mjs
 
