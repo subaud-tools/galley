@@ -74,7 +74,7 @@ func newRigFor(t *testing.T, ch *pageserve.Channel) *chanRig {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		_ = runSession(ctx, ch, clientOut, clientIn)
+		_ = aroundChannel(ctx, ch, func() error { return ch.Run(ctx, clientOut, clientIn) })
 	}()
 	t.Cleanup(func() {
 		cancel()

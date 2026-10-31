@@ -7,8 +7,9 @@
 // as a JSON line, and the channel only serves the tools.
 //
 // PRESENCE IS THE ONE THING GALLEY DOES AROUND IT. The channel announces its
-// session in live(), which is where the server reads it (Options.Sessions), and
-// the record lasts as long as this process: pageserve's loop posts no presence.
+// session in live() through pageserve's Around, which is where the server reads
+// it (Options.Sessions), and the record lasts as long as this process:
+// pageserve's loop posts no presence.
 // So a server restart cannot judge a live session gone.
 //
 // NOT LICENSE-GATED, deliberately, agent-prompt's reasoning: this process
@@ -20,17 +21,13 @@ package cli
 import (
 	"context"
 	"encoding/json"
-	"flag"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
-	"syscall"
 
 	"github.com/subaud-tools/galley/internal/debug"
 	"github.com/subaud-tools/galley/internal/serve"
@@ -157,7 +154,7 @@ var approveSchema = json.RawMessage(`{
   "required": ["doc"]
 }`)
 
-// channelSpec is galley's channel for pageserve. Root makes the session's folder
+// channelSpec is galley's channel for pageserve. Scope makes the session's folder
 // the root its wait names, which unowned documents are claimed from; there is no
 // presence route, since the server reads presence from live().
 func channelSpec() pageserve.Spec {
@@ -188,7 +185,7 @@ func channelSpec() pageserve.Spec {
 			InputSchema: approveSchema,
 		}},
 		Call:       callTool,
-		Root:       func(cwd string) (string, error) { return cwd, nil },
+		Scope:      func(cwd string) string { return cwd },
 		Wake:       channelWake,
 		Answers:    "review rounds",
 		NoPresence: true,
@@ -206,14 +203,6 @@ func reannounce(_ context.Context, ch *pageserve.Channel, _ pageserve.Entry) {
 			_, _ = fmt.Fprintf(ch.Log, "galley channel: cannot record this session's presence: %v\n", err)
 		}
 	}
-}
-
-// newClient is the channel's client: it finds the server, else starts it from
-// this binary. Its Passive copy is what the wait loop and reports use.
-func newClient() *pageserve.Client {
-	return pageserve.NewClient(serve.Live(), func() (pageserve.Entry, error) {
-		return serve.Process().Ensure(pageserve.Executable())
-	})
 }
 
 // errNeedsDoc is a tool call that named no document: said as that, rather
@@ -471,54 +460,17 @@ func debugAsks(in []instructionPayload) []debug.Ask {
 	return out
 }
 
-// channelFlags is galley channel's flag set, built by newChannelFlags so the
-// app registry (NewFlags) and runChannel share one construction.
-type channelFlags struct {
-	scope *string
-}
-
-func newChannelFlags() (*flag.FlagSet, *channelFlags) {
-	fs := flag.NewFlagSet("channel", flag.ContinueOnError)
-	v := &channelFlags{
-		scope: fs.String("scope", "", "the session's folder, unowned documents under which reach it (default: its working directory)"),
-	}
-	return fs, v
-}
-
-func runChannel(args []string, out, errw io.Writer) error {
-	fs, v := newChannelFlags()
-	// channel takes no positional argument, so this parses directly rather
-	// than through splitPositional — the same reason there is nothing to
-	// split.
-	if err := tools.ParseFlags(fs, args, out); err != nil {
-		return err
-	}
-	refreshSkill(errw)
-	ch := pageserve.ForSession(channelSpec(), newClient())
-	ch.Log = errw
-	if *v.scope != "" {
-		abs, err := filepath.Abs(*v.scope)
-		if err != nil {
-			return err
-		}
-		ch.ID.CWD = abs
-	}
+// aroundChannel runs the channel with the session announced throughout: a
+// document leaves with its owner's presence, and galley_open's owner must be
+// live. Under Claude Code too, where the channel only serves tools: it is the
+// process that lasts the session. Best-effort in both directions: one that dies
+// without withdrawing is reaped by PID on the next read.
+func aroundChannel(_ context.Context, ch *pageserve.Channel, run func() error) error {
+	refreshSkill(ch.Log)
 	// The three measurements from the design spec, answered on every start and
 	// visible in the harness debug log (~/.claude/debug/<session>.txt).
 	cwd, _ := os.Getwd()
-	_, _ = fmt.Fprintf(errw, "[galley channel] cwd=%s session_id_present=%t scope=%s\n", cwd, ch.ID.Session != "", ch.ID.CWD)
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	return runSession(ctx, ch, os.Stdin, os.Stdout)
-}
-
-// runSession serves the channel until the reader closes, with the session
-// announced throughout: a document leaves with its owner's presence, and
-// galley_open's owner must be live. Under Claude Code too, where the channel
-// only serves tools: it is the process that lasts the session. Best-effort in
-// both directions: one that dies without withdrawing is reaped by PID on the
-// next read.
-func runSession(ctx context.Context, ch *pageserve.Channel, r io.Reader, w io.Writer) error {
+	_, _ = fmt.Fprintf(ch.Log, "[galley channel] cwd=%s session_id_present=%t scope=%s\n", cwd, ch.ID.Session != "", ch.ID.CWD)
 	if id := ch.ID.Session; id != "" {
 		if err := live().AnnounceSession(id); err != nil {
 			_, _ = fmt.Fprintf(ch.Log, "[galley channel] cannot record this session's presence: %v — "+
@@ -526,12 +478,33 @@ func runSession(ctx context.Context, ch *pageserve.Channel, r io.Reader, w io.Wr
 		}
 		defer func() { _ = live().WithdrawSession(id) }()
 	}
-	return ch.Run(ctx, r, w)
+	return run()
 }
 
-// shell is galley's watch and report: pageserve's, over galley's channel.
+// shell is galley's channel, watch and report: pageserve's, over galley's
+// channel. Skill is not set: pageserve looks for a skill named after the tool, and
+// galley's is reviewing-a-document, which aroundChannel refreshes.
 func shell() pageserve.Commands {
-	return pageserve.Commands{Spec: channelSpec(), Process: serve.Process(), Group: "agent"}
+	return pageserve.Commands{Spec: channelSpec(), Process: serve.Process(), Group: "agent", Around: aroundChannel}
+}
+
+// channelCommand is `galley channel`: the session's MCP server on stdio.
+func channelCommand() tools.Command {
+	const help = "An MCP channel server on stdio. It opens documents for this session through\n" +
+		"its galley_open tool, starting the server if needed, and serves galley's other\n" +
+		"tools. Under pi it also waits on the server for every document this session owns,\n" +
+		"plus any under --scope that no session owns at all, and pushes each Revise,\n" +
+		"settle, Approve — and a document going away — into the session as an event.\n" +
+		"The galley_channel_status tool says why any other open document does not reach it.\n" +
+		"Under Claude Code it serves the tools only: `galley watch`, which the galley plugin\n" +
+		"runs, delivers the events.\n"
+	cmd := shell().ChannelCommand(os.Stdin, pageserve.Help{
+		Synopsis: "[--scope <dir>]",
+		Summary:  "MCP channel server — pushes review wakes into the session",
+		Long:     help,
+	})
+	cmd.Synopsis, cmd.Help = "channel [--scope <dir>]", help
+	return cmd
 }
 
 // watchCommand is `galley watch`: the channel's wait loop, printing each wake as

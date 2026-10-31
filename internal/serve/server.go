@@ -6,7 +6,6 @@ package serve
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -15,6 +14,7 @@ import (
 	"time"
 
 	tools "github.com/subaud-tools/tools-common"
+	"github.com/subaud-tools/tools-common/localweb"
 	"github.com/subaud-tools/tools-common/pageserve"
 )
 
@@ -38,13 +38,12 @@ func Process() pageserve.Process {
 type Options struct {
 	Port    int // 0: remembered, else free
 	Version string
-	Exe     string // the binary, watched for a newer install; "": not watched
 	// Sessions is where session presence is read: a document leaves with its
 	// owner, and an owner's channel announces itself here.
 	Sessions pageserve.Live
 	Log      io.Writer // one line per start, stop and document that fails
 	Ready    func(url string)
-	Every    time.Duration // the unload and binary check; default 1s
+	Every    time.Duration // the unload check; default 1s
 }
 
 // Run serves until ctx ends or /api/stop. pageserve holds serve.lock from
@@ -62,23 +61,15 @@ func Run(ctx context.Context, o Options) error {
 	if err := os.MkdirAll(StateDir(), 0o700); err != nil {
 		return err
 	}
-	token, err := keptToken()
-	if err != nil {
-		return err
-	}
 	h := NewHost()
-	h.sessions, h.log, h.savePath, h.token = o.Sessions, o.Log, DocsPath(), token
+	h.sessions, h.log, h.savePath = o.Sessions, o.Log, DocsPath()
 	var watching sync.WaitGroup
-	err = pageserve.Run(ctx, pageserve.Options{
-		Live: Live(), API: h.Handler(),
-		Port: o.Port, Token: token, Version: o.Version, Log: o.Log, Ready: o.Ready,
+	err := pageserve.Run(ctx, pageserve.Options{
+		Live: Live(), API: h.Handler(), Events: h.events,
+		Tabs: func(t *localweb.Tabs) { h.tabs = t },
+		Port: o.Port, Version: o.Version, Log: o.Log, Ready: o.Ready,
 		OnStart: func(ctx context.Context, url string) {
 			h.setAddress(url)
-			if o.Exe != "" {
-				if err := h.watchBinary(o.Exe); err != nil {
-					_, _ = fmt.Fprintf(o.Log, "galley serve: not watching %s for updates: %v\n", o.Exe, err)
-				}
-			}
 			h.reopenSaved()
 			watching.Add(1)
 			go func() {

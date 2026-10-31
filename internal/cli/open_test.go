@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
@@ -69,16 +68,15 @@ func noCookieGet(u string) (*http.Response, error) {
 	return (&http.Client{Jar: jar}).Get(u)
 }
 
-// The reuse path opens a page only when none holds the review, so one already in
-// front of the reviewer gets no second tab: the server's count decides.
-func TestOpenOpensAPageOnlyWhenNoneHoldsTheReview(t *testing.T) {
+// A page opens only when the server says no tab is there to show the review.
+func TestOpenOpensAPageOnlyWhenTheServerSaysSo(t *testing.T) {
 	for _, tc := range []struct {
-		pages int
+		tab   string
 		opens bool
-	}{{0, true}, {1, false}} {
-		t.Run(fmt.Sprintf("pages=%d", tc.pages), func(t *testing.T) {
+	}{{serve.TabOpened, true}, {serve.TabReused, false}} {
+		t.Run(tc.tab, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				_ = json.NewEncoder(w).Encode(serve.OpenAnswer{URL: "http://x/api/docs/a/?t=1", Pages: tc.pages})
+				_ = json.NewEncoder(w).Encode(serve.OpenAnswer{URL: "http://x/api/docs/a/?t=1", Tab: tc.tab})
 			}))
 			t.Cleanup(server.Close)
 			client := pageserve.NewClient(serve.Live(), nil)
@@ -90,7 +88,7 @@ func TestOpenOpensAPageOnlyWhenNoneHoldsTheReview(t *testing.T) {
 				t.Fatal(err)
 			}
 			if got := len(opened) == 1; got != tc.opens {
-				t.Fatalf("with %d page(s) it opened %v", tc.pages, opened)
+				t.Fatalf("with Tab %q it opened %v", tc.tab, opened)
 			}
 		})
 	}

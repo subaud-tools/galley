@@ -8,7 +8,7 @@
 //   esbuild mermaid-entry.ts --bundle --minify --format=iife --target=es2019
 //     --charset=utf8 --global-name=<tool>Mermaid --outfile=<its assets>/mermaid.js
 // and the default export is what --global-name hands to window.<tool>Mermaid,
-// the name mermaidkit.Bundle.Global carries on the server.
+// the name mermaidkit.Bundle.Global (check.Bundle.Global) carries on the server.
 import mermaid from 'mermaid';
 
 export default mermaid;
