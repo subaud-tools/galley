@@ -63,6 +63,10 @@ type EditServer struct {
 	RuntimePath string
 	Room        string
 
+	// Base is the path this document's routes are mounted under, "" at the
+	// root. Set by Host before the document is served.
+	Base string
+
 	// Notify, when set, fires after the document settles. It exists so the
 	// reviewer never has to tell the agent to go and look.
 	Notify *Notifier
