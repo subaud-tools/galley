@@ -351,6 +351,7 @@ function pressedRevise({ pendingCount = 0, waitedMs = null, message = null }) {
       reviseMessage: message,
       verdict: pendingCount > 0 ? REVISE_IDLE : APPROVE_IDLE,
       paintMessage() {},
+      chatHolds: () => false,
       postVerdict(body) {
         did = { post: body };
       },
@@ -379,6 +380,7 @@ function pressedSend({ pendingCount = 0, waitedMs = null, message = null }) {
       pendingCount,
       reviseMessage: message,
       closeVerdictMenu() {},
+      chatHolds: () => false,
       postVerdict(body) {
         did = { post: body };
       },

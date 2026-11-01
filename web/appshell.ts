@@ -219,6 +219,8 @@ export interface AppState {
   changes: ReviewerChange[];
   blocks: BlockRef[];
   pendingCount: number;
+  // A press is waiting for the words on their way to the server.
+  settling: boolean;
   verdict: string;
 
   // --- the right column's tabs (web/tabs.ts) ---
@@ -385,6 +387,10 @@ export interface AppMethods {
   paintHold(): void;
   paintReadout(): void;
   paintRevise(): void;
+  sendVerdict(
+    body: Parameters<AppShell['postVerdict']>[0],
+    approving: boolean,
+  ): void;
   paintMessage(): void;
   readRevise(): void;
   refreshPending(): Promise<void>;
@@ -441,12 +447,13 @@ export interface AppMethods {
   paintTabs(): void;
   paintChat(): void;
   wireTabs(): void;
-  editDraft(key: string, text: string): void;
+  editDraft(key: string, text: string): Promise<boolean>;
   deleteDraft(key: string): void;
   strandEdit(words: string): void;
   selectDraft(key: string): void;
   openDraft(key: string): void;
   fileChat(text: string): Promise<boolean>;
+  chatHolds(): boolean;
   revertEdit(key: string): void;
   reveal(run: string): void;
   revealBlock(index: number): void;

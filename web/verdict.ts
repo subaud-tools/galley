@@ -315,8 +315,9 @@ export const verdictMethods = {
   },
 
   // askRevise is the PRIMARY's press, and it only decides. In History it is the
-  // way out. On a clean document it approves. With work pending it DISCLOSES
-  // Revise & Approve instead, so a press can never seal over unsent work; plain
+  // way out. On a clean document it approves. With work pending, or words left
+  // in the Chat box, it DISCLOSES Revise & Approve instead, so a press can never
+  // seal over unsent work; plain
   // Revise is the send bar's. The posting, with its status lines and its 409
   // grammar, lives in postVerdict below.
   askRevise(this: AppShell) {
@@ -327,7 +328,7 @@ export const verdictMethods = {
     if (this.approved || this.approving) {
       return;
     }
-    if (this.verdict === APPROVE_IDLE) {
+    if (this.verdict === APPROVE_IDLE && !this.chatHolds()) {
       if (Date.now() < this.approveNotBefore) {
         return;
       }
@@ -341,7 +342,27 @@ export const verdictMethods = {
     }
   },
 
+  // A round hands off what the server holds, so no press goes before the words
+  // on their way to it: an edit still saving would go as its old wording. What
+  // can't be saved has said so, and the round waits for the next press.
   postVerdict(this: AppShell, body: VerdictBody, approving: boolean) {
+    if (!this.revise || this.settling) {
+      return;
+    }
+    this.settling = true;
+    this.revise.disabled = true;
+    const settled = window.galleyChrome?.settled() ?? Promise.resolve(true);
+    void settled.then((ok) => {
+      this.settling = false;
+      if (ok) {
+        this.sendVerdict(body, approving);
+      } else {
+        this.paintRevise();
+      }
+    });
+  },
+
+  sendVerdict(this: AppShell, body: VerdictBody, approving: boolean) {
     // Genuinely nullable: a shell without the send bar has no `#gly-revise`.
     const revise = this.revise;
     if (!revise) {
@@ -476,7 +497,13 @@ export const verdictMethods = {
       'send these instructions and approve only after the agent successfully applies them';
     trust.addEventListener('click', () => {
       this.closeVerdictMenu();
-      this.postVerdict({ approveOnAnswer: true }, false);
+      // This round closes the review, so the Chat box's words go with it.
+      const filed = window.galleyChrome?.fileWords() ?? Promise.resolve(true);
+      void filed.then((ok) => {
+        if (ok) {
+          this.postVerdict({ approveOnAnswer: true }, false);
+        }
+      });
     });
     el.append(trust);
     document.body.appendChild(el);
@@ -612,7 +639,7 @@ export const verdictMethods = {
       seconds: reviseSeconds(ms),
     });
     revise.textContent = face.label;
-    revise.disabled = face.disabled || this.approved;
+    revise.disabled = face.disabled || this.approved || this.settling;
     revise.title = face.title;
     this.paintDiscard();
     this.paintMessage();

@@ -360,6 +360,13 @@ export function strandedValue(had: string, words: string): string | null {
   return before ? `${before}\n\n${keep}` : keep;
 }
 
+/** What the Chat box holds once `filed` is with the server: what was typed after
+ * it. Words the reader changed meanwhile aren't the ones filed, so they stay. */
+export function afterFiled(now: string, filed: string): string {
+  const had = now.trimStart();
+  return had.startsWith(filed) ? had.slice(filed.length).trimStart() : now;
+}
+
 const STRANDED_EDIT =
   'that instruction was sent or deleted, so your edit went to the Chat box';
 const REVERT_ARM_MS = 4000;
@@ -400,27 +407,32 @@ export const tabMethods = {
     });
   },
 
-  editDraft(this: AppShell, key: string, text: string) {
+  async editDraft(this: AppShell, key: string, text: string) {
     const next = text.trim();
     if (!next) {
       this.deleteDraft(key);
-      return;
+      return true;
     }
-    void postJSON(routes.instruct, {
-      op: 'edit',
-      key,
-      text: next,
-      author: AUTHOR,
-    }).then((res) => {
+    try {
+      const res = await postJSON(routes.instruct, {
+        op: 'edit',
+        key,
+        text: next,
+        author: AUTHOR,
+      });
       if (res.status === 404) {
         this.strandEdit(next);
       } else if (!res.ok) {
-        return res.text().then((said) => {
-          this.say(said.trim() || `that edit was not saved: ${res.status}`);
-        });
+        const said = await res.text();
+        this.say(said.trim() || `that edit was not saved: ${res.status}`);
+        return false;
       }
-      return this.refreshPending();
-    });
+    } catch (err) {
+      this.say(`that edit was not saved: ${String(err)}`);
+      return false;
+    }
+    void this.refreshPending();
+    return true;
   },
 
   strandEdit(this: AppShell, words: string) {
@@ -467,16 +479,25 @@ export const tabMethods = {
       op: 'comment_document',
       text,
       author: AUTHOR,
-    }).then((res) => {
-      if (res.ok) {
-        void this.refreshPending();
-        return true;
-      }
-      return res.text().then((said) => {
-        this.say(said.trim() || `that was not filed: ${res.status}`);
+    })
+      .then((res) => {
+        if (res.ok) {
+          void this.refreshPending();
+          return true;
+        }
+        return res.text().then((said) => {
+          this.say(said.trim() || `that was not filed: ${res.status}`);
+          return false;
+        });
+      })
+      .catch((err) => {
+        this.say(`that was not filed: ${err}`);
         return false;
       });
-    });
+  },
+
+  chatHolds(this: AppShell): boolean {
+    return !!window.galleyChrome?.chatHolds();
   },
 
   // Revert drops the undo history, so it takes two presses.

@@ -29,7 +29,12 @@ import {
 } from '/_kit/kit.js';
 import { docHref, pageIdOf, stateWords, switcherItems } from './pagelist.ts';
 import type { GalleyChrome, TabActions } from './roundbar.ts';
-import { strandedValue, type EditRowValue } from './tabs.ts';
+import {
+  afterFiled,
+  strandedValue,
+  type DraftRowValue,
+  type EditRowValue,
+} from './tabs.ts';
 import type { PageView } from './wire.d.ts';
 
 // The tool's name, for the bar and for what the frame remembers.
@@ -37,7 +42,7 @@ const NAME = 'galley';
 
 // A goto waiting for network idle would never see one with the stream open, and
 // the browser gates wait for it, so the stream opens once the page has settled.
-// A tab checks in this much later for it.
+// The tab has checked in by then, and the stream takes up from that check-in.
 const STREAM_AFTER_LOAD_MS = 1500;
 
 function go(id: string): void {
@@ -86,11 +91,22 @@ export function connect(o: {
     o.draw(pages);
     return switcherItems(pages, o.page, go);
   });
-  const stream = () =>
+  // One short poll says at once that this tab is open, so a review opened in the
+  // moments after a load finds it, with no connection held open.
+  const tab = crypto.randomUUID();
+  const checkedIn = api
+    .get<{ cursor?: string }>(
+      `/poll?tab=${encodeURIComponent(tab)}&page=${encodeURIComponent(o.page)}`,
+    )
+    .then((r) => r?.cursor)
+    .catch(() => undefined);
+  const stream = async () =>
     live({
       events: '/api/events',
       poll: '/api/poll',
       page: o.page,
+      randomUUID: () => tab,
+      cursor: await checkedIn,
       onEvent: (e) => {
         if (e.type === 'pages') void refresh();
       },
@@ -186,19 +202,50 @@ function makeTabs(
   | 'keepInChat'
   | 'showComposer'
   | 'composerGone'
+  | 'chatHolds'
+  | 'fileWords'
+  | 'settled'
 > {
   let act: TabActions | null = null;
-  // What each row last showed from the server and what its box last saved: a box
-  // holding anything else, when its row leaves, holds words nobody has.
+  // What each row last showed from the server and what the server last took from
+  // its box: a box holding anything else, when its row leaves, holds words nobody has.
   const painted = new Map<string, string>();
   const saved = new Map<string, string>();
+  // Words a row has asked to save and the server hasn't taken, which a failure
+  // leaves here: until it does, a redraw shows them and not the server's. And the
+  // request on its way for each, so a row's saves go in order.
+  const held = new Map<string, string>();
+  const saving = new Map<string, Promise<boolean>>();
+  const save = (key: string, text: string): Promise<boolean> => {
+    held.set(key, text);
+    const before = saving.get(key) ?? Promise.resolve(true);
+    const run: Promise<boolean> = before
+      .then(() => act?.edit(key, text) ?? false)
+      .then((ok) => {
+        if (ok && held.get(key) === text) {
+          saved.set(key, text);
+          held.delete(key);
+        }
+        if (saving.get(key) === run) {
+          saving.delete(key);
+        }
+        return ok;
+      });
+    saving.set(key, run);
+    return run;
+  };
+  const showing = (rows: DraftRowValue[]) =>
+    rows.map((r) => {
+      const words = held.get(r.id);
+      return words === undefined ? r : { ...r, text: words };
+    });
   const callbacks = {
     onEdit: (key: string, text: string) => {
-      saved.set(key, text);
-      act?.edit(key, text);
+      void save(key, text);
     },
     onDelete: (key: string) => {
       painted.delete(key);
+      held.delete(key);
       act?.remove(key);
     },
     onSelect: (key: string) => act?.select(key),
@@ -218,6 +265,9 @@ function makeTabs(
         words !== saved.get(id)
       ) {
         act?.stranded(words);
+      }
+      if (!staying.has(id)) {
+        held.delete(id);
       }
     }
   };
@@ -246,16 +296,35 @@ function makeTabs(
   const box = words.box(TAB_CHAT, CHAT_HINT, 3);
   box.box.id = 'gly-chat-box';
   box.box.setAttribute('aria-label', CHAT_HINT);
-  const send = () => {
-    const text = words.take(TAB_CHAT).trim();
-    if (text && act) {
-      void act.file(text).then((ok) => {
-        if (!ok) {
-          words.restore(TAB_CHAT, text);
-        }
-      });
+  // The words stay in the box until the server has them: a failure has nothing
+  // to put back, and what's typed meanwhile stays with them. A press while one
+  // is on its way waits for it, then files whatever that left.
+  let filing: Promise<boolean> | null = null;
+  const fileWords = (): Promise<boolean> => {
+    if (filing) {
+      return filing.then((ok) => ok && fileWords());
     }
+    const text = words.get(TAB_CHAT).trim();
+    if (!text || !act) {
+      return Promise.resolve(true);
+    }
+    filing = act.file(text).then((ok) => {
+      filing = null;
+      if (ok) {
+        words.restore(TAB_CHAT, afterFiled(words.get(TAB_CHAT), text));
+      }
+      return ok;
+    });
+    return filing;
   };
+  const send = () => {
+    void fileWords();
+  };
+  window.addEventListener('beforeunload', (e) => {
+    if (words.dirty() || held.size > 0) {
+      e.preventDefault();
+    }
+  });
   const chat = thread<ThreadMessageValue>({
     id: TAB_CHAT,
     name: 'Chat about the whole document',
@@ -316,8 +385,8 @@ function makeTabs(
     paintDrafts(v) {
       keepLeaving(textList.el, v.text);
       keepLeaving(chatList.el, v.chat);
-      textList.redraw({ drafts: v.text, selected: v.selected });
-      chatList.redraw({ drafts: v.chat, selected: v.selected });
+      textList.redraw({ drafts: showing(v.text), selected: v.selected });
+      chatList.redraw({ drafts: showing(v.chat), selected: v.selected });
       for (const d of [...v.text, ...v.chat]) {
         painted.set(d.id, d.text);
       }
@@ -375,6 +444,25 @@ function makeTabs(
         show(gaveWay);
         gaveWay = '';
       }
+    },
+    chatHolds: () => words.dirty(),
+    fileWords,
+    async settled() {
+      // A box still in hand saves on its blur.
+      const inHand = document.activeElement;
+      if (
+        inHand instanceof HTMLElement &&
+        inHand.classList.contains('kit-draft-words')
+      ) {
+        inHand.blur();
+      }
+      const filed = await (filing ?? Promise.resolve(true));
+      await Promise.all(saving.values());
+      // What's still held failed, and this is the press that needs it.
+      const retried = await Promise.all(
+        [...held].map(([key, text]) => save(key, text)),
+      );
+      return filed && retried.every(Boolean);
     },
   };
 }

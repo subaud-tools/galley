@@ -752,6 +752,7 @@ class App implements AppState {
   armedRevert: string | null;
   blocks: BlockRef[];
   pendingCount: number;
+  settling: boolean;
   verdict: string;
 
   // --- the rail, the sheet, and their shared card lists ---
@@ -909,6 +910,7 @@ class App implements AppState {
     // derived from what got drawn is a count that can disagree with the
     // document the press is about to hand over.
     this.pendingCount = 0;
+    this.settling = false;
     this.editCount = 0;
     // `this.changes` IS DELETED WITH THE TRAIL'S SERVER HALF. It held the
     // SERVER's copy of the trail for one purpose — the count on the verdict

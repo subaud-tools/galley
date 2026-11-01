@@ -26,7 +26,8 @@ declare global {
 /** What the shell gives the editor, on window.galleyChrome. */
 /** What the kit's rows and the Chat box ask of the editor. */
 export interface TabActions {
-  edit(key: string, text: string): void;
+  /** Whether the words are safe: the server took them, or its row is gone and they went to Chat. */
+  edit(key: string, text: string): Promise<boolean>;
   remove(key: string): void;
   select(key: string): void;
   file(text: string): Promise<boolean>;
@@ -55,6 +56,13 @@ export interface GalleyChrome {
   showComposer(): void;
   /** The composer has gone: back to the tab it replaced. */
   composerGone(): void;
+  /** The Chat box holds words not filed. */
+  chatHolds(): boolean;
+  /** Files what the Chat box holds. False when the server didn't take it. */
+  fileWords(): Promise<boolean>;
+  /** Waits out every save and filing on its way, trying a failed save again.
+   * False when something is still not with the server. */
+  settled(): Promise<boolean>;
   paintPrimary(label: string | null): void;
   paintStages(
     stages: RoundStage[],

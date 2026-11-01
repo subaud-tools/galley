@@ -196,7 +196,7 @@ async function addOverallInstruction(page, text, want) {
       (await (await fetch('_galley/pending')).json()).instructions.length === n,
     want,
   );
-  // AND THE PAGE HAS TAKEN IT: the box empties on the press, and the row follows
+  // AND THE PAGE HAS TAKEN IT: the box empties once it's filed, and the row follows
   // the page's own refresh.
   await page.waitForFunction(
     (t) =>
