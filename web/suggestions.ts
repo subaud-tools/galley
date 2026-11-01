@@ -38,7 +38,7 @@ import type { Step } from '@tiptap/pm/transform';
 import type { Node as PMNode, Mark, ResolvedPos } from '@tiptap/pm/model';
 import type { Editor } from '@tiptap/core';
 import { ySyncPluginKey } from 'y-prosemirror';
-// THE BROWSER'S SINGLE READER OF THE SERVER'S DECIDABILITY ANSWER. rail.ts
+// THE BROWSER'S SINGLE READER OF THE SERVER'S DECIDABILITY ANSWER. tabs.ts
 // imports nothing, so this is not a cycle — and asking it rather than spelling
 // `kind !== 'comment'` here is the whole point: this file was the surface that
 // spelled NOTHING, which is the seventh silent site CLAUDE.md predicts.
@@ -681,7 +681,7 @@ export interface SuggestionRun {
 
 // attrString narrows a mark attribute — typed `any` by prosemirror-model's
 // own Attrs — to the string it is meant to be, or '' for anything else. The
-// same "no assertions, narrow with a real check" discipline rail.ts's
+// same "no assertions, narrow with a real check" discipline tabs.ts's
 // keyTargetIsEditable uses, applied to the one place this file reads an
 // attribute off a mark.
 function attrString(value: unknown): string {
@@ -814,7 +814,7 @@ export interface SuggestionLike {
   runId?: string;
   insRun?: string;
   // The server's own decidability answer for this entry (suggest.Kind's
-  // Decidable, carried onto the wire — see rail.ts's `decidable`). Not read
+  // Decidable, carried onto the wire — see tabs.ts's `decidable`). Not read
   // by anything in THIS file; added so `this.suggestions` (web/appshell.ts)
   // can be typed as `SuggestionLike[]` and still be filtered by `decidable`
   // without a second, narrower shape standing in for the same wire entry.
@@ -920,8 +920,6 @@ export interface SuggestionUIOptions {
   editor: Editor;
   pending: () => SuggestionLike[];
   threads?: () => ThreadLike[];
-  threadCard?: (thread: ThreadLike) => Element;
-  railShown?: () => boolean;
   frame?: () => { top: number; bottom: number };
   onReveal?: (thread: ThreadLike) => void;
 }
@@ -943,8 +941,6 @@ export class SuggestionUI {
   editor: Editor;
   pending: () => SuggestionLike[];
   threads: () => ThreadLike[];
-  threadCard: ((thread: ThreadLike) => Element) | null;
-  railShown: () => boolean;
   onReveal: ((thread: ThreadLike) => void) | null;
   frame: () => { top: number; bottom: number };
   anchor: Element | null;
@@ -956,14 +952,6 @@ export class SuggestionUI {
    * NO `post` AND NO `refresh`: this surface asks the server for nothing. Both
    * were injected for `decide`, the accept/reject POST, and went with it.
    * @param opts.threads the latest /_galley/pending comments
-   * @param opts.threadCard the ONE card
-   *   component — the same one the rail, the panel, the settled list and the
-   *   sheet render. It arrives by injection rather than by importing entry.ts,
-   *   the same way `post`, `pending` and `refresh` do: this file is the half of
-   *   suggestion mode that knows nothing about the App, and an import here
-   *   would be a cycle (entry.ts already imports this).
-   * @param opts.railShown whether the notes rail is on
-   *   screen carrying conversations — the whole of the decision, see threadFor.
    * @param opts.frame the band of the
    *   window the prose is readable in, in VIEWPORT coordinates. Injected for
    *   the same reason the rest is: both bars are out of flow over the prose and
@@ -974,16 +962,12 @@ export class SuggestionUI {
     editor,
     pending,
     threads,
-    threadCard,
-    railShown,
     frame,
     onReveal,
   }: SuggestionUIOptions) {
     this.editor = editor;
     this.pending = pending;
     this.threads = threads || (() => []);
-    this.threadCard = threadCard || null;
-    this.railShown = railShown || (() => true);
     // Where the rail IS carrying the conversation, this is what a click on its
     // highlight does instead of opening a second copy of it — see show. It is
     // injected for the same reason threadCard is: this file knows nothing about
@@ -1007,33 +991,6 @@ export class SuggestionUI {
     document.body.appendChild(this.el);
 
     document.addEventListener('click', this.onDocumentClick, true);
-    // A CONVERSATION REACHED BY TAPPING ITS MARK DOES NOT NEED "SHOW ME WHERE
-    // THIS IS" — the answer is the sentence directly above it. threadCard wires
-    // that click on every anchored card and it is right on all four of the
-    // other surfaces; here it calls reveal, reveal scrolls, and a scroll
-    // dismisses the bubble. Measured: tapping a conversation to read it closed
-    // it, which on a narrow window is most of the card's own area.
-    //
-    // Stopped in the CAPTURE phase on the bubble, which is an ANCESTOR of the
-    // card and so runs before the card's own listener — a capture listener on
-    // the card itself would not, because listeners on the target element fire
-    // in registration order whatever their phase. The exemption is the same
-    // partition threadCard's own handler uses, so the verbs and the reply box
-    // are reached exactly as they are everywhere else.
-    this.el.addEventListener(
-      'click',
-      (event) => {
-        if (!this.el.classList.contains('gly-bubble-thread')) {
-          return;
-        }
-        const target = event.target;
-        if (target instanceof Element && target.closest('button, textarea')) {
-          return;
-        }
-        event.stopPropagation();
-      },
-      true,
-    );
     window.addEventListener('resize', () => this.hide());
     // THE CAPTURE PHASE IS WHY THIS HAS TO READ ITS EVENT. `scroll` does not
     // bubble, so listening on `window` in capture is what catches a scrollable
@@ -1177,7 +1134,7 @@ export class SuggestionUI {
    * about", which is a fact about the payload and the same at every width.
    */
   threadFor(found: FoundMark | null): ThreadLike | null {
-    if (!found || found.kind !== 'comment' || !found.run || !this.threadCard) {
+    if (!found || found.kind !== 'comment' || !found.run) {
       return null;
     }
     const hits = (this.threads() || []).filter((t) => t && t.run === found.run);
@@ -1215,48 +1172,19 @@ export class SuggestionUI {
     this.anchor = span;
     this.found = found;
     const thread = this.threadFor(found);
-    if (thread && this.railShown() && this.onReveal) {
+    if (thread && this.onReveal) {
       this.hide();
       this.onReveal(thread);
       return;
     }
-    if (thread) {
-      this.renderThread(thread);
-    } else {
-      this.render(found, this.match(found));
-    }
+    this.render(found, this.match(found));
     const rect = span.getBoundingClientRect();
     // CLEARED BEFORE ANYTHING IS MEASURED, not after. A cap left over from the
     // last mark this bubble opened on is a constraint on the card being sized
     // now, and both leastUseful and topFor read a height off the DOM.
     this.el.style.maxHeight = '';
     this.el.hidden = false;
-    if (thread) {
-      // A CONVERSATION IS CAPPED TO THE ROOM IT HAS, before it is measured. A
-      // thread is unbounded — ten replies is a card taller than a laptop window
-      // — and a card taller than both sides of its mark can only be drawn OVER
-      // the sentence it is about, which is the one thing this placement exists
-      // to prevent. Capped to the better of the two sides, one of them always
-      // fits, and what does not fit scrolls (see .gly-bubble-thread). The
-      // two-verb bubble is three lines and is left uncapped.
-      //
-      // BUT NEVER BELOW WHAT MAKES IT A CONVERSATION — see leastUseful.
-      //
-      // THE TWO ROUND OPPOSITE WAYS, and each direction is the safe one for
-      // what it bounds. The room is floored, because `${149.59375}px`
-      // serialises as `149.594px` — LARGER than the room it was computed from,
-      // and that was enough to lose the below/above comparison in topFor by a
-      // ten-thousandth of a pixel and flip the card to the wrong side of its
-      // mark. The floor is ceiled, because a cap a fraction under it clips the
-      // first entry by a descender, which is this whole defect arriving one
-      // pixel at a time. Where they meet, the conversation wins the pixel.
-      const cap = Math.max(
-        Math.floor(this.roomFor(rect)),
-        Math.ceil(this.leastUseful()),
-      );
-      this.el.style.maxHeight = `${cap}px`;
-    }
-    this.el.style.top = `${this.topFor(rect, !!thread)}px`;
+    this.el.style.top = `${this.topFor(rect)}px`;
     // BOTH ENDS OF THIS AXIS, not just the left one. This was `Math.max(4, …)`
     // — a floor with no ceiling — while topFor reasons at length about both of
     // its edges. So a mark late in a line put the card past the right edge of
@@ -1280,70 +1208,6 @@ export class SuggestionUI {
     const most = Math.max(4, room - width - 4) + window.scrollX;
     const want = rect.left + window.scrollX;
     this.el.style.left = `${Math.max(4 + window.scrollX, Math.min(want, most))}px`;
-  }
-
-  /**
-   * leastUseful is the height below which this stops being a conversation.
-   *
-   * The pinned rows — head, reply box, both verbs — cannot give at all
-   * (`flex: none`), so everything a smaller cap takes comes out of the ENTRIES,
-   * and the entries give ALL THE WAY TO ZERO. Measured at 844×390, a phone in
-   * landscape, and again at 390×430, a phone with its software keyboard up
-   * under a tapped reply box: a card headed `THREAD · …`, with a reply box and
-   * both verbs, and not one word of what was said — `clientHeight: 0` against
-   * `scrollHeight: 606`, so no gesture could recover it either. Both are
-   * ordinary states, not corners: a rotation, and typing.
-   *
-   * So the cap has a floor, and the floor is everything except the conversation
-   * PLUS THE FIRST THING ANYBODY SAID. Measured off the card already on screen
-   * rather than declared, because the chrome's height is a font size and a wrap
-   * count, not a constant.
-   *
-   * Below that the honest thing is to overflow the room the mark leaves, and
-   * that is what happens: topFor has always said a card can be taller than the
-   * space it is placed in (see its clamps), so it clamps into the readable band
-   * and covers a little more prose. That is a degradation a reviewer can scroll
-   * around. A card with nothing in it is not.
-   *
-   * Read while the bubble is UNCAPPED — which is why show clears the inline
-   * max-height before it calls this.
-   */
-  leastUseful(): number {
-    const said = this.el.querySelector('.gly-bubble-said');
-    const first = said && said.firstElementChild;
-    if (!said || !first) {
-      return 0;
-    }
-    // RECTS, not offsetHeight/clientHeight: those two round to whole pixels and
-    // the errors do not cancel — measured, the floor landed 1px short and the
-    // first entry was clipped by exactly one line's descender, which is the
-    // same defect this exists to prevent arriving a pixel at a time.
-    //
-    // And from the region's top to the first entry's BOTTOM, so the entry's own
-    // top margin is inside the answer rather than eaten out of it.
-    const box = this.el.getBoundingClientRect();
-    const region = said.getBoundingClientRect();
-    const shown = first.getBoundingClientRect().bottom - region.top;
-    return box.height - region.height + Math.max(0, shown);
-  }
-
-  // roomFor is the taller of the two gaps the mark leaves in the readable band
-  // — above it and below it — which is the most room any placement can have.
-  // The 12 is the 8px stand-off plus the 4px the clamps keep off the edge.
-  roomFor(rect: DOMRect): number {
-    const band = this.frame();
-    const room = Math.max(rect.top - band.top, band.bottom - rect.bottom) - 12;
-    if (room > 0) {
-      return room;
-    }
-    // A MARK CAN BE TALLER THAN THE BAND IT SITS IN — a comment run wrapping
-    // most of a short window — and then both gaps are negative. That must not
-    // reach the CSSOM: a negative max-height is DROPPED, which leaves the
-    // previous open's cap in place and hands topFor a card sized for a
-    // different mark, after which it is drawn over this one. There is no
-    // roomier side to prefer, so the cap becomes the band itself and the card
-    // covers the mark because there is nowhere left that does not.
-    return Math.max(0, band.bottom - band.top - 8);
   }
 
   /**
@@ -1373,92 +1237,14 @@ export class SuggestionUI {
    * its own (a head, a two-row reply box and two verbs) that a short enough
    * window cannot honour.
    */
-  topFor(rect: DOMRect, thread: boolean): number {
+  topFor(rect: DOMRect): number {
     // Measured after unhiding: a hidden element has no height to place by.
     const h = this.el.offsetHeight;
     const page = window.scrollY;
     const band = this.frame();
     const ceiling = page + band.top + 4;
     const above = rect.top + page - h - 8;
-    if (!thread) {
-      return Math.max(ceiling, above);
-    }
-    const floor = page + band.bottom - h - 4;
-    const below = rect.bottom + page + 8;
-    return below <= floor ? below : Math.max(ceiling, above);
-  }
-
-  // renderThread hands the whole bubble over to the one card. Nothing is added
-  // around it — no head, no verbs of the bubble's own — because a conversation
-  // already says what it is about and already carries the two verbs it has.
-  renderThread(thread: ThreadLike): void {
-    this.el.textContent = '';
-    this.el.classList.add('gly-bubble-thread');
-    // Every caller of renderThread reaches it through threadFor, which
-    // answers non-null only when this.threadCard is itself set — so this is
-    // narrowing what is already guaranteed, not a new refusal path.
-    if (!this.threadCard) {
-      return;
-    }
-    const card = this.threadCard(thread);
-    // The other half of the constructor's capture listener: the card promises
-    // "show me where this is" in its tooltip, and here the click behind that
-    // promise is stopped. A promise left on screen with nothing behind it is
-    // the worse of the two halves to forget.
-    card.removeAttribute('title');
-    this.el.appendChild(card);
-  }
-
-  /**
-   * restage redraws an open conversation from freshly polled data.
-   *
-   * Without it a reply posts, lands in the file, and does not appear in the
-   * card the reviewer typed it into — which below the breakpoint is the only
-   * copy of that conversation on screen.
-   *
-   * IT REFUSES TO TOUCH WORK IN PROGRESS. Rebuilding a card destroys its reply
-   * box, and destroying a reply box someone is typing into is the exact
-   * work-losing shape armedDelete and carryDrafts were written to end. So a
-   * bubble holding focus, or holding so much as a half-typed word, is left
-   * exactly as it is; the next poll after the reviewer is done redraws it.
-   */
-  restage(): void {
-    // Only a conversation is redrawn. The two-verb bubble reports its own
-    // decision optimistically and a poll landing mid-decision would wipe
-    // "accepting…" off the screen.
-    //
-    // this.anchor and this.found are only ever set together (see show), so
-    // the added `!this.found` narrows what was already true rather than
-    // refusing a state this bubble could actually be in.
-    if (
-      this.el.hidden ||
-      !this.anchor ||
-      !this.found ||
-      !this.el.classList.contains('gly-bubble-thread')
-    ) {
-      return;
-    }
-    // Captured now, before any further call: TypeScript cannot see that
-    // nothing below reassigns these fields, so it would otherwise widen them
-    // back to nullable after the first method call.
-    const anchor = this.anchor;
-    const found = this.found;
-    if (this.el.contains(document.activeElement)) {
-      return;
-    }
-    for (const field of this.el.querySelectorAll('[data-draft]')) {
-      if (field instanceof HTMLTextAreaElement && field.value) {
-        return;
-      }
-    }
-    // The mark may be gone — resolved from the CLI lifts the highlight, and a
-    // rebuilt fragment replaces the span this is hung from. Either way there is
-    // no conversation on screen to be about.
-    if (!this.editor.view.dom.contains(anchor) || !this.threadFor(found)) {
-      this.hide();
-      return;
-    }
-    this.show(anchor, found);
+    return Math.max(ceiling, above);
   }
 
   /**
@@ -1482,7 +1268,6 @@ export class SuggestionUI {
    */
   render(found: FoundMark, matched: MatchResult): void {
     this.el.textContent = '';
-    this.el.classList.remove('gly-bubble-thread');
     const suggestion = matched && matched.suggestion;
 
     const head = document.createElement('div');

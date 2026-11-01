@@ -475,10 +475,8 @@ const instructAndSend = async (quote, ask) => {
   await page.click('.gly-composer .gly-comment-button');
   await page.fill('.gly-composer .gly-composer-text', ask);
   await page.click('.gly-composer .gly-composer-send');
-  // WAIT FOR THE INSTRUCTION TO BE PENDING, not for the clock: the verdict
-  // button only DISCLOSES its two exits while something is outstanding (at zero
-  // its face is Approve and the press has no menu to open), so pressing early
-  // would send nothing and hang on a menu that never appears.
+  // WAIT FOR THE INSTRUCTION TO BE PENDING, not for the clock: Revise is off
+  // with nothing to send, so pressing early would send nothing.
   const filed = await pendingUntil((n) => n > 0, 15000);
   if (!filed) {
     throw new Error(
@@ -486,10 +484,6 @@ const instructAndSend = async (quote, ask) => {
     );
   }
   await page.click('#gly-revise');
-  await page.waitForSelector('.gly-verdict-menu .gly-verdict-revise', {
-    timeout: 10000,
-  });
-  await page.click('.gly-verdict-menu .gly-verdict-revise');
 };
 const editableAgain = async () => {
   await page
@@ -728,10 +722,10 @@ check(
   );
 
   // I3, PINNED: the round's instruction was discharged at the send, so there is
-  // nothing in the rail for the reload to drop. This is the assumption the
+  // nothing in the tab for the reload to drop. This is the assumption the
   // reload's no-`extra` model load rests on, asserted where it is visible.
   const cards = await page.evaluate(
-    () => document.querySelectorAll('.gly-rail-band .gly-thread').length,
+    () => document.querySelectorAll('.gly-tab [data-draft-id]').length,
   );
   const pendingNow = await pendingLive();
   check(

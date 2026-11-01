@@ -10,17 +10,12 @@
 // header for the this-typing decision.
 //
 // THIS WAS THE PARTITION'S SINGLE BIGGEST OPEN CALL. Most of these methods'
-// DOM writes land on bar-owned elements — the versions chip, the census strip
-// — so a partition by pixels would file them under the bar. They are not bar
+// DOM writes land on chrome — the versions chip, the primary —
+// so a partition by pixels would file them under the bar. They are not bar
 // chrome. web/versions.ts's own header states History "is a READING MODE and
 // not a second application," and a reading mode filed under a module named
 // for the bar buries that distinction exactly where the next reader will not
 // look.
-//
-// paintVersionsButton also paints `this.bar.versions`, the narrow bottom-bar
-// chip owned by web/sheet.ts. That cross-group write is expected: mixins all
-// land on one shared prototype, so writing another module's element here is
-// ordinary, not a boundary violation.
 //
 // readArrival is driven from readRevise, which lives in web/verdict.ts now. A
 // method here being called from a method in another mixin is fine — same
@@ -29,6 +24,7 @@
 import {
   arrivalSaid,
   arrivedSaid,
+  DEFAULT_VIEW,
   STAGE_ROUNDS,
   VERSIONS_LABEL,
   VERSIONS_NAME,
@@ -54,47 +50,9 @@ export const historyMethods = {
     b.title = `${VERSIONS_NAME} — every round of this document, and what was asked for`;
     b.setAttribute('aria-expanded', 'false');
     b.addEventListener('click', () => this.toggleVersions());
-    // Instructions and History are peers, so they live in one group and read
-    // as view switches rather than unrelated controls at opposite ends.
-    this.census.root.appendChild(b);
+    // The stage track carries it: the record as a whole, beside its rounds.
+    b.classList.add('kit-btn');
     return b;
-  },
-
-  // THE INSTRUCTIONS DOOR OPENS THE SURFACE THAT EXISTS AT THIS WIDTH, and for
-  // a whole phase below the breakpoint it opened nothing at all.
-  //
-  // Measured on the built binary at 620×900, before this line existed: the
-  // click was DELIVERED (`elementFromPoint` at the control's centre returned
-  // `.gly-bar-count`, playwright's click resolved in 9ms with no timeout) and
-  // this method RAN (instrumented, `openInstructions called 1 time(s)`) — and
-  // afterwards `.gly-rail`, `.gly-sheet` and `.gly-versions` were all still
-  // `hidden`. Not a harness artefact: a door that answers the press and shows
-  // nothing, which is worse than one that refuses, because the reviewer
-  // concludes there is nothing behind it.
-  //
-  // The cause is these two lines read against `railSurfaces`. Below
-  // RAIL_MIN_WIDTH there IS no rail — the sheet is the review's whole list down
-  // there — and `sheetOpen = false` is precisely the state in which nothing is
-  // painted. The old shape was correct while `▤` was the narrow door to the
-  // sheet and this was the door to the rail; retiring the icon (makeBottomBar)
-  // makes this the only door, so it has to open whichever surface the width
-  // actually has.
-  //
-  // ONE WIDTH TEST, ASKED THROUGH THE ONE ACCESSOR. `this.surfaces()` is
-  // `railSurfaces` with the state as it now stands, so `rail` here means
-  // exactly "is this a width with a rail" — a second `window.innerWidth >=`
-  // spelled in this method is how the two would come to disagree about which
-  // surface owns the instructions.
-  openInstructions(this: AppShell) {
-    if (this.versionsPanel.open) {
-      this.versionsPanel.hide();
-    }
-    this.sheetOpen = false;
-    this.sheetOpen = !this.surfaces().rail;
-    this.paintSheet();
-    this.paintSurfaces();
-    this.paintVersionsButton();
-    this.census.count.classList.add('is-open');
   },
 
   enterHistory(this: AppShell) {
@@ -105,11 +63,7 @@ export const historyMethods = {
     this.hideStrip();
     document.body.classList.add('gly-history-mode');
     this.editor.setEditable(false);
-    this.closeSheet();
-    this.closeCapture();
-    this.paintSurfaces();
     this.scheduleGrips();
-    this.census.count.classList.remove('is-open');
     // The primary becomes the way out and the readout says where you are, and
     // both have to be true BEFORE the first frame of the new surface — a bar
     // that still offers Revise over a reading mode is a bar offering a verb the
@@ -122,12 +76,10 @@ export const historyMethods = {
   leaveHistory(this: AppShell) {
     document.body.classList.remove('gly-history-mode');
     this.editor.setEditable(!this.sealed);
-    this.paintSurfaces();
     this.scheduleGrips();
     this.paintVersionsButton();
     this.paintRevise();
     this.paintReadout();
-    this.census.count.classList.add('is-open');
     // ESC RETURNS WITH THE SCROLL PRESERVED, which is the whole reason History
     // is a mode and not a page: the sentence the reviewer was reading is still
     // under the cursor when they come back to it.
@@ -140,7 +92,10 @@ export const historyMethods = {
       return;
     }
     this.say(`restored from v${version} · not sent`);
-    this.openInstructions();
+    if (this.versionsPanel.open) {
+      this.versionsPanel.hide();
+    }
+    this.paintVersionsButton();
     // Fire-and-forget: a failure here leaves the rail showing pre-restore
     // work for one poll cycle. `tick`'s own `/_galley/rev` check (pending.ts)
     // picks the same change up moments later and repaints correctly, and the
@@ -208,14 +163,28 @@ export const historyMethods = {
     );
   },
 
+  // openStage is a press on the stage track: a finished round opens History at
+  // that round, and while History is open the round in hand is the way back.
+  openStage(this: AppShell, opens: string) {
+    const panel = this.versionsPanel;
+    if (opens === 'draft') {
+      panel.hide();
+      return;
+    }
+    const n = Number(opens);
+    if (this.arrival && this.arrival.n === n) {
+      this.arrival = null;
+    }
+    if (panel.open) {
+      void panel.openRound(n);
+    } else {
+      void panel.showRound(n, DEFAULT_VIEW);
+    }
+    this.paintVersionsButton();
+  },
+
   toggleVersions(this: AppShell) {
     const panel = this.versionsPanel;
-    // Two full surfaces stacked is one surface nobody can reach. The sheet is
-    // the review's list and this is the record; opening one puts the other
-    // away rather than drawing them over each other.
-    if (!panel.open && this.sheetOpen) {
-      this.closeSheet();
-    }
     // AN ARRIVAL LANDS ON ITSELF, IN PLACE. Opening the record cold is still the
     // document (DEFAULT_VIEW); opening it because something arrived answers the
     // question that made you open it.
@@ -279,10 +248,8 @@ export const historyMethods = {
       waiting && arrival
         ? `${VERSIONS_NAME} — v${arrival.n} just arrived; this opens its changes`
         : `${VERSIONS_NAME} — every version of this document, and what was asked for`;
-    for (const chip of [this.versionsButton, this.bar.versions]) {
-      if (!chip) {
-        continue;
-      }
+    const chip = this.versionsButton;
+    if (chip) {
       chip.textContent = VERSIONS_LABEL;
       chip.setAttribute('aria-expanded', open ? 'true' : 'false');
       chip.classList.toggle('is-open', open);

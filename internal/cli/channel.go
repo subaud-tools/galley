@@ -32,6 +32,7 @@ import (
 	"github.com/subaud-tools/galley/internal/debug"
 	"github.com/subaud-tools/galley/internal/serve"
 	"github.com/subaud-tools/galley/internal/version"
+	"github.com/subaud-tools/galley/skills"
 	tools "github.com/subaud-tools/tools-common"
 	"github.com/subaud-tools/tools-common/channelmcp"
 	"github.com/subaud-tools/tools-common/pageserve"
@@ -466,7 +467,6 @@ func debugAsks(in []instructionPayload) []debug.Ask {
 // process that lasts the session. Best-effort in both directions: one that dies
 // without withdrawing is reaped by PID on the next read.
 func aroundChannel(_ context.Context, ch *pageserve.Channel, run func() error) error {
-	refreshSkill(ch.Log)
 	// The three measurements from the design spec, answered on every start and
 	// visible in the harness debug log (~/.claude/debug/<session>.txt).
 	cwd, _ := os.Getwd()
@@ -482,10 +482,12 @@ func aroundChannel(_ context.Context, ch *pageserve.Channel, run func() error) e
 }
 
 // shell is galley's channel, watch and report: pageserve's, over galley's
-// channel. Skill is not set: pageserve looks for a skill named after the tool, and
-// galley's is reviewing-a-document, which aroundChannel refreshes.
+// channel, which refreshes each installed copy of the skill this binary carries.
 func shell() pageserve.Commands {
-	return pageserve.Commands{Spec: channelSpec(), Process: serve.Process(), Group: "agent", Around: aroundChannel}
+	return pageserve.Commands{
+		Spec: channelSpec(), Process: serve.Process(), Group: "agent", Around: aroundChannel,
+		Skill: skills.Body, SkillName: skills.Name,
+	}
 }
 
 // channelCommand is `galley channel`: the session's MCP server on stdio.

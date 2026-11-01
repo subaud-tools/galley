@@ -1,7 +1,10 @@
 {
   "$schema": "https://unpkg.com/fallow/schema.json",
   "entry": [
+    "page.ts",
     "entry.ts",
+    "front.ts",
+    "front.css",
     "mermaid-entry.ts",
     "editor.css",
     "probe.mjs",
@@ -18,11 +21,14 @@
     "share.mjs",
     "undo.mjs",
     "layers.mjs",
-    "preflight.mjs",
+    "switcher.mjs",
     "schema.mjs",
     "schemacheck.mjs",
     "schemacorpus.mjs",
     "eslint.config.mjs"
+  ],
+  "overrides": [
+    { "files": ["shell.ts", "front.ts"], "rules": { "unresolved-imports": "off" } }
   ],
   "ignoreDependencies": [
     "globals",

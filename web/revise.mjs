@@ -346,18 +346,14 @@ const pageState = () =>
     const pill = document.querySelector('.gly-msg .kit-pill');
     const line = document.querySelector('.gly-msg .kit-msg-line');
     const revise = document.querySelector('#gly-revise');
-    // The face on show: the one label of the button's four not reserved.
-    const face = revise
-      ? [...revise.querySelectorAll('.gly-revise-label')]
-          .filter((l) => !l.classList.contains('gly-reserved'))
-          .map((l) => l.innerText)
-          .join('')
-      : null;
+    const face = revise ? revise.innerText : null;
     return {
       pill: pill ? pill.dataset.state : null,
       line: line ? line.textContent : '',
       disabled: revise ? revise.disabled : null,
       face,
+      // Whether the bar offers Approve.
+      approve: !!document.querySelector('.kit-primary:not([hidden])'),
     };
   });
 const docText = () =>
@@ -438,21 +434,24 @@ async function file(quote, ask) {
   );
 }
 
-// pressRevise is the reviewer's press on the page. With work pending the press
-// discloses the menu and the reviewer picks item ('revise' or 'trust'); with
-// nothing pending it is the press itself.
-async function pressRevise(item) {
+// pressRevise is Revise on the send bar, the reviewer's press on the page.
+async function pressRevise() {
   await until('the agent to be blocked on the wait', 20000, readerAttached);
   await until('Revise to be pressable', 20000, async () => {
     const s = await pageState();
     return s.disabled === false;
   });
   await page.click('#gly-revise');
-  if (item) {
-    const sel = `.gly-verdict-menu .gly-verdict-${item}`;
-    await page.waitForSelector(sel, { timeout: 10000 });
-    await page.click(sel);
-  }
+}
+
+// pressTrust is Approve on the bar with work pending: it discloses Revise &
+// Approve, and the reviewer takes it.
+async function pressTrust() {
+  await until('the agent to be blocked on the wait', 20000, readerAttached);
+  await page.click('.kit-primary');
+  const sel = '.gly-verdict-menu .gly-verdict-trust';
+  await page.waitForSelector(sel, { timeout: 10000 });
+  await page.click(sel);
 }
 
 async function revised(n, step) {
@@ -461,15 +460,15 @@ async function revised(n, step) {
 
 try {
   // --- open -----------------------------------------------------------------
-  await expect('open: no Revise yet, and Revise can be pressed', {
+  await expect('open: no Revise yet, nothing to send, and Approve on offer', {
     server: { state: null, handoff: false, sealed: false },
-    page: { pill: null, disabled: false },
+    page: { pill: null, disabled: true, approve: true },
   });
 
   // --- the first Revise: sent, landed, working, answered --------------------
   await file(FIRST, ASK_1);
   const before1 = (await rounds()).length;
-  await pressRevise('revise');
+  await pressRevise();
   const wake1 = await revised(1, 'the first Revise to wake the agent');
   check(
     'the first Revise woke the agent with its instruction and a report token',
@@ -492,7 +491,7 @@ try {
   check('`galley ack --state working` exited 0', working.code === 0, working);
   await expect("working: the agent's line is under the pill", {
     server: { state: 'working', line: WORKING, handoff: true },
-    page: { pill: 'working', line: WORKING, disabled: true },
+    page: { pill: 'working', line: WORKING, disabled: true, approve: false },
   });
 
   // #119: a press with nothing new while the agent has the Revise sends
@@ -528,7 +527,7 @@ try {
   );
   await expect('answered: the Revise is settled and the page is open again', {
     server: { state: 'answered', line: ANSWERED_1, handoff: false },
-    page: { pill: 'answered', line: ANSWERED_1, disabled: false },
+    page: { pill: 'answered', line: ANSWERED_1, disabled: true, approve: true },
   });
   const text1 = await until(
     "the agent's answer to reach the editor",
@@ -551,7 +550,7 @@ try {
 
   // --- the second Revise: landed, and the turn ends with no reply -----------
   await file(SECOND, ASK_2);
-  await pressRevise('revise');
+  await pressRevise();
   const wake2 = await revised(2, 'the second Revise to wake the agent');
   check(
     'the second Revise woke the agent with its instruction',
@@ -571,7 +570,13 @@ try {
   check('`galley report turn-ended` exited 0', ended.code === 0, ended);
   await expect('no reply: the turn ended with the Revise unanswered', {
     server: { state: 'no_reply', handoff: true },
-    page: { pill: 'no_reply', disabled: false, face: 'Revise' },
+    page: {
+      pill: 'no_reply',
+      disabled: false,
+      face: 'Revise · send again',
+      // The handoff is still open, so the document is not the reader's to approve.
+      approve: false,
+    },
   });
 
   // --- Revise again: the same instruction is sent again ---------------------
@@ -596,12 +601,12 @@ try {
   await tell({ do: 'ack', state: 'answered', note: ANSWERED_2 });
   await expect('the resent Revise is answered', {
     server: { state: 'answered', line: ANSWERED_2, handoff: false },
-    page: { pill: 'answered', line: ANSWERED_2, disabled: false },
+    page: { pill: 'answered', line: ANSWERED_2, disabled: true, approve: true },
   });
 
   // --- the third Revise is cancelled ----------------------------------------
   await file(THIRD, ASK_3);
-  await pressRevise('revise');
+  await pressRevise();
   const wake4 = await revised(4, 'the third Revise to wake the agent');
   check(
     'the third Revise woke the agent with its instruction',
@@ -634,8 +639,8 @@ try {
     20000,
     async () => {
       const cards = await page.evaluate(() =>
-        [...document.querySelectorAll('.gly-rail-band .gly-thread')].map(
-          (c) => c.textContent,
+        [...document.querySelectorAll('.gly-tab [data-draft-id] textarea')].map(
+          (c) => c.value,
         ),
       );
       return (await pendingTexts()).includes(ASK_3) &&
@@ -646,11 +651,11 @@ try {
   ).catch(async () => ({
     pending: await pendingTexts(),
     cards: await page.evaluate(
-      () => document.querySelectorAll('.gly-rail-band .gly-thread').length,
+      () => document.querySelectorAll('.gly-tab [data-draft-id]').length,
     ),
   }));
   check(
-    "the cancelled round's instruction is back: pending on the server and a card on the page",
+    "the cancelled round's instruction is back: pending on the server and a row on the page",
     Array.isArray(card),
     card,
   );
@@ -659,7 +664,7 @@ try {
   //
   // Revise & Approve: the instruction the cancel filed again is what it sends,
   // and the agent's answer approves the review.
-  await pressRevise('trust');
+  await pressTrust();
   const wake5 = await revised(5, 'Revise & Approve to wake the agent');
   check(
     'Revise & Approve sent the instruction the cancel filed again',

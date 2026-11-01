@@ -171,3 +171,13 @@ func TestClaimNeedsALiveSession(t *testing.T) {
 		t.Fatalf("a session with no channel claimed the review as %q", owner)
 	}
 }
+
+// A page holds the cookie, and a page must not be able to stop the server. The
+// kit's stop route only takes the header, which a page can't read.
+func TestCookieCannotStopTheServer(t *testing.T) {
+	r := agentServer(t)
+	b := signIn(t, r)
+	if code, _ := b.do(t, http.MethodPost, "/api/stop", ""); code != http.StatusForbidden {
+		t.Errorf("a cookie-only stop answered %d, want 403", code)
+	}
+}

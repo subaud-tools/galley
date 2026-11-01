@@ -32,7 +32,6 @@
 // matters: their callers are among the methods below. sectionSpan is exported
 // only because web/probe.mjs tests it directly in isolation.
 
-import { flash, motion } from './card.ts';
 import { pickRegion } from './figure.ts';
 import { coerceLevel } from './heading.ts';
 import {
@@ -143,44 +142,9 @@ export const figureMethods = {
       pin.title = said || 'an instruction on this region';
       pin.setAttribute('aria-label', `instruction on a region: ${said}`);
       pin.addEventListener('mousedown', (event) => event.preventDefault());
-      pin.addEventListener('click', () => this.flashThreadCard(thread.key));
+      pin.addEventListener('click', () => this.openDraft(thread.key));
       layer.appendChild(pin);
     }
-  },
-
-  // A pin cannot "reveal" the way a mark does — there is no run and no span to
-  // scroll to, and the figure is already on screen or the pin could not have
-  // been clicked. What the reviewer wants is the other end of the pairing: WHICH
-  // card is this. So the card is scrolled into the rail's view and rung.
-  // WHICHEVER SURFACE IS ON SCREEN, not the rail. This looked the card up in
-  // `this.rail.root` alone and returned in silence when it was not there — so
-  // below the breakpoint, where the card is in the sheet, a figure's pin
-  // carried a tooltip promising a conversation and did nothing when tapped.
-  // The sheet is asked FIRST and only while it is open, for the same reason
-  // draftRoots puts it first: it renders the rail's threads too, so the two
-  // surfaces hold cards under the same key and the answer has to be the one
-  // the reviewer is looking at.
-  //
-  // And when the sheet is CLOSED below the breakpoint the pin opens it, because
-  // "nothing happened" is the defect and a surface one tap away is not the same
-  // as no surface at all.
-  flashThreadCard(this: AppShell, key: string) {
-    const find = (root: HTMLElement | null): HTMLElement | undefined =>
-      root
-        ? Array.from(root.querySelectorAll<HTMLElement>('.gly-thread')).find(
-            (c) => c.dataset.key === key,
-          )
-        : undefined;
-    if (this.surfaces().bar && !this.sheetOpen) {
-      this.openSheet();
-    }
-    const el =
-      (this.surfaces().sheet && find(this.sheet.body)) || find(this.rail.root);
-    if (!el) {
-      return;
-    }
-    el.scrollIntoView({ behavior: motion(), block: 'nearest' });
-    flash(el);
   },
 
   // --- the block grip ---
@@ -234,7 +198,7 @@ export const figureMethods = {
   // A BUTTON FOLLOWS ITS BLOCK. It is reused for the same block node first —
   // ProseMirror and the sync both keep a block that did not change as the same
   // node — and only then by index and kind, and moved only when it is out of
-  // order. So a grip holding focus keeps it across a repaint (paintRail's
+  // order. So a grip holding focus keeps it across a repaint (paintTabs's
   // lesson, where a rebuilt card took the caret out of a reply), and a block
   // written in above it renumbers the grip rather than handing its button to
   // whichever block now stands at its old index: the composer's opener, and
@@ -441,25 +405,9 @@ export const figureMethods = {
 
     view.dispatch(view.state.tr.setMeta(scopeKey, span));
     this.paintScope();
-    // The head first: it is part of the box placeComposer measures.
     this.headBlockComposer(target, label);
+    window.galleyChrome?.showComposer();
 
-    // BENEATH THE BLOCK, never over it: a composer over the thing the note is
-    // about covers it. A heading's is beneath its LINE, which says which
-    // section this is; the rest of the section is outlined, not covered.
-    // Anything else is beneath its own box — a <pre> has padding and a chip
-    // below its last glyph, and its text's coordinates put the composer
-    // inside the fence.
-    const dom = target.kind === 'heading' ? null : view.nodeDOM(target.pos);
-    if (dom instanceof HTMLElement) {
-      const box = dom.getBoundingClientRect();
-      this.placeComposer(box, box, 6);
-    } else {
-      this.placeComposer(
-        view.coordsAtPos(target.pos + 1),
-        view.coordsAtPos(target.pos + node.nodeSize - 1),
-      );
-    }
     c.input.focus();
   },
 

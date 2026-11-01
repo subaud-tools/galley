@@ -4,6 +4,7 @@
 package serve
 
 import (
+	"cmp"
 	"context"
 	"crypto/subtle"
 	"encoding/json"
@@ -66,6 +67,23 @@ type DocView struct {
 	Owner string `json:"owner,omitempty"` // the session it belongs to
 }
 
+// PageView is one open review as GET /api/pages reports it. The cookie reads
+// this, so a page under review does too: it names a review and where it stands,
+// and carries no owner, no hook and no path beyond the two names.
+type PageView struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`   // the file's name
+	Folder string `json:"folder"` // the name of the folder it is in
+	State  string `json:"state"`  // PageWithYou, PageWithAgent or PageApproved
+}
+
+// Where a review stands.
+const (
+	PageWithYou   = "you"
+	PageWithAgent = "agent"
+	PageApproved  = "approved"
+)
+
 // OpenRequest is the body of POST /api/docs.
 type OpenRequest struct {
 	Path string `json:"path"` // absolute: the server runs in its own directory
@@ -114,7 +132,8 @@ type Host struct {
 	address string               // the server's URL with its token
 	token   string               // what the control routes' header must carry; "": refuses all
 
-	misses map[string]int // id -> checks in a row an unload rule held; the watch's own
+	misses    map[string]int // id -> checks in a row an unload rule held; the watch's own
+	announced []PageView     // the list the pages last heard of; the watch's own
 
 	agents *agents // the sessions waiting on their documents
 }
@@ -305,6 +324,48 @@ func (h *Host) List() []DocView {
 	return views
 }
 
+// Pages reports the open reviews, by folder and then name.
+func (h *Host) Pages() []PageView {
+	h.mu.Lock()
+	docs := maps.Clone(h.docs)
+	h.mu.Unlock()
+	views := make([]PageView, 0, len(docs))
+	for id, d := range docs {
+		views = append(views, PageView{
+			ID: id, Name: filepath.Base(d.path), Folder: filepath.Base(filepath.Dir(d.path)), State: d.server.standing(),
+		})
+	}
+	slices.SortFunc(views, func(a, b PageView) int {
+		return cmp.Or(strings.Compare(a.Folder, b.Folder), strings.Compare(a.Name, b.Name), strings.Compare(a.ID, b.ID))
+	})
+	return views
+}
+
+// standing is where this review stands: approved once sealed, with the agent
+// from a Revise until its answer lands, and otherwise with the reader.
+func (s *EditServer) standing() string {
+	if s.Sealed() {
+		return PageApproved
+	}
+	_, waiting := s.ReviseWatch()
+	if waiting || s.handoffOpenNow() {
+		return PageWithAgent
+	}
+	return PageWithYou
+}
+
+// announcePages tells the open pages when the list has changed since it last
+// looked. Reading the list on the watch's tick covers every way a review moves,
+// a Revise landing from the file included, with no call at each of them.
+func (h *Host) announcePages() {
+	now := h.Pages()
+	if slices.Equal(now, h.announced) {
+		return
+	}
+	h.announced = now
+	h.events.Emit("pages", nil)
+}
+
 // saveLocked writes the open documents to docs.json. h.mu is held.
 func (h *Host) saveLocked() error {
 	if h.savePath == "" {
@@ -404,6 +465,7 @@ func (h *Host) watch(ctx context.Context, every time.Duration) {
 		case <-t.C:
 			h.sweep()
 			h.reconcile()
+			h.announcePages()
 		}
 	}
 }
@@ -514,20 +576,17 @@ func (h *Host) handleOpen(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.reconcile()
-	writeJSON(w, OpenAnswer{ID: id, URL: h.docURL(id), Page: d.server.MdPath, Room: d.server.Room, Tab: h.showIn(id, d)})
+	writeJSON(w, OpenAnswer{ID: id, URL: h.docURL(id), Page: d.server.MdPath, Room: d.server.Room, Tab: h.showIn(id)})
 }
 
 // showIn puts the document in a page tab when one is open, and says which
 // happened: a tab shows it, a front-page tab moves to it, or only tabs on other
-// reviews are open, which keep what they show. A page that holds the document
-// over its websocket counts as showing it, whether or not it checks in.
-func (h *Host) showIn(id string, d hostedDoc) string {
+// reviews are open, which keep what they show.
+func (h *Host) showIn(id string) string {
 	c := h.tabs.Pick(id)
 	switch c.Kind {
 	case localweb.TabNone:
-		if d.server.pages.Load() == 0 {
-			return TabOpened
-		}
+		return TabOpened
 	case localweb.TabMove:
 		h.tabs.Moved(c.Tab, id)
 		h.events.Emit("show", map[string]string{"tab": c.Tab, "page": id})
@@ -626,6 +685,9 @@ func (h *Host) Handler() http.Handler {
 	mux.HandleFunc("POST /api/docs", h.control(h.handleOpen))
 	mux.HandleFunc("GET /api/docs", h.control(func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, h.List()) }))
 	mux.HandleFunc("DELETE /api/docs/{id}", h.control(h.handleClose))
+	// Not a control route: the front page and the switcher read it with the
+	// cookie. PageView says why that is safe.
+	mux.HandleFunc("GET /api/pages", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, h.Pages()) })
 	mux.HandleFunc(docsPrefix+"{id}/{rest...}", func(w http.ResponseWriter, r *http.Request) {
 		d, open := h.doc(r.PathValue("id"))
 		if !open {

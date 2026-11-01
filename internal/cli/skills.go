@@ -2,7 +2,6 @@ package cli
 
 import (
 	"flag"
-	"fmt"
 	"io"
 	"strings"
 
@@ -39,23 +38,4 @@ func runSkills(args []string, out, errw io.Writer) error {
 		return tools.Exitf(2, "%v", err)
 	}
 	return commonskills.Install(skills.Name, body, *fs.Lookup("agent").Value.(*agents), out, errw)
-}
-
-// refreshSkill rewrites each installed copy of galley's skill that differs
-// from the one this binary was built with, so the skill an agent reads
-// matches the binary it calls. It logs each path it rewrote to errw, never
-// stdout (the channel's MCP stream); an error is logged and the channel
-// starts anyway.
-func refreshSkill(errw io.Writer) {
-	body, err := skills.Body()
-	if err == nil {
-		var paths []string
-		paths, err = commonskills.Refresh(skills.Name, body)
-		for _, p := range paths {
-			_, _ = fmt.Fprintf(errw, "[galley channel] refreshed the %s skill at %s\n", skills.Name, p)
-		}
-	}
-	if err != nil {
-		_, _ = fmt.Fprintf(errw, "[galley channel] refreshing the %s skill: %v\n", skills.Name, err)
-	}
 }

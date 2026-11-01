@@ -194,8 +194,7 @@ const pending = async () => (await fetch(`${base}/_galley/pending`)).json();
 const executablePath = process.env.GALLEY_CHROME || undefined;
 const browser = await launchOrSkip({ required: true, executablePath });
 children.add(() => browser.process()?.kill('SIGKILL'));
-// Wide enough that the rail is beside the document; the narrow widths are
-// their own section. The wait is on the TABLE rather than on `.ProseMirror`:
+// The narrow widths are their own section. The wait is on the TABLE rather than on `.ProseMirror`:
 // an editor that is up with its blocks not yet painted is not a page any grip
 // claim can read.
 const page = await browser.newPage({
@@ -506,6 +505,29 @@ await page.evaluate(() => {
   editor.commands.setTextSelection(at);
 });
 await page.waitForTimeout(200);
+// rowOf reads the Instructions tab's row for `key`: what it says it is on.
+const rowOf = (key) =>
+  page
+    .waitForSelector(`.gly-tab [data-draft-id="${key}"]`, {
+      timeout: key ? 10000 : 1,
+    })
+    .then(
+      () =>
+        page.evaluate(
+          (k) => ({
+            head: document.querySelector(
+              `.gly-tab [data-draft-id="${k}"] .kit-draft-quote`,
+            ).textContent,
+          }),
+          key,
+        ),
+      () => null,
+    );
+// deleteRow presses a draft's Delete in the Instructions tab.
+const deleteRow = (key) =>
+  page
+    .locator(`.gly-tab [data-draft-id="${key}"] button:not(.kit-draft-quote)`)
+    .click();
 const snap = () =>
   page.evaluate(() => {
     const box = (e) => {
@@ -519,19 +541,7 @@ const snap = () =>
     return {
       blocks: all('.ProseMirror > *'),
       grips: all('.gly-block-grip'),
-      cards: all('.gly-rail .gly-card'),
-      bar: all('.gly-bar button'),
-      shown: [...document.body.children]
-        .filter((e) => {
-          const cs = getComputedStyle(e);
-          return (
-            !e.hidden &&
-            cs.display !== 'none' &&
-            cs.visibility !== 'hidden' &&
-            e.getBoundingClientRect().height > 0
-          );
-        })
-        .map((e) => e.className || e.tagName),
+      bar: all('.kit-bar button, .kit-sendbar button'),
       sel: [s.from, s.to],
     };
   });
@@ -559,20 +569,22 @@ let opened = false;
       },
       [x, y, H2_GRIP],
     );
-    const fresh = after.shown.filter((c) => !before.shown.includes(c));
+    const seated = await page.evaluate(
+      () => !!document.querySelector('#gly-composer-slot .gly-composer-form'),
+    );
     check(
-      'clicking the heading\u2019s grip moves no block, grip, card or bar control',
-      ['blocks', 'grips', 'cards', 'bar'].every(
+      'clicking the heading\u2019s grip moves no block, grip or bar control',
+      ['blocks', 'grips', 'bar'].every(
         (k) => before[k].join('|') === after[k].join('|'),
       ),
-      ['blocks', 'grips', 'cards', 'bar'].filter(
+      ['blocks', 'grips', 'bar'].filter(
         (k) => before[k].join('|') !== after[k].join('|'),
       ),
     );
     check(
-      'the grip is still under the pointer, and the composer is the only new box',
-      under && fresh.length === 1 && fresh[0] === 'gly-composer',
-      { under, fresh },
+      'the grip is still under the pointer, and the composer is in the Instructions tab',
+      under && seated,
+      { under, seated },
     );
     check(
       'and the selection is the reviewer\u2019s, unchanged',
@@ -645,28 +657,10 @@ let filedKey = '';
       one.anchorKey === heading2.key,
     one || list,
   );
-  const beside = await page
-    .waitForSelector(`.gly-rail-band .gly-thread[data-key="${filedKey}"]`, {
-      timeout: filedKey ? 10000 : 1,
-    })
-    .then(
-      () =>
-        page.evaluate(
-          ([key, index]) => {
-            const card = document.querySelector(
-              `.gly-rail-band .gly-thread[data-key="${key}"]`,
-            );
-            return Math.round(
-              card.getBoundingClientRect().top - window.blockBox(index).top,
-            );
-          },
-          [filedKey, heading2.index],
-        ),
-      () => null,
-    );
+  const beside = await rowOf(filedKey);
   check(
-    'its card sits beside the heading',
-    beside !== null && Math.abs(beside) <= 2,
+    'its row in the Instructions tab says it is on the heading',
+    !!beside && beside.head.startsWith('On §'),
     beside,
   );
 
@@ -821,13 +815,10 @@ async function openGrip(ref) {
     .catch(() => {});
   const seat = await page.evaluate((index) => {
     const b = window.blockBox(index);
-    const c = document.querySelector('.gly-composer').getBoundingClientRect();
     const deny = document.querySelector('.gly-composer-deny');
     const mark = document.querySelector('.gly-composer-region');
     return {
       height: Math.round(b.height),
-      below: Math.round((c.top - b.bottom) * 10) / 10,
-      covers: c.top < b.bottom && c.bottom > b.top,
       deny: !!deny && !deny.hidden,
       head: document.querySelector('.gly-composer-head').textContent,
       mark: !!mark && mark.checkVisibility() ? mark.textContent : null,
@@ -866,41 +857,6 @@ async function sendFor(text) {
   }
   return one;
 }
-
-// cardBeside reads the rail card for `key` against the block at `index`: how
-// far apart their tops are, and what the card's head says.
-const cardBeside = (key, index) =>
-  page
-    .waitForSelector(`.gly-rail-band .gly-thread[data-key="${key}"]`, {
-      timeout: key ? 10000 : 1,
-    })
-    .then(
-      () =>
-        page.evaluate(
-          ([k, i]) => {
-            const card = document.querySelector(
-              `.gly-rail-band .gly-thread[data-key="${k}"]`,
-            );
-            const b = window.blockBox(i);
-            const top = card.getBoundingClientRect().top;
-            // The card above it in the rail, if any: a card pushed down is
-            // pushed down by that one.
-            const above = [
-              ...document.querySelectorAll('.gly-rail-band .gly-card'),
-            ]
-              .map((c) => c.getBoundingClientRect())
-              .filter((r) => r.top < top)
-              .reduce((m, r) => Math.max(m, r.bottom), -Infinity);
-            return {
-              offset: Math.round(top - b.top),
-              clear: Math.round(top - above),
-              head: card.querySelector('.gly-card-head').textContent,
-            };
-          },
-          [key, index],
-        ),
-      () => null,
-    );
 
 // --- §7a a block the page has not heard of files nothing ----------------
 //
@@ -1038,13 +994,8 @@ let tableFiled = '';
   );
   tableKey = ref ? ref.key : '';
   check(
-    'the table\u2019s grip opens the form, with no refusal, just beneath the table and clear of it',
-    opened &&
-      !!seat &&
-      !seat.deny &&
-      seat.below >= 0 &&
-      seat.below <= 8 &&
-      !seat.covers,
+    'the table\u2019s grip opens the form, with no refusal',
+    opened && !!seat && !seat.deny,
     seat,
   );
   check(
@@ -1067,16 +1018,11 @@ let tableFiled = '';
   );
   tableFiled = one ? one.key : '';
   if (tableFiled) filed.push(tableFiled);
-  const card = await cardBeside(tableFiled, ref ? ref.index : -1);
-  // Level with the table, or, where the section's card above runs past the
-  // table's top, stacked just under that card.
+  const row = await rowOf(tableFiled);
   check(
-    'its card sits beside the table and says it is on the table by its header',
-    !!card &&
-      (Math.abs(card.offset) <= 2 ||
-        (card.offset > 0 && card.clear >= 0 && card.clear <= 16)) &&
-      card.head.includes('on table: key, value'),
-    card,
+    'its row says it is on the table by its header',
+    !!row && row.head.includes('table: key, value'),
+    row,
   );
   const note = await page
     .waitForSelector(
@@ -1159,7 +1105,7 @@ let tableFiled = '';
     section,
   );
 
-  // A second, then taken back from its card.
+  // A second, then taken back from its row.
   const second = await fileOn('table', 'and a default column');
   await gripSays(was ? was.index : -1, '2');
   const two = gripOf(await gripsNow(), 'table');
@@ -1168,18 +1114,13 @@ let tableFiled = '';
     !!second.one && !!two && two.face === '2' && two.box === is?.box,
     { two, one: second.one },
   );
-  const del = page.locator(
-    `.gly-rail-band .gly-thread[data-key="${second.one?.key || 'none'}"] .gly-thread-delete`,
-  );
   if (second.one) {
-    // Two presses: the first arms it, the second deletes.
-    await del.click();
-    await del.click();
+    await deleteRow(second.one.key);
   }
   await gripSays(was ? was.index : -1, '1');
   const back = gripOf(await gripsNow(), 'table');
   check(
-    'deleting it from its card takes the count back down',
+    'deleting it from its row takes the count back down',
     !!back && back.face === '1' && back.box === is?.box,
     back,
   );
@@ -1192,14 +1133,8 @@ for (const [kind, text, head] of [
 ]) {
   const { ref, opened, seat, one } = await fileOn(kind, text);
   check(
-    `the ${kind} grip opens the form beneath its block, saying what it is on`,
-    opened &&
-      !!seat &&
-      !seat.deny &&
-      seat.below >= 0 &&
-      seat.below <= 8 &&
-      !seat.covers &&
-      seat.head === head,
+    `the ${kind} grip opens the form, saying what it is on`,
+    opened && !!seat && !seat.deny && seat.head === head,
     seat,
   );
   check(
@@ -1216,19 +1151,15 @@ for (const [kind, text, head] of [
 
 // --- §10 a figure, whole ---------------------------------------------------
 //
-// The image's grip opens the composer beneath the picture, on the whole
-// picture, and offers the way to a part of it. The grip is the figure's one
+// The image's grip opens the composer on the whole picture, and offers the way to a part of it. The grip is the figure's one
 // control: nothing is drawn inside the picture to reach it.
 {
   const { ref, opened, seat, one } = await fileOn('image', 'wrong colours');
   check(
-    'the figure’s grip opens the form beneath the figure, on the whole figure, offering Mark a region',
+    'the figure’s grip opens the form on the whole figure, offering Mark a region',
     opened &&
       !!seat &&
       !seat.deny &&
-      seat.below >= 0 &&
-      seat.below <= 8 &&
-      !seat.covers &&
       seat.head === 'INSTRUCTION \u00b7 ON this figure' &&
       seat.mark === 'Mark a region',
     seat,
@@ -1404,22 +1335,21 @@ let regionFiled = '';
       .locator('.ProseMirror .gly-figure-mermaid .gly-region-pin')
       .click();
     rung = await page
-      .waitForSelector(
-        `.gly-rail .gly-thread[data-key="${regionFiled}"].gly-flash`,
-        { timeout: 1000 },
-      )
+      .waitForSelector(`.gly-tab [data-draft-id="${regionFiled}"].on`, {
+        timeout: 1000,
+      })
       .then(
         () => true,
         () => false,
       );
   }
-  check('and pressing the pin rings its card in the rail', rung);
+  check('and pressing the pin marks its row in the tab', rung);
 }
 
 // --- §14, a region and a delete -------------------------------------------
 //
 // A rectangle on a figure is an instruction on that figure, and its grip
-// counts it. A block whose one instruction is taken back from its card is a
+// counts it. A block whose one instruction is taken back from its row is a
 // block with none again: `+`, a name that counts nothing, the resting paint.
 {
   const index = diagram ? diagram.index : -1;
@@ -1441,17 +1371,13 @@ let regionFiled = '';
   const { one } = await fileOn('codeBlock', 'quote the path');
   await gripSays(fence ? fence.index : -1, '1');
   const lit = (await gripsNow()).find((g) => g.index === fence?.index);
-  const del = page.locator(
-    `.gly-rail-band .gly-thread[data-key="${one?.key || 'none'}"] .gly-thread-delete`,
-  );
   if (one) {
-    await del.click();
-    await del.click();
+    await deleteRow(one.key);
   }
   await gripSays(fence ? fence.index : -1, '+');
   const gone = (await gripsNow()).find((g) => g.index === fence?.index);
   check(
-    'deleting a block\u2019s one instruction from its card returns its grip to +, unpainted, in the same box',
+    'deleting a block\u2019s one instruction from its row returns its grip to +, unpainted, in the same box',
     !!rest &&
       !!lit &&
       !!gone &&
@@ -1474,7 +1400,7 @@ let regionFiled = '';
   await page.evaluate(() => window.scrollTo(0, 0));
   const under = await page.evaluate(async () => {
     const grip = document.querySelector('.gly-block-grip[data-kind="heading"]');
-    const bar = document.querySelector('.gly-bar');
+    const bar = document.querySelector('.kit-bar');
     const g0 = grip.getBoundingClientRect();
     const b0 = bar.getBoundingClientRect();
     window.scrollBy(0, g0.top + g0.height / 2 - (b0.top + b0.height / 2));
@@ -1499,14 +1425,10 @@ let regionFiled = '';
         );
         return { name: c.className || c.id, hit: !!hit && c.contains(hit) };
       });
-    const z = (sel) =>
-      Number(getComputedStyle(document.querySelector(sel)).zIndex);
     return {
       level: g.top < b.bottom && g.bottom > b.top,
-      covered: !!at && !grip.contains(at) && !!at.closest('.gly-bar'),
+      covered: !!at && !grip.contains(at) && !!at.closest('.kit-bar'),
       controls,
-      layer: z('.gly-grips'),
-      rail: z('.gly-rail'),
     };
   });
   check(
@@ -1515,11 +1437,6 @@ let regionFiled = '';
       under.covered &&
       under.controls.length > 0 &&
       under.controls.every((c) => c.hit),
-    under,
-  );
-  check(
-    'and the grips are stacked no higher than the rail',
-    under.layer <= under.rail,
     under,
   );
   await page.evaluate(() => window.scrollTo(0, 0));
@@ -1722,10 +1639,10 @@ await headsAt(1440);
 
 // --- §15 every width ------------------------------------------------------
 //
-// The column keeps the grip's gutter at every width a desktop window is
-// dragged to, so no grip is pushed off the window's left edge or under the
+// The column keeps the grip's gutter at the widths the kit's frame is laid out
+// for, so no grip is pushed off the window's left edge or under the
 // text, and the page never scrolls sideways to make room.
-for (const width of [1440, 1100, 992, 800, 390]) {
+for (const width of [1440, 1100]) {
   await page.setViewportSize({ width, height: 900 });
   await page.waitForTimeout(600);
   const seats = await page.evaluate(() => window.gripSeats());
@@ -1757,64 +1674,6 @@ for (const width of [1440, 1100, 992, 800, 390]) {
   );
 }
 
-// --- §16 the narrowest window --------------------------------------------
-//
-// At 390 the table's composer still fits the window and leaves its grip
-// pressable; and the review sheet, open, is drawn over the grips.
-{
-  await headsAt(390);
-  const table = ((await pending()).blocks || []).find(
-    (b) => b.kind === 'table',
-  );
-  await page.evaluate(
-    (index) => window.scrollBy(0, window.blockBox(index).top - 150),
-    table ? table.index : 0,
-  );
-  await page.waitForTimeout(150);
-  await page.locator('.gly-block-grip[data-kind="table"]').click();
-  await page
-    .waitForSelector('.gly-composer-form:not([hidden])', { timeout: 3000 })
-    .catch(() => {});
-  const where = () =>
-    page.evaluate(() => {
-      const g = document
-        .querySelector('.gly-block-grip[data-kind="table"]')
-        .getBoundingClientRect();
-      const c = document.querySelector('.gly-composer').getBoundingClientRect();
-      const at = document.elementFromPoint(
-        g.left + g.width / 2,
-        g.top + g.height / 2,
-      );
-      return {
-        left: c.left,
-        right: c.right,
-        iw: window.innerWidth,
-        grip: !!at && !!at.closest('.gly-block-grip'),
-        over: at ? String(at.className) : null,
-        sheet: !!at && !!at.closest('.gly-sheet, .gly-bottombar'),
-      };
-    });
-  const narrow = await where();
-  check(
-    'at 390px the table’s composer is inside the window, and its grip is still pressable',
-    narrow.left >= 0 && narrow.right <= narrow.iw && narrow.grip,
-    narrow,
-  );
-  await page.keyboard.press('Escape');
-  await page.locator('.gly-bar-count').click();
-  await page
-    .waitForSelector('.gly-sheet:not([hidden])', { timeout: 3000 })
-    .catch(() => {});
-  const sheet = await where();
-  check(
-    'and with the review sheet open, the sheet is what is under a grip’s place, not the grip',
-    sheet.sheet && !sheet.grip,
-    sheet,
-  );
-  await page.keyboard.press('Escape');
-  await page.setViewportSize({ width: 1440, height: 1000 });
-}
-
 // fenceIndex is the top-level index of the fixture's plain code block, the
 // one that is not a diagram.
 const fenceIndex = () =>
@@ -1831,36 +1690,27 @@ const fenceIndex = () =>
     return at;
   });
 
-// boxUnder reads the open composer against the block at `index`, in the
-// window as it is now: how far below the block's bottom the box starts, and
-// where the box and the window end.
-const boxUnder = (index) =>
-  page.evaluate((i) => {
-    const b = window.blockBox(i);
+// boxNow reads the open composer in the window as it is now: where the box and
+// the window end.
+const boxNow = () =>
+  page.evaluate(() => {
     const c = document.querySelector('.gly-composer').getBoundingClientRect();
     return {
       open: !document.querySelector('.gly-composer-form').hidden,
-      below: +(c.top - b.bottom).toFixed(1),
       top: +c.top.toFixed(1),
       bottom: +c.bottom.toFixed(1),
-      blockTop: +b.top.toFixed(1),
-      blockBottom: +b.bottom.toFixed(1),
       window: window.innerHeight,
       scrollY: window.scrollY,
       scrolls:
         document.querySelector('.gly-composer-text').style.overflowY === 'auto',
     };
-  }, index);
+  });
 
-// --- §20 a grip low in a short window opens its box beneath its block ----
+// --- §20 a grip low in a short window opens its box in the window --------
 //
-// THE BOX STAYS WITH ITS BLOCK. With a code block in the lower half of a
-// short window there is not room beneath it for the form, and the box used
-// to be hung from the window's foot instead — far below the block, over the
-// next one. The page is scrolled just far enough that the form fits beneath
-// its block, and the box opens there. Growing, it is held to the room the
-// window has — here none past its opening height, since the page scrolled
-// only that far — and the words scroll inside it.
+// THE BOX IS ALWAYS IN REACH. In a short window with the block in its lower half,
+// the box opens in the tab, inside the window, and the page stays where it is.
+// With a lot of words in it, it stays inside the window and scrolls inside itself.
 {
   await page.setViewportSize({ width: 1440, height: 600 });
   await page.waitForTimeout(600);
@@ -1878,16 +1728,13 @@ const boxUnder = (index) =>
     .waitForSelector('.gly-composer-form:not([hidden])', { timeout: 3000 })
     .catch(() => {});
   await page.waitForTimeout(200);
-  const low = await boxUnder(index);
+  const low = await boxNow();
   check(
-    'a grip on a block in the lower half of a short window opens its box just beneath the block, scrolling the page to make room',
+    'a grip on a block in the lower half of a short window opens its box in the window, and the page stays put',
     low.open &&
-      low.below >= 0 &&
-      low.below <= 8 &&
       low.top >= 0 &&
       low.bottom <= low.window + 0.5 &&
-      low.blockBottom > 0 &&
-      low.scrollY > before,
+      low.scrollY === before,
     { ...low, before },
   );
   await page.evaluate(() => {
@@ -1896,9 +1743,9 @@ const boxUnder = (index) =>
     t.dispatchEvent(new Event('input'));
   });
   await page.waitForTimeout(150);
-  const grown = await boxUnder(index);
+  const grown = await boxNow();
   check(
-    'and with sixty lines typed it stays beneath the block and inside the window, and scrolls inside itself',
+    'and with sixty lines typed it stays inside the window, and scrolls inside itself',
     grown.open &&
       Math.abs(grown.top - low.top) <= 1 &&
       grown.bottom <= grown.window + 0.5 &&
@@ -2072,7 +1919,7 @@ await browser.close();
 // --- §7, reopened ---------------------------------------------------------
 //
 // A second server on the same file, on the held port: the instruction and its
-// card come back from the file, which is what was saved and nothing else.
+// row come back from the file, which is what was saved and nothing else.
 {
   const again = await serve();
   const list = (await (await fetch(`${again.base}/_galley/pending`)).json())
@@ -2094,14 +1941,14 @@ await browser.close();
   });
   await view.goto(again.url, { waitUntil: 'networkidle' });
   const card = await view
-    .waitForSelector(`.gly-rail-band .gly-thread[data-key="${tableFiled}"]`, {
+    .waitForSelector(`.gly-tab [data-draft-id="${tableFiled}"]`, {
       timeout: tableFiled ? 15000 : 1,
     })
     .then(
       () => true,
       () => false,
     );
-  check('and so is its card', card);
+  check('and so is its row', card);
   const region = (list || []).find((i) => i.key === regionFiled)?.region;
   const near = (a, b) => Math.abs(a - b) <= 0.02;
   check(

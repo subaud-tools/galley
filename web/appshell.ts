@@ -14,14 +14,9 @@
 // methods touch — were the most honest shape on paper: a mixin's own
 // interface IS its documented surface, and reaching for a member the
 // interface does not list is a type error naming the overreach on sight.
-// REJECTED, because the mixins do not, in fact, keep to disjoint surfaces —
-// web/history.ts's own header says so in words ("mixins all land on one
-// shared prototype... ordinary, not a boundary violation") and its own
-// `paintVersionsButton`, writing `this.bar.versions` — a field web/sheet.ts
-// owns — is that header's worked example. Four mixins converted TODAY
-// already share `this.cards`, `this.rail`, `this.editor`, `this.sheetCards`,
-// `this.sheetOpen`, `this.versionsPanel`, `this.closeSheet`,
-// `this.paintSurfaces` and `this.step`. Twenty-one further mixin files
+// REJECTED, because the mixins do not, in fact, keep to disjoint surfaces: they all
+// land on one shared prototype, and they share `this.editor`,
+// `this.versionsPanel` and `this.step` among others. Twenty-one further mixin files
 // declaring their own copies of that same core is the "two spellings of one
 // rule" shape this codebase has already paid for a dozen times over (see
 // CLAUDE.md's "six agreeing spellings and one silence" and everything that
@@ -115,7 +110,7 @@ import type {
   LiteralHit,
 } from './suggestions.ts';
 import type { VersionsPanel, Arrival } from './versions.ts';
-import type { PendingThread, PendingThreadEntry } from './rail.ts';
+import type { PendingThread, PendingThreadEntry } from './tabs.ts';
 import type {
   PendingView,
   BlockRef,
@@ -127,10 +122,8 @@ import type {
 import type { Composer } from './composer.ts';
 import type { GripTarget } from './grips.ts';
 import type { Mode, ModeUI } from './bar.ts';
-import type { OverallCard, CaptureCard } from './cards.ts';
 import type { DocMenu, MenuItem } from './menu.ts';
 import type { ReviseWatchView } from './verdict.ts';
-import type { growthWatch } from './card.ts';
 import type { ShareMenu } from './share.ts';
 
 // --- shapes AppShell's members are built from ---
@@ -140,9 +133,9 @@ import type { ShareMenu } from './share.ts';
 // shape. Built by pending.ts's refreshPending, which is the one place this
 // shape is actually assembled; every other mixin only reads it.
 //
-// It EXTENDS rail.ts's own `PendingThread` (widening every field back to
+// It EXTENDS tabs.ts's own `PendingThread` (widening every field back to
 // required, since the App always fills every one of them) rather than
-// re-declaring the same eight fields by hand — see rail.ts's own comment on
+// re-declaring the same eight fields by hand — see tabs.ts's own comment on
 // why PendingThread is exported at all.
 export interface ThreadEntry extends PendingThreadEntry {
   author: string;
@@ -160,35 +153,6 @@ export interface Thread extends PendingThread {
   blockKind: string;
   region: Region | null;
   instruction: true;
-}
-
-// The second argument every `threadCard` call carries: threadPlacement's own
-// verdict. `run` is optional here and not on threadPlacement's return type,
-// because the ONE caller that builds a placement by hand rather than asking
-// threadPlacement for one (the whole-document card, whose threads are never
-// anchored) has no run to give it — see cards.ts's paintOverall.
-export interface Placement {
-  where: 'mark' | 'block' | 'anchorless';
-  run?: string;
-  index: number;
-  region: object | null;
-}
-
-// One rendered card — what paintAnchors positions and the stepper searches.
-// `el` and `run` are the two fields keys.ts and sheet.ts read; `thread`,
-// `blockIndex` and `region` are cards.ts's own, added now that cards.ts is
-// converted (Task 7) and is the one place that PUSHES a card — `threadCard`
-// is the sole writer of `this.cards`, and it always sets all five together,
-// so nothing downstream sees a card missing any of them.
-export interface CardEntry {
-  el: HTMLElement;
-  run: string;
-  thread: Thread;
-  // -1 for a card anchored to a mark (see threadPlacement); >= 0 for a card
-  // anchored to a block, read on the very next paint and never stored
-  // anywhere that outlives it, because an index renumbers.
-  blockIndex: number;
-  region: object | null;
 }
 
 // The loose shape of one arrival — the same fields web/arrivals.ts's own
@@ -255,73 +219,20 @@ export interface AppState {
   changes: ReviewerChange[];
   blocks: BlockRef[];
   pendingCount: number;
+  // A press is waiting for the words on their way to the server.
+  settling: boolean;
   verdict: string;
 
-  // --- the rail, the sheet, and their shared card lists ---
-  // `band` and `notice` join `root` now that cards.ts is converted (Task 7)
-  // and reads both directly (`this.rail.band`, `this.rail.notice`) —
-  // makeRail (entry.ts) always builds and returns all three together.
-  rail: { root: HTMLElement; band: HTMLElement; notice: HTMLElement };
-  sheet: {
-    root: HTMLElement;
-    head: HTMLElement;
-    body: HTMLElement;
-  };
-  cards: CardEntry[];
-  sheetCards: CardEntry[];
-  sheetOpen: boolean;
-  // The whole-document instructions already filed — built lazily by
-  // paintOverall (cards.ts), never in the constructor, so it starts genuinely
-  // absent rather than null-then-filled. draftRoots (entry.ts) already guards
-  // it the same way: `if (this.overall) { … }`.
-  overall?: OverallCard;
-  // The box one is WRITTEN in, built lazily by openCapture and guarded the
-  // same way. A second field rather than a member of OverallCard because the
-  // two have different lifetimes: the panel above is repainted on every poll,
-  // this exists only while somebody is typing. See cards.ts.
-  capture?: CaptureCard;
-  // The growth watch over the rail's own cards — CLAUDE.md's "a card's
-  // height is not a constant" guard. `this.cardSizes = growthWatch(...)` is
-  // a direct, unconditional constructor assignment.
-  cardSizes: ReturnType<typeof growthWatch>;
-  // TASK 8 CORRECTION: this was declared as a METHOD in AppMethods
-  // (`scheduleAnchors(): void;`) on the assumption every member arriving
-  // through Object.assign belongs there. It does not arrive that way —
-  // `this.scheduleAnchors = coalesce(() => this.paintAnchors());` in
-  // entry.ts's own constructor is a direct, unconditional FIELD assignment,
-  // the identical shape as `cardSizes` immediately above it. Moved here
-  // rather than left as a method: a class field of function type and an
-  // interface method signature are structurally compatible at every call
-  // site (`this.scheduleAnchors()` reads the same either way, and bar.ts,
-  // cards.ts and keys.ts all call it that way), so the error was invisible
-  // until `class App implements AppState` had a real constructor line to
-  // check it against.
-  scheduleAnchors: () => void;
-  // Which thread's delete control is armed, and since when — on the App
-  // rather than in the button, because paintRail destroys and rebuilds
-  // every card. Both are direct, unconditional constructor assignments
-  // (`this.armedDelete = null; this.armedAt = 0;`).
-  armedDelete: string | null;
-  armedAt: number;
-  // armedRevert is the same two-step arming for the change cards' one verb,
-  // kept SEPARATE from armedDelete so arming a delete cannot disarm a revert
-  // (or the other way round) — two verbs sharing one timer is a control
-  // disarmed by a press somewhere else on the screen.
+  // --- the right column's tabs (web/tabs.ts) ---
+  // Which "your edit" row's Revert is armed, on its first press.
   armedRevert: string | null;
-  armedRevertAt: number;
-  // Which instruction is open for editing, keyed by the thread's stable
-  // key — same rule and same constructor line as armedDelete.
-  editingThread: string | null;
+  // The draft whose row is marked and whose words are lit.
+  selectedDraft: string;
+  // Where j and k last stopped.
   stepped: string | null;
 
   // --- the bubble, and the census/bar chrome ---
   bubble: SuggestionUI;
-  census: { root: HTMLElement; count: HTMLButtonElement };
-  bar: {
-    root: HTMLElement;
-    count: HTMLButtonElement;
-    versions: HTMLButtonElement;
-  };
   strip: { root: HTMLElement };
 
   // --- arrivals: the queue, the hold, the strip's batch ---
@@ -351,20 +262,12 @@ export interface AppState {
   // `#gly-revise` on an unbuilt checkout), so the field is nullable rather
   // than absent.
   revise: HTMLButtonElement | null;
-  // The five labels makeRevise builds INSIDE the branch where `#gly-revise`
-  // exists — genuinely optional, and not defensively so. See verdict.ts's
-  // own header for why: the constructor's direct assignment is to `revise`
-  // alone, and nothing assigns these five unconditionally the way
-  // `strictPropertyInitialization` (Task 8) will ask for. In practice all
-  // five are set together or none of them are; verdict.ts narrows each one
-  // with a real check rather than asserting the correlation away.
-  reviseCount?: HTMLElement;
-  reviseCaret?: HTMLElement;
-  reviseIdle?: HTMLElement;
-  reviseBusy?: HTMLElement;
-  reviseSecs?: HTMLElement;
-  reviseApprove?: HTMLElement;
-  reviseBack?: HTMLElement;
+  // Discard drafts beside it, and what the two and the primary read.
+  discardBtn: HTMLButtonElement | null;
+  discardArmedAt: number;
+  discarding: boolean;
+  approving: boolean;
+  editCount: number;
   // Where the last Revise stands: the cell makeRevise puts beside the button,
   // and the message readRevise last read (none before the first poll, and
   // none when the server has none).
@@ -467,7 +370,6 @@ export interface AppState {
 // 'paintCensus' is missing in type 'App'" for each one. Splitting them out is
 // what lets the half that CAN be verified actually be verified.
 export interface AppMethods {
-  closeSheet(): void;
   closeVerdictMenu(): void;
   hideComposer(): void;
   clearScope(): void;
@@ -482,13 +384,14 @@ export interface AppMethods {
   stepOrder(): string[];
   clearNewLater(): void;
   noticeArrivals(arrived: ArrivalItem[]): void;
-  paintCensus(): void;
   paintHold(): void;
-  paintRail(): void;
   paintReadout(): void;
   paintRevise(): void;
+  sendVerdict(
+    body: Parameters<AppShell['postVerdict']>[0],
+    approving: boolean,
+  ): void;
   paintMessage(): void;
-  pulseCensus(): void;
   readRevise(): void;
   refreshPending(): Promise<void>;
   reconcileRunSets(
@@ -506,23 +409,17 @@ export interface AppMethods {
   // needs.
   withhold(arrived: ArrivalItem[]): ArrivalItem[];
   say(text: string): void;
-  surfaces(): {
-    rail: boolean;
-    bar: boolean;
-    sheet: boolean;
-    collapsed: boolean;
-  };
   toggleVersions(): void;
   showArrival(): void;
-  openInstructions(): void;
-  paintSheet(): void;
-  paintSurfaces(): void;
-  threadCard(thread: Thread, place: Placement): HTMLElement;
-  changeCard(change: ReviewerChange): HTMLElement;
-  revertButton(change: ReviewerChange, note: HTMLElement): HTMLButtonElement;
 
   // --- Revise, the verdict menu, and hold/release (web/verdict.ts) ---
   askRevise(): void;
+  pressSend(): void;
+  makeDiscard(): HTMLButtonElement | null;
+  discardDrafts(): void;
+  paintDiscard(): void;
+  paintChrome(): void;
+  openStage(opens: string): void;
   postVerdict(
     body: { verdict?: string; approveOnAnswer?: boolean; trust?: boolean },
     approving: boolean,
@@ -546,37 +443,25 @@ export interface AppMethods {
   releaseSealOnlyVerbs(): void;
   sealHides(): (HTMLElement | null)[];
 
-  // --- the rail's cards, and the whole-document instruction
-  //     (web/cards.ts) ---
-  unwatchCards(): void;
-  setBandHeight(px: number): void;
-  paintOverall(): void;
-  makeOverallCard(): OverallCard;
-  openCapture(): void;
-  closeCapture(): void;
+  // --- the right column's tabs (web/tabs.ts) ---
+  paintTabs(): void;
+  paintChat(): void;
+  wireTabs(): void;
+  editDraft(key: string, text: string): Promise<boolean>;
+  deleteDraft(key: string): void;
   strandEdit(words: string): void;
-  makeCaptureCard(): CaptureCard;
-  panelDoorAt(target: EventTarget | null, x: number, y: number): boolean;
-  openCaptureByHand(): void;
+  selectDraft(key: string): void;
+  openDraft(key: string): void;
+  fileChat(text: string): Promise<boolean>;
+  chatHolds(): boolean;
+  revertEdit(key: string): void;
+  reveal(run: string): void;
+  revealBlock(index: number): void;
   // The band of the window the PROSE is readable in, measured per call —
   // App's own, and the number every floating surface here clamps into.
   chromeFrame(): { top: number; bottom: number };
-  editButton(
-    thread: Thread,
-    el: HTMLElement,
-    note: HTMLElement,
-  ): HTMLButtonElement;
-  deleteButton(
-    thread: Thread,
-    el: HTMLElement,
-    note: HTMLElement,
-  ): HTMLButtonElement;
-  entryRow(entry: ThreadEntry): HTMLElement;
-  revealBlock(index: number): void;
-
   // --- three of entry.ts's own methods, needed now that a converted mixin
   //     calls each by name ---
-  reveal(run: string, el: HTMLElement): void;
   clearTrail(): void;
   refreshVersions(): void;
   paintNoteWords(): void;
@@ -588,12 +473,10 @@ export interface AppMethods {
     index: number;
     el: HTMLElement;
   }>;
-  flashThreadCard(key: string): void;
   paintFigures(): void;
   markRegion(): void;
   openBlockComposer(target: GripTarget, opener: HTMLElement | null): void;
   adoptGripBlock(): void;
-  openSheet(): void;
   paintGrips(): void;
   paintScope(): void;
   paintPins(el: HTMLElement, ref: BlockRef | null): void;
@@ -607,11 +490,6 @@ export interface AppMethods {
   ): void;
   headComposer(quote: string): void;
   paintRefusal(hit: LiteralHit): void;
-  placeComposer(
-    start: { top: number; left: number },
-    end: { bottom: number },
-    gap?: number,
-  ): void;
   pulseFence(pos: number): void;
   sendComment(): void;
 
@@ -653,30 +531,9 @@ export interface AppMethods {
   dismissRefusal(): void;
   placeComposerButton(byReviewer?: boolean): void;
 
-  // --- the rail's cards: the placement pass itself and its two builders
-  //     (web/cards.ts) ---
-  watchCards(): void;
-  paintAnchors(): void;
-  paintRailCards(): void;
-  paintRailThreads(band: HTMLElement): HTMLElement[];
-  bubbleThreadCard(thread: Thread): HTMLElement;
-
   // --- the bar's own builders (web/bar.ts) ---
   makeStatus(): HTMLElement;
-  makeCensus(): { root: HTMLElement; count: HTMLButtonElement };
   makeMode(): ModeUI;
-
-  // --- the bottom bar and the sheet (web/sheet.ts) ---
-  makeBottomBar(): {
-    root: HTMLElement;
-    count: HTMLButtonElement;
-    versions: HTMLButtonElement;
-  };
-  makeSheet(): {
-    root: HTMLElement;
-    head: HTMLElement;
-    body: HTMLElement;
-  };
 
   // --- figures' own builder (web/figures.ts) ---
   makeGripLayer(): HTMLElement;

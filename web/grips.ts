@@ -6,7 +6,7 @@
 // say, how many instructions it already carries, and where two grips go when
 // their blocks are closer than one grip are all decisions over a document, a
 // list of threads and plain numbers. They live here, where web/probe.mjs
-// drives every one of them with no browser — rail.ts's rule, for rail.ts's
+// drives every one of them with no browser — tabs.ts's rule, for tabs.ts's
 // reason. The DOM half (web/figures.ts) measures, calls in here, and paints
 // what it is told.
 //
@@ -20,7 +20,7 @@
 // without the other the grips overlap by exactly the difference.
 
 import type { Node as PMNode } from '@tiptap/pm/model';
-import { elide, type PendingThread } from './rail.ts';
+import { elide, type PendingThread } from './tabs.ts';
 
 // The top-level node types that get a grip, in the browser schema's names —
 // which are also the Go side's BlockKind strings, so a BlockRef's `kind`

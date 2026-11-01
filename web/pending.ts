@@ -23,7 +23,7 @@ import {
   arrivalNeedsStrip,
   queueArrivals,
 } from './arrivals.ts';
-import { AUTHOR } from './rail.ts';
+import { AUTHOR } from './tabs.ts';
 import type { SuggestionLike } from './suggestions.ts';
 import type {
   AppShell,
@@ -160,16 +160,15 @@ export const pendingMethods = {
         // census it reads can never disagree for a tick.
         this.verdict = verdictLabel(view);
         this.pendingCount = (view.instructions || []).length;
-        this.paintCensus();
+        this.editCount = (view.changes || []).length;
         this.paintRevise();
         this.paintHold();
-        this.paintRail();
+        this.paintTabs();
         // An OPEN conversation is redrawn from the same fresh list every other
         // surface was just painted from — otherwise a reply the reviewer sent
         // from the bubble lands in the file and never appears in the only copy
         // of that conversation on screen. It declines to touch a card being
         // typed into; see SuggestionUI.restage.
-        this.bubble.restage();
         // After the rail, because an on-screen arrival announces itself with
         // its own card, and the card has to exist to be measured.
         if (arrived.length) {
@@ -232,7 +231,7 @@ export const pendingMethods = {
     const runs = this.runsNow();
     const viewport = {
       height: window.innerHeight || document.documentElement.clientHeight || 0,
-      railVisible: !this.rail.root.hidden,
+      railVisible: true,
     };
 
     const unseen: ArrivalItem[] = [];
@@ -263,7 +262,6 @@ export const pendingMethods = {
     // The census pulses for EVERY arrival, on screen or not. It is the durable
     // record — the strip fades, the count does not — so a reviewer who looked
     // away has one place that still knows something happened.
-    this.pulseCensus();
     this.clearNewLater();
     if (unseen.length === 0) {
       return;
