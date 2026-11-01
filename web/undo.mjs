@@ -160,7 +160,7 @@ const filed = await page.evaluate(async () => {
 });
 check('filing an instruction is accepted', filed === 200, String(filed));
 await page.waitForFunction(
-  () => !!document.querySelector('.gly-rail-band .gly-card'),
+  () => !!document.querySelector('.gly-tab [data-draft-id]'),
   { timeout: 8000 },
 );
 const afterFiling = await text();

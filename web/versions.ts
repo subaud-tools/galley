@@ -156,7 +156,7 @@ const RESTORE_ARMED = 'replace draft?';
 const RESTORE_BUSY = 'restoring…';
 
 // `CARD_GAP = 12` WAS HERE, AND IT IS DELETED. It was this rail's own name for
-// the number `RAIL_GAP` has been in rail.ts since the instruction rail was
+// the number `RAIL_GAP` has been in tabs.ts since the instruction rail was
 // built, and the two disagreed by two pixels for no reason anybody chose —
 // which is the whole shape of this file's relationship to that one before
 // 2026-08-20. One stack, one gap, imported above.
@@ -997,7 +997,7 @@ export class VersionsPanel {
 
   paintRail(): void {
     // The observer is holding cards this line is about to destroy — see
-    // `unwatchCards`, and `paintRail` in entry.ts, which is the same rebuild
+    // `unwatchCards`, and `paintTabs` in tabs.ts, which is the same rebuild
     // with the same hazard. `this.cards` goes with them: it is the container
     // `stack` and `paintPick` reach through, and a stale handle to a detached
     // node is a write nobody sees.

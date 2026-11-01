@@ -14,14 +14,9 @@
 // methods touch — were the most honest shape on paper: a mixin's own
 // interface IS its documented surface, and reaching for a member the
 // interface does not list is a type error naming the overreach on sight.
-// REJECTED, because the mixins do not, in fact, keep to disjoint surfaces —
-// web/history.ts's own header says so in words ("mixins all land on one
-// shared prototype... ordinary, not a boundary violation") and its own
-// `paintVersionsButton`, writing `this.bar.versions` — a field web/sheet.ts
-// owns — is that header's worked example. Four mixins converted TODAY
-// already share `this.cards`, `this.rail`, `this.editor`, `this.sheetCards`,
-// `this.sheetOpen`, `this.versionsPanel`, `this.closeSheet`,
-// `this.paintSurfaces` and `this.step`. Twenty-one further mixin files
+// REJECTED, because the mixins do not, in fact, keep to disjoint surfaces: they all
+// land on one shared prototype, and they share `this.editor`,
+// `this.versionsPanel` and `this.step` among others. Twenty-one further mixin files
 // declaring their own copies of that same core is the "two spellings of one
 // rule" shape this codebase has already paid for a dozen times over (see
 // CLAUDE.md's "six agreeing spellings and one silence" and everything that
@@ -138,9 +133,9 @@ import type { ShareMenu } from './share.ts';
 // shape. Built by pending.ts's refreshPending, which is the one place this
 // shape is actually assembled; every other mixin only reads it.
 //
-// It EXTENDS rail.ts's own `PendingThread` (widening every field back to
+// It EXTENDS tabs.ts's own `PendingThread` (widening every field back to
 // required, since the App always fills every one of them) rather than
-// re-declaring the same eight fields by hand — see rail.ts's own comment on
+// re-declaring the same eight fields by hand — see tabs.ts's own comment on
 // why PendingThread is exported at all.
 export interface ThreadEntry extends PendingThreadEntry {
   author: string;
@@ -448,6 +443,7 @@ export interface AppMethods {
   wireTabs(): void;
   editDraft(key: string, text: string): void;
   deleteDraft(key: string): void;
+  strandEdit(words: string): void;
   selectDraft(key: string): void;
   openDraft(key: string): void;
   fileChat(text: string): Promise<boolean>;

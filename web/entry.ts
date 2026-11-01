@@ -14,7 +14,7 @@
 // latest poll response, which surfaces are on screen. Its own method list,
 // 31 methods including the constructor, is not a handful and is not
 // leftover scraps: the arrival strip (makeStrip/showStrip/hideStrip/showMe),
-// the instruction rail itself (makeRail/paintRail), the trail
+// the trail
 // (trailEntries/clearTrail), note-words painting (paintNoteWords), keeping
 // the reviewer's place across a whole-document rebuild
 // (keepPlace/rememberPlace/restorePlace/findSpan/spanIsShown/sectionFor),
@@ -27,15 +27,15 @@
 //
 // Its READ surface is bigger than even that: immediately after the class
 // declaration, eleven `Object.assign(App.prototype, …Methods)` calls mix in
-// the modules this file used to be — `keys.ts`, `pending.ts`, `sheet.ts`,
-// `cards.ts`, `composer.ts`, `figures.ts`, `history.ts`, `bar.ts`,
+// the modules this file used to be — `keys.ts`, `pending.ts`, `tabs.ts`,
+// `composer.ts`, `figures.ts`, `history.ts`, `bar.ts`,
 // `verdict.ts`, `seal.ts`, `share.ts` — each commented at its own assignment with what
 // it owns. Read those comments, not this one, for what any given surface
 // does; this file is the shell they all attach to, not a description of
 // them.
 //
 // This file also imports several modules it does not own the state of:
-// `rail.ts`, `card.ts`, `runs.ts`, `trail.ts`, `suggestions.ts`, `note.ts`,
+// `tabs.ts`, `card.ts`, `runs.ts`, `trail.ts`, `suggestions.ts`, `note.ts`,
 // `figure.ts` and others are the arithmetic and DOM-building the mixins and
 // this file call into, most of them pure (no `this`, checkable under
 // `probe.mjs` with no browser at all); `versions.ts` exports its own
@@ -191,9 +191,6 @@ const FIELD = 'content';
 // element that LOOKS like an <svg> in the inspector and renders nothing at all.
 
 const POLL_MS = 1500;
-
-// DELETE_ARM_MS and DELETE_ARM_NOTE moved to web/cards.ts with deleteButton,
-// their only reader.
 
 // How long a revealed mark keeps its ring lived here, beside `flash()`. Both
 // moved to web/card.ts with the whole reveal, because History was answering the
@@ -703,7 +700,7 @@ function init(opts?: { room?: string; wsURL?: string }): void {
 // the very array `threads()` returns, see suggestions.ts's threadFor), which
 // this App always populates as `Thread[]`. So the richer shape is real, not
 // assumed — narrowed here with a real runtime check rather than trusted,
-// the same discipline rail.ts's `keyTargetIsEditable` uses for the same
+// the same discipline tabs.ts's `keyTargetIsEditable` uses for the same
 // reason: a boundary's declared type is narrower than what it actually
 // carries, and `in` says so honestly instead of asserting it away.
 function isThread(t: ThreadLike): t is Thread {
@@ -1126,7 +1123,7 @@ class App implements AppState {
     this.watchBar();
 
     // The two intents that light a card and its words. Watched here, once: the
-    // listeners are delegated off the document because paintRail destroys every
+    // listeners are delegated off the document because paintTabs destroys every
     // card they could otherwise be bound to. There is no element to build —
     // the prose end is a DECORATION and the card end is the card's own class.
     this.litHover = '';
@@ -1264,7 +1261,7 @@ class App implements AppState {
     // there), and History (see menuAt). `preventDefault` is called ONLY where
     // this menu opens, so nothing is taken away where nothing is given.
     //
-    // DELEGATED OFF `document`, in both directions, because `paintRail`
+    // DELEGATED OFF `document`, in both directions, because `paintTabs`
     // destroys and rebuilds every card in the rail on every poll — a listener
     // bound to an element the next paint replaces is a listener that stops
     // firing without an error. The menu itself is on `body` and outlives every
@@ -1391,7 +1388,7 @@ class App implements AppState {
   // so hovering the card and hovering the words cannot come to disagree about
   // what they are about — the same argument `litRunAt` is one function for.
 
-  // DELEGATED, because `paintRail` destroys and rebuilds every card on every
+  // DELEGATED, because `paintTabs` destroys and rebuilds every card on every
   // pending refresh — a listener bound to a card is a listener bound to an
   // element that will not exist in 1.5 seconds. The document is the one node
   // that outlives every rebuild.
@@ -1415,7 +1412,7 @@ class App implements AppState {
     //
     // A DETACHED TARGET IS NOT A DEPARTURE, and that clause is what carries the
     // light across a repaint. Chrome fires `mouseout` with a null relatedTarget
-    // when the hovered element is REMOVED, and `paintRail` removes every card
+    // when the hovered element is REMOVED, and `paintTabs` removes every card
     // on every pending refresh — including the refresh that follows somebody
     // else's `galley suggest`. Without this the light went out on a mutation
     // the reviewer did not make, one frame before `paintLit` put the class back
@@ -1504,7 +1501,7 @@ class App implements AppState {
   // paintLit writes both ends from the one state.
   //
   // IT IS CALLED AT THE END OF EVERY REPAINT, and that is not belt and braces.
-  // The card's class is on an element `paintRail` has just destroyed and built
+  // The card's class is on an element `paintTabs` has just destroyed and built
   // again, so it lives on the App — the same rule this codebase already applies
   // to the delete control's armed flag — and this is where it is put back. The
   // prose's half needs no such help and that is the point of it being a
@@ -1948,7 +1945,7 @@ class App implements AppState {
   //   already decides, and `review.Change.Placed` still carries the fact to the
   //   server.
   //
-  // See rail.ts's outgoingCounts, and answer the question it poses there before
+  // See tabs.ts's outgoingCounts, and answer the question it poses there before
   // proposing any of this again.
 
   // paintNoteWords hands the block notes their words. A note in the
@@ -2059,15 +2056,10 @@ Object.assign(App.prototype, keyMethods);
 // The poll-and-refresh loop is its own module too — see web/pending.ts —
 // mixed in for the same reason.
 Object.assign(App.prototype, pendingMethods);
-// The review sheet — the narrow layout's bottom bar and the full-screen list
-// it opens — is its own module too — see web/sheet.ts — mixed in for the
-// same reason.
-// The one card component — threadCard and its bubble and overall-card
-// wearings — and paintAnchors, the placement pass that puts every card
-// beside its own mark or block, are their own module too — see
-// web/cards.ts — mixed in for the same reason.
+// The right column's two tabs are their own module too — see web/tabs.ts — mixed
+// in for the same reason.
 Object.assign(App.prototype, tabMethods);
-// The comment composer — its popover, its placement, its two sends — and the
+// The comment composer — its box in the Instructions tab, its two sends — and the
 // refused-fence note that shares its deny line, are their own module too —
 // see web/composer.ts — mixed in for the same reason.
 Object.assign(App.prototype, composerMethods);

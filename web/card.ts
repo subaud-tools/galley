@@ -4,12 +4,9 @@
 // instruction rail and History's changes rail are both *a column of cards
 // beside the prose they are about*, and until 2026-08-20 they shared a CSS
 // vocabulary (`.gly-card`, `.gly-card-head`, `.gly-card-body`) and NOTHING
-// ELSE. `web/versions.js` imported nothing from `web/rail.ts`; the two rails
-// did not know each other existed. (`versions.js` and not `.ts` is deliberate
-// and is not a stale reference: this clause is dated — "until 2026-08-20" —
-// and on that date versions genuinely was JavaScript while rail already was
-// not. A sweep of stale filenames rewrote it once; the old name is the
-// correct name for the moment being described.)
+// ELSE. Each had its own code; the two rails did not know each other existed.
+// The instruction rail has since gone: the draft's instructions are the kit's rows
+// in the Instructions tab, and History's rail is the one left.
 // Every one of the divergences that cost
 // something this week was a consequence of that and not of any decision
 // anybody took:
@@ -31,15 +28,8 @@
 // JOB IS DELETION, NOT A RESTYLE."* So the second implementation is deleted and
 // both callers build on what is here.
 //
-// WHY NOT `rail.ts`. That module's first line is a promise — *"Nothing here
-// touches the DOM, ProseMirror, or the network"* — and it is load-bearing:
-// `probe.mjs` drives every function in it with no browser, which is the whole
-// reason the rail's arithmetic is checkable at all. Putting `document` in there
-// would end that. So the PURE half of the collapse (`stackCards`, `RAIL_GAP`,
-// `GUTTER_PX`, `RAIL_MIN_WIDTH`) stays in rail.ts and both rails import it from
-// there; the DOM half is here, and both rails import it from here. One
-// implementation either way — the split is by what can be checked without a
-// browser, not by which surface is calling.
+// THE PURE ARITHMETIC IS ELSEWHERE, because `probe.mjs` drives it with no browser;
+// the DOM half is here.
 //
 // WHAT IS DELIBERATELY *NOT* HERE. `threadCard` is not, and must not become,
 // the History card's builder. It reads `thread.run`, builds the edit and
@@ -399,7 +389,7 @@ type CardMeasurement = {
  * which was a defect on the History side — no sort, a wider gap, reads
  * interleaved with writes, a rounded top fed forward unrounded, and a height
  * written unconditionally with a trailing gap. The arithmetic was already
- * shared-able (`stackCards` has always been in rail.ts); what was not was the
+ * shared-able (`stackCards` has always been in tabs.ts); what was not was the
  * PASS around it, so the pass is here now and neither caller owns a copy.
  *
  * WHAT EACH CALLER STILL OWNS IS THE MEASUREMENT, and that is the real

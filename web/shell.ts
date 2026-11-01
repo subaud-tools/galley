@@ -36,8 +36,8 @@ import type { PageView } from './wire.d.ts';
 const NAME = 'galley';
 
 // A goto waiting for network idle would never see one with the stream open, and
-// the browser gates wait for it. Task 5 moves them; until then the stream opens
-// once the page has settled. A tab checks in this much later for it.
+// the browser gates wait for it, so the stream opens once the page has settled.
+// A tab checks in this much later for it.
 const STREAM_AFTER_LOAD_MS = 1500;
 
 function go(id: string): void {
@@ -188,10 +188,38 @@ function makeTabs(
   | 'composerGone'
 > {
   let act: TabActions | null = null;
+  // What each row last showed from the server and what its box last saved: a box
+  // holding anything else, when its row leaves, holds words nobody has.
+  const painted = new Map<string, string>();
+  const saved = new Map<string, string>();
   const callbacks = {
-    onEdit: (key: string, text: string) => act?.edit(key, text),
-    onDelete: (key: string) => act?.remove(key),
+    onEdit: (key: string, text: string) => {
+      saved.set(key, text);
+      act?.edit(key, text);
+    },
+    onDelete: (key: string) => {
+      painted.delete(key);
+      act?.remove(key);
+    },
     onSelect: (key: string) => act?.select(key),
+  };
+  // The kit lets a leaving row's words go. A row Delete took meant to; any other
+  // was sent or deleted from elsewhere while the reader was typing in it.
+  const keepLeaving = (list: HTMLElement, rows: { id: string }[]) => {
+    const staying = new Set(rows.map((r) => r.id));
+    for (const row of list.querySelectorAll<HTMLElement>('[data-draft-id]')) {
+      const id = row.dataset.draftId ?? '';
+      const words = row.querySelector('textarea')?.value ?? '';
+      if (
+        !staying.has(id) &&
+        painted.has(id) &&
+        words.trim() &&
+        words !== painted.get(id) &&
+        words !== saved.get(id)
+      ) {
+        act?.stranded(words);
+      }
+    }
   };
   const textList = draftList({
     drafts: [],
@@ -286,8 +314,13 @@ function makeTabs(
       act = actions;
     },
     paintDrafts(v) {
+      keepLeaving(textList.el, v.text);
+      keepLeaving(chatList.el, v.chat);
       textList.redraw({ drafts: v.text, selected: v.selected });
       chatList.redraw({ drafts: v.chat, selected: v.selected });
+      for (const d of [...v.text, ...v.chat]) {
+        painted.set(d.id, d.text);
+      }
       tabs.setCount(TAB_INSTRUCTIONS, v.counts.instructions);
       tabs.setCount(TAB_CHAT, v.counts.chat);
       const key = JSON.stringify(v.edits);

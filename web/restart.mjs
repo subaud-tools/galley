@@ -150,8 +150,6 @@ check(
 
 check('the Revise is filed', await comment(roundPage, roundAt, ASKED, ASK));
 await roundPage.click('#gly-revise');
-await roundPage.waitForSelector('.gly-verdict-menu .gly-verdict-revise');
-await roundPage.click('.gly-verdict-menu .gly-verdict-revise');
 check(
   'the press reached the server',
   await until(async () => (await message(roundAt)).state === 'sent', 15000),
@@ -215,14 +213,14 @@ const pendingAfter = await until(async () => {
 }, 15000);
 check('the unsent comment is still pending', !!pendingAfter);
 check(
-  'and its card is back on the page',
+  'and its row is back on the page',
   await until(
     () =>
       notesPage.evaluate(
         (ask) =>
-          [...document.querySelectorAll('.gly-rail-band .gly-thread')].some(
-            (t) => t.textContent.includes(ask),
-          ),
+          [
+            ...document.querySelectorAll('.gly-tab [data-draft-id] textarea'),
+          ].some((t) => t.value.includes(ask)),
         COMMENT,
       ),
     15000,

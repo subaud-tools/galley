@@ -198,7 +198,7 @@ export const figureMethods = {
   // A BUTTON FOLLOWS ITS BLOCK. It is reused for the same block node first —
   // ProseMirror and the sync both keep a block that did not change as the same
   // node — and only then by index and kind, and moved only when it is out of
-  // order. So a grip holding focus keeps it across a repaint (paintRail's
+  // order. So a grip holding focus keeps it across a repaint (paintTabs's
   // lesson, where a rebuilt card took the caret out of a reply), and a block
   // written in above it renumbers the grip rather than handing its button to
   // whichever block now stands at its old index: the composer's opener, and

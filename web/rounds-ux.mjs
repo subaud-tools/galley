@@ -122,18 +122,9 @@ async function textOf(page, selector) {
   return (await page.locator(selector).innerText()).trim();
 }
 
-// The selection's own box, read the way the reviewer sees it: the range the
-// composer is about to be placed against, in viewport coordinates.
-function selectionBox(page) {
-  return page.evaluate(() => {
-    const r = window.getSelection().getRangeAt(0).getBoundingClientRect();
-    return { top: r.top, bottom: r.bottom, left: r.left };
-  });
-}
-
 // Every top-level block of the prose, keyed by position. THE PROSE MAY NOT
-// REFLOW when the composer opens — the composer is `position: absolute` on
-// `document.body` precisely so it cannot, and this is what keeps it that way.
+// REFLOW when the composer opens — it opens in the Instructions tab, and this is
+// what keeps it there.
 function proseRects(page) {
   return page.evaluate(() =>
     Object.fromEntries(
@@ -164,13 +155,10 @@ async function addRangeInstruction(page, text) {
   );
 }
 
-// THE VERDICT MENU, OPENED ONLY ONCE THE PRIMARY SAYS REVISE. The server lists
-// a new instruction at once, but the page repaints the primary on its own
-// poll, so right after a filing it can still read Approve — and pressing
-// Approve then seals the review instead of opening the menu. Wait for the
-// label, then press, then wait for the menu itself.
-async function openVerdictMenu(page) {
-  if (await page.locator('.gly-verdict-menu').isVisible()) return;
+// REVISE IS PRESSED ONLY ONCE IT CAN BE. The server lists a new instruction at
+// once, but the page repaints the send bar on its own poll, so right after a
+// filing it can still be off.
+async function reviseReady(page) {
   await page.waitForFunction(
     () => {
       const b = document.querySelector('#gly-revise');
@@ -179,70 +167,45 @@ async function openVerdictMenu(page) {
     null,
     { timeout: 10000 },
   );
-  await page.click('#gly-revise');
+}
+
+// With work pending Approve doesn't seal: it offers Revise & Approve.
+async function openApproveMenu(page) {
+  await reviseReady(page);
+  await page.click('.kit-primary');
   await page.waitForSelector('.gly-verdict-menu', {
     state: 'visible',
     timeout: 5000,
   });
 }
 
-// A BLANK SPOT IN THE RIGHT-HAND PANEL, found the way a reviewer's eye finds
-// one: inside the rail's column, below the bar, and on nothing that is a card,
-// a control, a link or a field. Read off `elementFromPoint` rather than a fixed
-// coordinate, because the cards move with the prose and a fixed point is a card
-// on one paint and blank space on the next.
-async function blankPanelPoint(page) {
-  return page.evaluate(() => {
-    const rail = document.querySelector('.gly-rail');
-    const bar = document.querySelector('.gly-bar');
-    if (!rail || rail.hidden || !bar) return null;
-    const r = rail.getBoundingClientRect();
-    const top = bar.getBoundingClientRect().bottom;
-    const busy =
-      '.gly-card, .gly-capture, .gly-menu, .ProseMirror, button, a, input, textarea, select';
-    for (let y = window.innerHeight - 20; y > top + 10; y -= 15) {
-      for (const x of [r.left + r.width / 2, r.left + 40, r.right - 40]) {
-        const el = document.elementFromPoint(x, y);
-        if (el && !el.closest(busy)) return { x, y };
-      }
-    }
-    return null;
-  });
-}
-
-// THE PANEL IS THE DOOR NOW. The bar's `+ Instruction` is gone: a click on
-// blank space in the right-hand panel opens the whole-document box, and it only
-// ever OPENS — the way out is `cancel` or Esc, so clicking twice is idempotent
-// rather than destructive. The visibility guard in addOverallInstruction is
-// kept as a guard against pressing a door that is already doing its job.
-async function openCaptureFromPanel(page) {
-  const at = await blankPanelPoint(page);
-  if (!at) throw new Error('no blank spot in the right-hand panel');
-  await page.mouse.click(at.x, at.y);
-  await page.waitForSelector('.gly-capture:not([hidden])', { timeout: 5000 });
-}
+// The two tabs of the right column.
+const tabPress = (page, name) =>
+  page.locator('.kit-rail-tabrow .kit-ctl', { hasText: name }).click();
+const INSTRUCTION_ROW = '.gly-tab [data-draft-id]';
+const CHAT_ROW = '.gly-chat-drafts [data-draft-id]';
+const ROW_DELETE = 'button:not(.kit-draft-quote)';
 
 async function addOverallInstruction(page, text, want) {
-  if (!(await page.locator('.gly-capture').isVisible())) {
-    await openCaptureFromPanel(page);
-  }
-  await page.fill('.gly-overall-input', text);
-  await page.locator('.gly-overall-input').press('Enter');
-  await page.waitForFunction(
+  await tabPress(page, 'Chat');
+  await page.fill('#gly-chat-box', text);
+  await page.locator('#gly-chat-box').press('Enter');
+  await waitForWire(
+    page,
     async (n) =>
       (await (await fetch('_galley/pending')).json()).instructions.length === n,
     want,
   );
-  // AND THE PAGE HAS FINISHED FILING IT. The server lists the instruction the
-  // moment it is stored; the box closes only when the page's own request
-  // returns, and until then it is open but disabled. A caller filing the next
-  // instruction in that gap saw an open box, skipped the click, typed into a
-  // disabled field, and timed out when the box closed under it (on CI's slower
-  // runner, about one run in two).
-  await page.waitForSelector('.gly-capture', {
-    state: 'hidden',
-    timeout: 5000,
-  });
+  // AND THE PAGE HAS TAKEN IT: the box empties on the press, and the row follows
+  // the page's own refresh.
+  await page.waitForFunction(
+    (t) =>
+      [...document.querySelectorAll('.gly-chat-drafts textarea')].some(
+        (b) => b.value === t,
+      ),
+    text,
+    { timeout: 5000 },
+  );
 }
 
 // The grip beside the document's title: the form that files a block comment
@@ -257,7 +220,7 @@ async function openSectionForm(page) {
 
 // What the right-click menu is offering, as the labels a reviewer reads. One
 // reader because the check is made wherever the menu opens — the text, the
-// margin, the panel — and the claim is that it offers the same one item in
+// margin, the tab — and the claim is that it offers the same one item in
 // each, which two spellings of the read could quietly stop being.
 async function menuRows(page) {
   return page.evaluate(() =>
@@ -418,214 +381,28 @@ try {
     ),
   );
 
-  // THE COUNT LEFT THE CHIP AND THE CHIP STAYED. `Instructions · N` is gone at
-  // wide widths — the count now sits on the verb it is a count of — and
-  // History keeps its door and loses its number. Two checks were deleted with
-  // the chip and are named rather than dropped silently: `Instructions remains
-  // usable at zero` and `zero instructions stays on the document instead of
-  // opening the old sheet` both pressed a control that no longer exists above
-  // 992px. The narrow bottom bar still carries it, and phase 6 is where that
-  // door is asserted.
-  const viewControls = await page.evaluate(() =>
-    [...document.querySelectorAll('.gly-census > button')]
-      .filter((b) => getComputedStyle(b).display !== 'none')
-      .map((b) => b.innerText.trim()),
+  // HISTORY HAS ITS DOOR ON THE STAGE TRACK, and it carries no count.
+  const door = await page.evaluate(
+    () => document.querySelector('.kit-stages .gly-versions-open')?.innerText,
   );
   check(
-    'History is the bar\u2019s one view chip, and it carries no count',
-    JSON.stringify(viewControls) === JSON.stringify(['History']),
-    JSON.stringify(viewControls),
+    'History is a door on the stage track, with no count',
+    door === 'History',
+    door,
   );
-  check(
-    'the Instructions chip is gone at wide widths',
-    !(await page.isVisible('.gly-census-count')),
-  );
-  const primaryPaint = await page.evaluate(() => {
-    const el = document.getElementById('gly-revise');
-    const s = getComputedStyle(el);
-    const signal = getComputedStyle(document.documentElement)
-      .getPropertyValue('--gly-signal')
-      .trim();
-    const probe = document.createElement('span');
-    probe.style.color = signal;
-    document.body.appendChild(probe);
-    const want = getComputedStyle(probe).color;
-    probe.remove();
-    return { bg: s.backgroundColor, radius: s.borderTopLeftRadius, want };
-  });
-  check(
-    'the primary is filled with the signal colour at 6px',
-    primaryPaint.bg === primaryPaint.want && primaryPaint.radius === '6px',
-    JSON.stringify(primaryPaint),
-  );
-  // --- WHERE CAPTURE LIVES, AND IT IS THE PANEL ---
-  //
-  // The bar's `+ Instruction` is gone, and with it the last capture control in
-  // the chrome: a left click on blank space in the right-hand panel is the door
-  // to the whole-document box, and a right-click anywhere below the bar is the
-  // other. Inverted again rather than deleted, so a button growing back in
-  // either place is a red check rather than a discovery.
-  check(
-    'capture has no button in the bar or the rail',
-    (await page.locator('.gly-bar .gly-capture-open').count()) === 0 &&
-      (await page
-        .locator('.gly-bar button:text-is("+ Instruction")')
-        .count()) === 0 &&
-      (await page.locator('.gly-rail .gly-overall-toggle').count()) === 0 &&
-      (await page.locator('.gly-rail .gly-capture-open').count()) === 0,
-  );
-  const blank = await blankPanelPoint(page);
-  const blankCursor = blank
-    ? await page.evaluate(
-        ({ x, y }) => getComputedStyle(document.elementFromPoint(x, y)).cursor,
-        blank,
-      )
-    : '';
-  if (blank) await page.mouse.move(blank.x, blank.y);
-  await page.waitForTimeout(100);
-  const hoverCursor = blank
-    ? await page.evaluate(
-        ({ x, y }) => getComputedStyle(document.elementFromPoint(x, y)).cursor,
-        blank,
-      )
-    : '';
-  check(
-    'blank panel space shows a pointer under the mouse',
-    !!blank && hoverCursor === 'pointer',
-    JSON.stringify({ blank, blankCursor, hoverCursor }),
-  );
-  if (blank) await page.mouse.click(blank.x, blank.y);
-  await page.waitForTimeout(300);
-  check(
-    'a left click on blank panel space opens the whole-document box',
-    await page.locator('.gly-capture').isVisible(),
-    JSON.stringify(blank),
-  );
-  await page.keyboard.press('Escape');
-  await page.waitForTimeout(200);
-  // AND IT IS REACHABLE AT ANY SCROLL POSITION: the panel runs the height of
-  // the page, so there is blank panel space at the foot of the document too.
-  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-  await page.waitForTimeout(200);
-  check(
-    'there is blank panel space to click at the foot of the document',
-    !!(await blankPanelPoint(page)),
-  );
-  await page.evaluate(() => window.scrollTo(0, 0));
-  await page.waitForTimeout(200);
 
-  // THE EMPTY RAIL TEACHES, AND THE NOTICE IT REPLACED SAID SOMETHING THE BAR
-  // WAS ALREADY SAYING. `nothing pending — the document is settled` was a
-  // second, quieter voice for what an Approve-faced primary states outright;
-  // what a first-time reviewer actually does not know is how to ask for
-  // anything at all, and nothing on a cold-open page told them. Board 1a.
-  const teach = await page.evaluate(() => {
-    const card = document.querySelector('.gly-rail-notice .gly-rail-teach');
-    if (!card) return null;
-    const s = getComputedStyle(card);
-    return {
-      head: (card.querySelector('.gly-card-head') || {}).innerText || '',
-      body: (card.querySelector('.gly-card-body') || {}).innerText || '',
-      border: s.borderTopStyle,
-      settled: document.querySelectorAll('.gly-rail-notice .gly-settled')
-        .length,
-      teaching: document.querySelectorAll('.gly-rail-teach').length,
-    };
-  });
+  // THE EMPTY TAB SAYS HOW. A first-time reviewer doesn't know how to ask for
+  // anything, and nothing else on a cold-open page tells them.
+  const teach = await page.evaluate(() => ({
+    empty: document.querySelector('.gly-tab .kit-empty')?.innerText,
+    hint: document.querySelector('.gly-tab-hint')?.innerText,
+  }));
   check(
-    'the empty rail teaches instead of repeating what the primary already says',
-    teach !== null &&
-      /HOW THIS WORKS/i.test(teach.head) &&
-      /^Select any words in the document to ask for a change\./.test(
-        teach.body,
-      ) &&
-      /one round\.( |$)/.test(teach.body) &&
-      teach.border === 'dashed' &&
-      teach.settled === 0 &&
-      teach.teaching === 1,
+    'the empty Instructions tab teaches the gesture',
+    teach.empty === 'No instructions yet.' &&
+      teach.hint === 'Select words in the document to add one.',
     JSON.stringify(teach),
   );
-  // AND IT SAYS WHAT A CLICK ON THE PANEL DOES, in plain words and with no
-  // button: the click on blank panel space is the door, and the sentence only
-  // names it.
-  const hint = await page.evaluate(() => {
-    const card = document.querySelector('.gly-rail-notice .gly-rail-teach');
-    return card
-      ? {
-          body: (card.querySelector('.gly-card-body') || {}).innerText || '',
-          buttons: card.querySelectorAll('button').length,
-        }
-      : null;
-  });
-  check(
-    'the empty panel says a click anywhere in it asks about the whole document',
-    hint !== null &&
-      /one round\. Or click anywhere in this panel to ask about the whole document\.$/.test(
-        hint.body,
-      ) &&
-      hint.buttons === 0,
-    JSON.stringify(hint),
-  );
-
-  // --- THE BUTTON SITS BY THE WORDS IN A SHORT WINDOW ---
-  //
-  // THE ONE-BUTTON BAR NEVER GROWS, so it is placed for its own height. Placed
-  // for the height the open form can grow to (half the window), a selection in
-  // the middle of a short window had room for neither side and the button went
-  // to the window's foot, far from the words it was offered for. A tall window
-  // hides that: there is always room below. So the window is cut down until
-  // the phrase sits in its middle, and then until it sits just above the foot.
-  {
-    await selectRetryBudget(page);
-    const at = await selectionBox(page);
-    // The bar's box beside the selection's, read in one evaluation.
-    const barBeside = async (height) => {
-      await page.evaluate(() => {
-        const editor = window.galleyEdit.editor;
-        editor.commands.setTextSelection(1);
-      });
-      await page.setViewportSize({ width: 1440, height });
-      await page.evaluate(() => window.scrollTo(0, 0));
-      await page.waitForTimeout(200);
-      await selectRetryBudget(page);
-      await page.waitForTimeout(100);
-      return page.evaluate(() => {
-        const r = document
-          .querySelector('.gly-composer')
-          .getBoundingClientRect();
-        const s = window.getSelection().getRangeAt(0).getBoundingClientRect();
-        return {
-          top: +r.top.toFixed(1),
-          bottom: +r.bottom.toFixed(1),
-          selTop: +s.top.toFixed(1),
-          selBottom: +s.bottom.toFixed(1),
-          window: window.innerHeight,
-        };
-      });
-    };
-    const middle = await barBeside(Math.round(at.top + at.bottom));
-    const foot = await barBeside(Math.round(at.bottom + 30));
-    check(
-      'the Add instruction button sits just below words selected mid-window in a short window, not at its foot',
-      middle.top - middle.selBottom >= 0 &&
-        middle.top - middle.selBottom <= 16 &&
-        middle.bottom < middle.window - 40,
-      JSON.stringify(middle),
-    );
-    check(
-      'and just above words selected near the foot, inside the window',
-      foot.selTop - foot.bottom >= 0 &&
-        foot.selTop - foot.bottom <= 16 &&
-        foot.top >= 0,
-      JSON.stringify(foot),
-    );
-    await page.evaluate(() => {
-      window.galleyEdit.editor.commands.setTextSelection(1);
-    });
-    await page.setViewportSize({ width: 1440, height: 900 });
-    await page.evaluate(() => window.scrollTo(0, 0));
-    await page.waitForTimeout(200);
-  }
 
   // --- ONE NOUN, ONE VERB, NO SYSTEM RING ---
   //
@@ -636,7 +413,6 @@ try {
   // behind it, for the reason CLAUDE.md records — a check that reads a proxy is
   // green through every defect that lives in the words.
   await selectRetryBudget(page);
-  const selBox = await selectionBox(page);
   const proseBefore = await proseRects(page);
   const opener = await textOf(page, '.gly-comment-button');
   check(
@@ -710,42 +486,9 @@ try {
     JSON.stringify(verbs),
   );
 
-  // THE COMPOSER MAY NOT COVER THE WORDS IT IS ABOUT. It was anchored 40px
-  // ABOVE the selection's start, which at every ordinary line height puts the
-  // popover straight over the phrase being commented on — the reviewer types
-  // an instruction about text the composer has hidden.
-  const placement = await page.evaluate(() => {
-    const el = document.querySelector('.gly-composer');
-    const r = el.getBoundingClientRect();
-    const s = getComputedStyle(el);
-    return {
-      top: r.top,
-      bottom: r.bottom,
-      position: s.position,
-      transition: s.transitionDuration,
-      animation: s.animationName,
-      parent: el.parentElement.tagName,
-    };
-  });
-  check(
-    'the composer opens below the words, never over them',
-    placement.top >= selBox.bottom - 0.5,
-    JSON.stringify({
-      composerTop: placement.top,
-      selectionBottom: selBox.bottom,
-    }),
-  );
-  check(
-    'it floats on the body and animates nothing',
-    placement.parent === 'BODY' &&
-      placement.position === 'absolute' &&
-      placement.transition === '0s' &&
-      placement.animation === 'none',
-    JSON.stringify(placement),
-  );
   const proseAfter = await proseRects(page);
   check(
-    'and opening it reflows no prose',
+    'opening the composer reflows no prose',
     JSON.stringify(proseBefore) === JSON.stringify(proseAfter),
     JSON.stringify({ before: proseBefore, after: proseAfter }),
   );
@@ -797,7 +540,7 @@ try {
   // THE BOUND AND THE BOX ARE ONE PAIR, so they are read together. A quote
   // bounded to a length the head cannot draw is ellipsized twice — once by the
   // bound and again by the CSS — and the reviewer is shown an anchor they
-  // cannot check against the prose the popover is covering. The phrase here is
+  // cannot check against the prose. The phrase here is
   // longer than the bound on purpose: with a short one this check is
   // arithmetic, not evidence.
   await selectPhrase(page, 'budget should stay explicit and readable');
@@ -899,7 +642,7 @@ try {
     JSON.stringify(ghost),
   );
   await addRangeInstruction(page, 'Make the retry policy concrete.');
-  await page.waitForSelector('.gly-rail-band .gly-thread');
+  await page.waitForSelector(INSTRUCTION_ROW);
   await page.waitForFunction(() =>
     /Revise/.test(document.getElementById('gly-revise').innerText),
   );
@@ -915,31 +658,23 @@ try {
   // that asks the app what it intends to walk; only the class the step actually
   // writes can tell the two apart.
   //
-  // RUN WHERE THE BAND ACTUALLY HOLDS AN INSTRUCTION. The first placing of
-  // this check sat after the narrow section and reported the stepper dead over
-  // a rail whose only two cards were the whole-document composer and the
-  // capture card — chrome, not work. `.gly-rail .gly-card` counted both and
-  // made the precondition look satisfied; `.gly-rail-band .gly-card` is the
-  // instructions, and it was 0. A check whose precondition is measured on the
-  // wrong selector fails for a reason that has nothing to do with its claim.
   const stepped = await page.evaluate(() => {
     // HISTORY MUST BE SHUT, and that is the switch's own rule rather than a
     // harness convenience: History is a READING mode, so `j`/`k` are inert
     // there deliberately. A check run with the panel up would report the
     // stepper dead and be reading the guard, not the stepper.
     const panel = document.querySelector('.gly-versions');
-    const before = document.querySelectorAll('.gly-stepped').length;
+    const before = document.querySelectorAll(
+      '.gly-tab .kit-draft-row.on',
+    ).length;
     document.body.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'j', bubbles: true }),
     );
     return {
       historyShut: panel ? panel.hidden === true : true,
       before,
-      after: document.querySelectorAll('.gly-stepped').length,
-      cards: document.querySelectorAll('.gly-rail-band .gly-card').length,
-      classes: [...document.querySelectorAll('.gly-rail .gly-card')].map(
-        (c) => c.className,
-      ),
+      after: document.querySelectorAll('.gly-tab .kit-draft-row.on').length,
+      cards: document.querySelectorAll('.gly-tab [data-draft-id]').length,
     };
   });
   check(
@@ -953,15 +688,12 @@ try {
 
   check(
     'the primary carries the pending count',
-    (await page.locator('#gly-revise').innerText()).includes('Revise · 1'),
+    (await page.locator('#gly-revise').innerText()).includes('Revise · send 1'),
     await page.locator('#gly-revise').innerText(),
   );
 
-  // --- one card each, and the whole-document instruction lives here once ---
+  // --- the whole-document instruction ---
   //
-  // TWO INSTRUCTIONS ON THE PAGE AT ONCE IS THE STATE THE GLUED-CARD BUG NEEDS.
-  // With one there is nothing for a missing border to run into, and every
-  // reading of the rail is arithmetic rather than evidence.
   // TYPED ACROSS TWO LINES ON PURPOSE, the way a reviewer types them: a line,
   // Shift-Enter, a line, Enter. The box used to flatten every line break to a
   // space before filing, because the words were once written into the file
@@ -974,10 +706,8 @@ try {
   const beforeDocumentComment = await waitForDisk(
     /\{>>@comment cm-[0-9a-f]{16}<<\}/,
   );
-  if (!(await page.locator('.gly-capture').isVisible())) {
-    await openCaptureFromPanel(page);
-  }
-  await page.locator('.gly-overall-input').click();
+  await tabPress(page, 'Chat');
+  await page.locator('#gly-chat-box').click();
   await page.keyboard.type('Open with the decision,');
   await page.keyboard.press('Shift+Enter');
   await page.keyboard.type('not the background.');
@@ -987,7 +717,7 @@ try {
     async () =>
       (await (await fetch('_galley/pending')).json()).instructions.length === 2,
   );
-  await page.waitForSelector('.gly-overall-entries .gly-thread');
+  await page.waitForSelector(CHAT_ROW);
   const documentComment = await (async () => {
     for (const until = Date.now() + 6000; Date.now() < until;) {
       const found = readUnsent().find((c) => c.kind === 'document');
@@ -997,15 +727,11 @@ try {
     return null;
   })();
   const documentCard = await page.evaluate(
-    () =>
-      document.querySelector('.gly-overall-entries .gly-thread-entry p')
-        ?.innerText || '',
+    (row) => document.querySelector(`${row} textarea`)?.value || '',
+    CHAT_ROW,
   );
-  // innerText, NOT textContent: textContent holds the `\n` whatever the paint
-  // does with it, and innerText is the RENDERED text, so it carries a line
-  // break only when the card shows one.
   check(
-    'a multi-line whole-document instruction keeps its lines — in pending.json and on its card',
+    'a multi-line whole-document instruction keeps its lines — in pending.json and in its row',
     !!documentComment &&
       documentComment.text === 'Open with the decision,\nnot the background.' &&
       documentCard === 'Open with the decision,\nnot the background.',
@@ -1023,50 +749,7 @@ try {
       after: afterDocumentComment,
     }),
   );
-  const anatomy = await page.evaluate(() => {
-    const cards = [
-      ...document.querySelectorAll('.gly-rail .gly-card.gly-thread'),
-    ];
-    return cards.map((c) => {
-      const s = getComputedStyle(c);
-      const r = c.getBoundingClientRect();
-      return {
-        heads: c.querySelectorAll('.gly-card-head').length,
-        head: (c.querySelector('.gly-card-head') || {}).innerText || '',
-        bordered:
-          s.borderTopWidth !== '0px' &&
-          s.borderLeftWidth !== '0px' &&
-          s.borderTopStyle !== 'none',
-        edge: s.borderLeftWidth,
-        verbs: [...c.querySelectorAll('.gly-card-actions button')].map(
-          (b) => (b.innerText || '').trim().split('\n')[0],
-        ),
-        box: [Math.round(r.left), Math.round(r.width)],
-      };
-    });
-  });
-  check(
-    'every instruction card owns exactly one head, its own border and its own verbs',
-    anatomy.length === 2 &&
-      anatomy.every(
-        (a) =>
-          a.heads === 1 &&
-          a.bordered &&
-          a.edge === '3px' &&
-          a.verbs.length === 2 &&
-          a.verbs[0] === 'edit' &&
-          a.verbs[1] === 'delete',
-      ),
-    JSON.stringify(anatomy),
-  );
-  check(
-    'and one rail speaks one language — every card at one left edge and one width',
-    new Set(anatomy.map((a) => JSON.stringify(a.box))).size === 1,
-    JSON.stringify(anatomy.map((a) => a.box)),
-  );
-
-  // §2.2 — IT APPEARS IN THE RAIL AND NOWHERE ELSE. It used to render three
-  // times: a rail card, an amber block in the prose, and the panel.
+  // §2.2 — IT APPEARS IN THE CHAT TAB AND NOWHERE ELSE.
   // IT IS NOT IN THE PROSE AT ALL, AND IT IS STILL KEPT — which are two claims.
   // A whole-document comment has no mark in the file, so the fragment holds no
   // node for it: nothing to paint, and nothing y-prosemirror could delete. Its
@@ -1093,147 +776,29 @@ try {
       ),
     JSON.stringify({ inProse, unsent: readUnsent() }),
   );
-  const firstCard = await page
-    .locator('.gly-rail .gly-card.gly-thread')
+  const firstRow = await page
+    .locator(`${CHAT_ROW} .kit-draft-quote`)
     .first()
     .innerText();
   check(
-    'it is the rail\u2019s first card, and its head names the anchor',
-    /INSTRUCTION · WHOLE DOCUMENT ·/i.test(firstCard),
-    firstCard,
-  );
-  // THE FILED WORK IS STILL IN THE RAIL'S OWN FLOW, and this is the half of the
-  // old check that survived the ruling unchanged. `.gly-overall` is the list of
-  // whole-document instructions already written; it is live work, it belongs in
-  // the rail, and `position: static` is what says it is IN the map rather than
-  // floating over it. What left is the button and the box, not the cards.
-  check(
-    'the filed whole-document instructions are in the rail, not floating over it',
-    (await page.evaluate(
-      () => getComputedStyle(document.querySelector('.gly-overall')).position,
-    )) === 'static',
-    await page.evaluate(
-      () => getComputedStyle(document.querySelector('.gly-overall')).position,
-    ),
+    'it is a row in the Chat tab, and its head names the anchor',
+    firstRow === 'Whole document',
+    firstRow,
   );
 
-  // --- A CLICK ON A CARD IS THE CARD'S, NOT THE PANEL'S ---
-  //
-  // The panel's door is its BLANK space. A card's body is reading surface (and
-  // its own controls are its own), so a click on one opens nothing.
-  await page.keyboard.press('Escape');
-  await page.waitForTimeout(100);
-  const cardSpot = await page.evaluate(() => {
-    const card = document.querySelector('.gly-rail-band .gly-card');
-    if (!card) return null;
-    const body = card.querySelector('.gly-card-body') || card;
-    const r = body.getBoundingClientRect();
-    return { x: r.left + 4, y: r.top + r.height / 2 };
-  });
-  if (cardSpot) await page.mouse.click(cardSpot.x, cardSpot.y);
-  await page.waitForTimeout(300);
-  check(
-    'a click on a card does not open the whole-document box',
-    !!cardSpot && !(await page.locator('.gly-capture').isVisible()),
-    JSON.stringify(cardSpot),
-  );
-
-  // --- §2.2b · THE CAPTURE CARD IS ONE OF THE CARDS, AND THE OTHERS RE-FLOOR
-  // CLEAR OF IT ---
-  //
-  // THE FOURTH CONTRACT, IN THE PLACE THREE STOOD. `.gly-overall` was asserted
-  // `static`; the capture card was in-flow (the 39.29px slide), then an
-  // absolute overlay drawn OVER the band `"so a future re-float is a red check
-  // rather than a discovery"`. Court's reading of that overlay is the ruling
-  // this check is saved for: a shadowed box floating over the cards does not
-  // read as one of them. So it is a card in the whole-document panel's flow
-  // again — and the slide it used to cause is answered by a REPAINT
-  // (`openCapture` calls `scheduleAnchors`) rather than by leaving the flow.
-  //
-  // What has to be true is stated rather than assumed:
-  //   · it is `static` and a child of `.gly-overall` — in the flow, sitting
-  //     with the filed whole-document cards, not placed over them;
-  //   · opening it pushes the band DOWN and the anchored cards RE-FLOOR clear
-  //     of it: every band card ends up at or below the composer's own foot,
-  //     none left stale behind it;
-  //   · and the re-floor is NOT stale — the positions `openCapture` left match
-  //     what a fresh `paintAnchors` produces. That last one is the 39.29px
-  //     defect turned inside out: a stale in-flow card is placed against a band
-  //     that moved, so a forced repaint would SNAP it, and this comparison is
-  //     the only form that catches it.
-  const beforeOpen = await page.evaluate(() =>
-    [...document.querySelectorAll('.gly-rail-band .gly-card')].map((c) =>
-      Math.round(c.getBoundingClientRect().top),
-    ),
-  );
-  await openCaptureFromPanel(page);
-  await page.waitForSelector('.gly-capture:not([hidden])');
-  await page.waitForTimeout(400);
-  const openState = await page.evaluate(() => {
-    const el = document.querySelector('.gly-capture');
-    const s = getComputedStyle(el);
-    return {
-      position: s.position,
-      inPanel: !!el.closest('.gly-overall'),
-      captureBottom: Math.round(el.getBoundingClientRect().bottom),
-      cards: [...document.querySelectorAll('.gly-rail-band .gly-card')].map(
-        (c) => Math.round(c.getBoundingClientRect().top),
-      ),
-    };
-  });
-  check(
-    'the capture card sits in the whole-document panel\u2019s flow, not over the band',
-    openState.position === 'static' && openState.inPanel,
-    JSON.stringify(openState),
-  );
-  check(
-    'opening capture re-floors the anchored cards clear of it — it displaces, it does not cover',
-    beforeOpen.length > 0 &&
-      openState.cards.length === beforeOpen.length &&
-      openState.cards.every((top) => top >= openState.captureBottom),
-    JSON.stringify({ beforeOpen, ...openState }),
-  );
-  // Force a fresh paintAnchors with a net-zero scroll, then re-measure: if
-  // openCapture's own scheduleAnchors re-floored correctly, nothing moves.
-  await page.evaluate(() => {
-    window.scrollBy(0, 1);
-    window.scrollBy(0, -1);
-  });
-  await page.waitForTimeout(400);
-  const afterRepaint = await page.evaluate(() =>
-    [...document.querySelectorAll('.gly-rail-band .gly-card')].map((c) =>
-      Math.round(c.getBoundingClientRect().top),
-    ),
-  );
-  check(
-    'and the re-floor is not stale — a forced repaint moves nothing',
-    openState.cards.length === afterRepaint.length &&
-      openState.cards.every((top, i) => Math.abs(top - afterRepaint[i]) <= 1),
-    JSON.stringify({ afterOpen: openState.cards, afterRepaint }),
-  );
-  // REACHABLE AT ANY SCROLL POSITION — §13 for the card as well as the door.
-  // The composer is in the rail's flow at the top of the whole-document panel,
-  // so scrolled far enough down it would be off-screen above; `openCapture`
-  // ends on `input.focus()`, and focusing a field the browser scrolls into
-  // view, which is what keeps it reachable from the foot of a long document.
-  await page.keyboard.press('Escape');
+  // THE CHAT BOX IS IN REACH AT ANY SCROLL POSITION: the right column stays in
+  // the window, so the foot of a long document can still ask about the whole of it.
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
   await page.waitForTimeout(200);
-  await openCaptureFromPanel(page);
-  await page.waitForSelector('.gly-capture:not([hidden])');
-  await page.waitForTimeout(300);
   const deepBox = await page.evaluate(() => {
-    const el = document.querySelector('.gly-capture');
-    const r = el.getBoundingClientRect();
+    const r = document.querySelector('#gly-chat-box').getBoundingClientRect();
     return { top: r.top, bottom: r.bottom, view: window.innerHeight };
   });
   check(
-    'the capture card is on screen when opened from the foot of the document',
-    deepBox.top >= 0 && deepBox.top < deepBox.view,
+    'the Chat box is on screen at the foot of the document',
+    deepBox.top >= 0 && deepBox.bottom <= deepBox.view,
     JSON.stringify(deepBox),
   );
-  await page.keyboard.press('Escape');
-  check('Esc puts it away', !(await page.locator('.gly-capture').isVisible()));
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.waitForTimeout(200);
 
@@ -1348,31 +913,28 @@ try {
   );
   await page.keyboard.press('Escape');
   await page.waitForTimeout(100);
-  const panelSpot = await blankPanelPoint(page);
-  await page.mouse.click(panelSpot.x, panelSpot.y, { button: 'right' });
+  await tabPress(page, 'Instructions');
+  const panelSpot = await page.locator('.gly-tab-hint').boundingBox();
+  await page.locator('.gly-tab-hint').click({ button: 'right' });
   await page.waitForTimeout(200);
   const panelRows = (await page.locator('.gly-menu').isVisible())
     ? await menuRows(page)
     : [];
   check(
     'a right-click in the right-hand panel opens galley’s menu, with the one item',
-    panelRows.length === 1 &&
-      /whole document/i.test(panelRows[0]) &&
-      !(await page.locator('.gly-capture').isVisible()),
+    panelRows.length === 1 && /whole document/i.test(panelRows[0]),
     JSON.stringify({ panelSpot, panelRows }),
   );
   await page.keyboard.press('Escape');
   await page.waitForTimeout(100);
   // A TEXT FIELD KEEPS THE BROWSER'S MENU — paste and spelling live there.
-  await openCaptureFromPanel(page);
-  await page.locator('.gly-overall-input').click({ button: 'right' });
+  await tabPress(page, 'Chat');
+  await page.locator('#gly-chat-box').click({ button: 'right' });
   await page.waitForTimeout(200);
   check(
     'a right-click inside the instruction box opens nothing of ours',
     !(await page.locator('.gly-menu').isVisible()),
   );
-  await page.locator('.gly-capture-cancel').click();
-  await page.waitForTimeout(200);
   await page.keyboard.press('Escape');
   check(
     'Esc puts the menu away',
@@ -1381,7 +943,7 @@ try {
   // AND THE BROWSER'S OWN MENU IS UNTOUCHED OFF THE PROSE. `preventDefault` is
   // called only where this menu opens, so a right-click on the chrome is still
   // the platform's — nothing is taken away where nothing is given.
-  await page.locator('.gly-bar').click({ button: 'right' });
+  await page.locator('.kit-bar').click({ button: 'right' });
   await page.waitForTimeout(200);
   check(
     'a right-click on the chrome opens nothing of ours',
@@ -1487,13 +1049,11 @@ try {
     async () =>
       (await (await fetch('_galley/pending')).json()).instructions.length === 2,
   );
-  // AND OFF THE RAIL BEFORE ANYTHING ELSE IS PRESSED. The delete went over
-  // the wire, not through the card, so the rail drops the card on its next
-  // refresh; until then the band's first card is the deleted comment's, and
-  // the edit below pressed ITS edit and saved onto a key that no longer
-  // exists, while the check after it waited on a promise and passed.
+  // AND OFF THE TAB BEFORE ANYTHING ELSE IS PRESSED. The delete went over the
+  // wire, not through the row, so the tab drops the row on its next refresh; until
+  // then the first row is the deleted comment's.
   await page.waitForFunction(
-    (key) => !document.querySelector(`.gly-thread[data-key="${key}"]`),
+    (key) => !document.querySelector(`[data-draft-id="${key}"]`),
     blockKey,
     { timeout: 10000 },
   );
@@ -1524,50 +1084,14 @@ try {
   );
 
   // §2.3 — AN INSTRUCTION CAN BE REVISED, NOT ONLY DESTROYED.
+  await tabPress(page, 'Instructions');
+  const editBox = `${INSTRUCTION_ROW} textarea`;
   check(
     'an instruction can be revised, not only destroyed',
-    await page.isVisible('.gly-rail-band .gly-thread .gly-thread-edit'),
+    await page.isEditable(editBox),
   );
-  const weights = await page.evaluate(() => {
-    const card = document.querySelector('.gly-rail-band .gly-thread');
-    const edit = card.querySelector('.gly-thread-edit');
-    const del = card.querySelector('.gly-thread-delete');
-    const es = getComputedStyle(edit);
-    const ds = getComputedStyle(del);
-    return {
-      editBorder: es.borderTopStyle,
-      editRadius: es.borderTopLeftRadius,
-      delBorder: ds.borderTopColor,
-      delRadius: ds.borderTopLeftRadius,
-      gap: Math.round(
-        del.getBoundingClientRect().left - edit.getBoundingClientRect().right,
-      ),
-      order: [...card.querySelectorAll('.gly-card-actions button')].map((b) =>
-        b.className.replace('gly-thread-', ''),
-      ),
-    };
-  });
-  // `delete` KEEPS ITS DESTROY WEIGHT. §4 of the 2026-08-08 handoff: never a
-  // pill at rest, borderless, muted, a fixed 2rem clear of the verb beside it.
-  // The failure this guards is the one that stylesheet already shipped once —
-  // a per-element rule losing to its own container and rendering the one
-  // irreversible verb as an ordinary pill.
-  check(
-    'edit is a settle-weight pill and delete keeps its destroy weight, 2rem clear',
-    weights.editBorder === 'solid' &&
-      weights.editRadius === '999px' &&
-      weights.delBorder === 'rgba(0, 0, 0, 0)' &&
-      weights.gap >= 28 &&
-      JSON.stringify(weights.order) === JSON.stringify(['edit', 'delete']),
-    JSON.stringify(weights),
-  );
-
-  await page.click('.gly-rail-band .gly-thread .gly-thread-edit');
-  await page.fill(
-    '.gly-rail-band .gly-thread .gly-thread-edit-text',
-    'Make the retry policy concrete, with numbers.',
-  );
-  await page.click('.gly-rail-band .gly-thread .gly-thread-edit-save');
+  await page.fill(editBox, 'Make the retry policy concrete, with numbers.');
+  await page.locator(editBox).press('Enter');
   // POLLED: `waitForFunction(async …)` resolves on its first poll whatever the
   // fetch says (a promise is truthy), and this check was `true` behind it.
   let editReached = false;
@@ -1586,27 +1110,7 @@ try {
 
   // AN EDITED INSTRUCTION KEEPS A TYPED LINE BREAK: Shift-Enter breaks the
   // line, Enter saves, and the words saved are the words typed.
-  // The save repaints the rail; wait for the card to carry the saved words
-  // before pressing its edit again, or the press lands on a card being rebuilt.
-  await page.waitForFunction(
-    () =>
-      !document.querySelector(
-        '.gly-rail-band .gly-thread .gly-thread-edit-text',
-      ) &&
-      (
-        document.querySelector('.gly-rail-band .gly-thread .gly-thread-entry p')
-          ?.textContent || ''
-      ).includes('with numbers.'),
-  );
-  await page.waitForTimeout(300);
-  await page.click('.gly-rail-band .gly-thread .gly-thread-edit');
-  await page.waitForSelector(
-    '.gly-rail-band .gly-thread .gly-thread-edit-text',
-    { timeout: 5000 },
-  );
-  await page
-    .locator('.gly-rail-band .gly-thread .gly-thread-edit-text')
-    .click();
+  await page.locator(editBox).click();
   await page.keyboard.press('End');
   await page.keyboard.press('Shift+Enter');
   await page.keyboard.type('Say how many.');
@@ -1625,25 +1129,21 @@ try {
     if (!editedOK) await page.waitForTimeout(100);
   }
   await page.waitForTimeout(300);
-  const editedCard = await page.evaluate(
-    () =>
-      document.querySelector('.gly-rail-band .gly-thread .gly-thread-entry p')
-        ?.innerText || '',
-  );
+  const editedCard = await page.inputValue(editBox);
   check(
-    'an edited instruction keeps a typed line break — saved, and shown on its card',
+    'an edited instruction keeps a typed line break — saved, and shown in its row',
     editedOK && editedCard === editedTo,
     JSON.stringify({ editedOK, editedCard }),
   );
 
   // AN EDIT TO AN INSTRUCTION THAT IS GONE KEEPS THE REVIEWER'S WORDS. The
-  // instruction is deleted over the wire while its edit box is open (an
-  // agent's send clears it the same way). Two ways the box can go: the save
-  // answers that the key is not pending, or the next poll repaints the rail
-  // without the card. Either way the words move to the whole-document box with
-  // the reason, rather than vanishing with the card.
+  // instruction is deleted over the wire while its box holds unsaved words (an
+  // agent's send clears it the same way). Two ways the row can go: the save
+  // answers that the key is not pending, or the next poll repaints without the
+  // row. Either way the words move to the Chat box with the reason, rather than
+  // vanishing with the row.
   const strandedReason =
-    'this instruction was sent or deleted — your edit was not saved';
+    'that instruction was sent or deleted, so your edit went to the Chat box';
   const fileDocComment = (text) =>
     page.evaluate(async (said) => {
       const res = await fetch('_galley/instruct', {
@@ -1655,53 +1155,40 @@ try {
       return view.instructions.find((i) => i.text === said)?.key || '';
     }, text);
   const openEditOn = async (key, words) => {
-    const card = `.gly-thread[data-key="${key}"]`;
-    await page.waitForSelector(`${card} .gly-thread-edit`, { timeout: 10000 });
-    await page.click(`${card} .gly-thread-edit`);
-    await page.waitForSelector(`${card} .gly-thread-edit-text`);
-    await page.fill(`${card} .gly-thread-edit-text`, words);
+    const box = `[data-draft-id="${key}"] textarea`;
+    await tabPress(page, 'Chat');
+    await page.waitForSelector(box, { timeout: 10000 });
+    await page.fill(box, words);
   };
   const stranded = () =>
-    page.evaluate(() => {
-      const capture = document.querySelector('.gly-capture');
-      return {
-        shown: !!capture && !capture.hidden,
-        words: document.querySelector('.gly-overall-input')?.value || '',
-        note: capture?.querySelector('.gly-card-note')?.textContent || '',
-      };
-    });
-  const closeStranded = async () => {
-    if (await page.isVisible('.gly-capture-cancel')) {
-      await page.click('.gly-capture-cancel');
-    }
-  };
+    page.evaluate(() => ({
+      words: document.querySelector('#gly-chat-box')?.value || '',
+      shown: !!document.querySelector('#gly-chat-box')?.offsetParent,
+      note: document.querySelector('#gly-status')?.textContent || '',
+    }));
   const savedKey = await fileDocComment('stranded by a save');
   const savedWords = 'words typed into an edit\nthat the save could not keep';
   await openEditOn(savedKey, savedWords);
-  const saveStatus = await page.evaluate(async (key) => {
+  await page.evaluate(async (key) => {
     await fetch('_galley/instruction/delete', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ key }),
     });
-    const save = document.querySelector(
-      `.gly-thread[data-key="${key}"] .gly-thread-edit-save`,
-    );
-    if (save) save.click();
-    return !!save;
+    document.querySelector(`[data-draft-id="${key}"] textarea`)?.blur();
   }, savedKey);
-  await page.waitForTimeout(2500);
+  await page.waitForTimeout(800);
   const afterSave = await stranded();
   check(
     'an edit saved onto a deleted instruction keeps its words on the page and says why',
     afterSave.shown &&
       afterSave.words.includes(savedWords) &&
-      afterSave.note === strandedReason,
-    JSON.stringify({ saveStatus, afterSave }),
+      afterSave.note.includes(strandedReason),
+    JSON.stringify(afterSave),
   );
-  await closeStranded();
+  await page.fill('#gly-chat-box', '');
   const polledKey = await fileDocComment('stranded by a poll');
-  const polledWords = 'words still being typed when the card went';
+  const polledWords = 'words still being typed when the row went';
   await openEditOn(polledKey, polledWords);
   await page.evaluate(async (key) => {
     await fetch('_galley/instruction/delete', {
@@ -1711,25 +1198,39 @@ try {
     });
   }, polledKey);
   await page.waitForFunction(
-    (key) => !document.querySelector(`.gly-thread[data-key="${key}"]`),
+    (key) => !document.querySelector(`[data-draft-id="${key}"]`),
     polledKey,
     { timeout: 10000 },
   );
+  await page.waitForTimeout(200);
   const afterPoll = await stranded();
   check(
-    'an edit whose instruction leaves the rail mid-sentence keeps its words on the page and says why',
+    'an edit whose instruction leaves the tab mid-sentence keeps its words on the page and says why',
     afterPoll.shown &&
       afterPoll.words.includes(polledWords) &&
-      afterPoll.note === strandedReason,
+      afterPoll.note.includes(strandedReason),
     JSON.stringify(afterPoll),
   );
-  await closeStranded();
+  await page.fill('#gly-chat-box', '');
+  // AND A ROW THE READER DELETES TAKES ITS WORDS WITH IT: that one was meant.
+  const deletedKey = await fileDocComment('deleted on purpose');
+  await openEditOn(deletedKey, 'words the reader chose to throw away');
+  await page.click(`[data-draft-id="${deletedKey}"] ${ROW_DELETE}`);
+  await page.waitForFunction(
+    (key) => !document.querySelector(`[data-draft-id="${key}"]`),
+    deletedKey,
+    { timeout: 10000 },
+  );
+  await page.waitForTimeout(200);
+  check(
+    'a row the reader deletes sends nothing to the Chat box',
+    (await stranded()).words === '',
+    JSON.stringify(await stranded()),
+  );
+  await page.locator('.ProseMirror p').first().click();
 
-  // THE THREE COMMENT BOXES ARE ONE DESIGN. The whole-document box, the
-  // selected-text composer and the edit box each open at the same height and
-  // the same type size, grow with what is typed, and stop at half the window,
-  // where they scroll. Each is measured the moment it opens, then filled with
-  // sixty lines.
+  // THE THREE BOXES HOLD A LOT OF WORDS. The Chat box, the selected-text composer
+  // and a row's box grow with what is typed and stop short of the window.
   const boxNow = (sel) =>
     page.evaluate((s) => {
       const el = document.querySelector(s);
@@ -1754,28 +1255,25 @@ try {
     await page.waitForTimeout(100);
     boxes[name] = { opened, full: await boxNow(sel) };
   };
-  await openCaptureFromPanel(page);
-  await page.waitForSelector('.gly-overall-input:not([disabled])');
-  await measureBox('document', '.gly-overall-input');
-  await page.click('.gly-capture-cancel');
+  await tabPress(page, 'Chat');
+  await measureBox('document', '#gly-chat-box');
+  await page.fill('#gly-chat-box', '');
   await selectPhrase(page, 'Nothing else in the pipeline');
   await page.click('.gly-comment-button');
   await page.waitForSelector('.gly-composer-form:not([hidden])');
   await measureBox('selection', '.gly-composer-text');
+  await page.fill('.gly-composer-text', '');
   await page.click('.gly-composer-cancel');
-  await page.click('.gly-rail-band .gly-thread .gly-thread-edit');
-  await page.waitForSelector(
-    '.gly-rail-band .gly-thread .gly-thread-edit-text',
-  );
-  await measureBox('edit', '.gly-rail-band .gly-thread .gly-thread-edit-text');
-  await page.click('.gly-rail-band .gly-thread .gly-thread-edit-cancel');
+  await tabPress(page, 'Instructions');
+  const rowWords = await page.inputValue(editBox);
+  await measureBox('edit', editBox);
+  await page.fill(editBox, rowWords);
+  await page.locator('.ProseMirror p').first().click();
   const all = Object.values(boxes);
   check(
-    'the three comment boxes open at one height and one font size, and none grows past half the window',
+    'none of the three comment boxes grows past half the window',
     all.length === 3 &&
       all.every((b) => b.opened && b.full) &&
-      all.every((b) => Math.abs(b.opened.h - all[0].opened.h) <= 1) &&
-      all.every((b) => b.opened.font === all[0].opened.font) &&
       all.every(
         (b) => b.full.h <= b.full.half + 1 && b.full.scroll > b.full.client,
       ),
@@ -1783,44 +1281,21 @@ try {
   );
 
   // Back to one, so the count checks below read the state they were written
-  // against. The whole-document card carries the same two verbs as any other.
-  await page.click('.gly-overall-entries .gly-thread-delete');
-  await page.click('.gly-overall-entries .gly-thread-delete');
+  // against.
+  await tabPress(page, 'Chat');
+  await page.click(`${CHAT_ROW} ${ROW_DELETE}`);
   await page.waitForFunction(
     async () =>
       (await (await fetch('_galley/pending')).json()).instructions.length === 1,
   );
 
-  // NOTHING MOVES WHEN THE PRIMARY CHANGES ITS LABEL, which is the entire
-  // reason the count sits in a reserved box inside the one grid cell the three
-  // faces share. The rects are read over a change made SOMEWHERE ELSE — the
-  // count going to zero from a delete in the rail — because that is the click
-  // that would otherwise slide the control under the cursor. Readouts are not
-  // held: the bar's one status cell yields by design (see paintReadout), and
-  // every control sits upstream of it.
-  //
-  // THE THREE FACES ARE HELD TOO, AND THAT IS WHAT MAKES THIS DISCRIMINATING.
-  // The button's own box is the widest of `Revise · 99 ▾` (13 mono units),
-  // `revising · 9999s` (16) and `Approve` (7) — so the busy face bounds it and
-  // a check that watched only `#gly-revise` would report `ok` with the count's
-  // reserve deleted. What moves without the reserve is the label INSIDE the
-  // box: the faces are `place-items: center` in one grid cell, so a clause
-  // that shrinks re-centres `Revise` and its `▾` under the cursor. Shown red
-  // with `min-width` stripped from `.gly-revise-count` in the built css, at
-  // 1440px: the idle face alone moved, x 1204.03 → 1218.48 and width 86.72 →
-  // 57.81, while `#gly-revise` itself held 1174.59/145.61 in both readings.
+  // NOTHING ON THE TOP BAR MOVES WHEN THE ROUND CHANGES: the rects are read over a
+  // change made somewhere else, the count going to zero from a deleted sentence.
   const barRects = () =>
     page.evaluate(() =>
       Object.fromEntries(
-        [
-          ...document.querySelectorAll(
-            '.gly-bar button, .gly-bar .gly-census, .gly-revise-label',
-          ),
-        ].map((el, i) => {
+        [...document.querySelectorAll('.kit-bar button')].map((el, i) => {
           const r = el.getBoundingClientRect();
-          // Keyed by POSITION, never by class: `.gly-reserved` is toggled on the
-          // faces by this very change, so a class-derived key would report a
-          // move every time whether or not a box did.
           return [
             `${i}:${el.id || el.tagName}`,
             [+r.x.toFixed(2), +r.y.toFixed(2), +r.width.toFixed(2)],
@@ -1836,7 +1311,7 @@ try {
   // this codebase already uses one population over — deleting text under the
   // agent's pending mark has always been the verdict by hand — and until now
   // the reviewer's own mark behaved differently, leaving the instruction behind
-  // in a section headed "unplaced · its words were removed". That head describes
+  // marked "its words were removed". That describes
   // the mechanism; what the reviewer did was retract the note.
   //
   // WHAT THIS REPLACED, AND WHAT THOSE CHECKS KNEW. A block of seven checks
@@ -1898,8 +1373,8 @@ try {
     JSON.stringify(left),
   );
   check(
-    'and the rail has no unplaced card left to explain it away',
-    (await page.locator('.gly-rail-unplaced .gly-thread').count()) === 0,
+    'and the tab has no row left to explain it away',
+    (await page.locator(INSTRUCTION_ROW).count()) === 0,
   );
   // THE DELETION THAT RETRACTED THE INSTRUCTION IS ITSELF A HAND EDIT, so the
   // primary holds Revise rather than settling to Approve. A pending reviewer
@@ -1921,7 +1396,7 @@ try {
     (k) => JSON.stringify(barBefore[k]) !== JSON.stringify(barAfter[k]),
   );
   check(
-    'the primary changing its label moves nothing in the bar',
+    'the round changing moves nothing on the top bar',
     moved.length === 0,
     JSON.stringify({ moved, before: barBefore, after: barAfter }),
   );
@@ -1938,20 +1413,13 @@ try {
     'Keep the opening focused on the decision.',
     1,
   );
-  // WAIT FOR THE PAINT, NOT THE WIRE. addOverallInstruction returns as soon as
-  // `/_galley/pending` reports the instruction, which is the SERVER agreeing it
-  // exists — the browser has not necessarily drawn the card yet. A bare
-  // isVisible samples once and reported false on a loaded CI runner, failing a
-  // check about a card that was about to appear. The sibling call site above
-  // waits on this exact selector for this exact reason.
-  //
   // The wait is BOUNDED and its failure is still a FAIL: if the card never
   // arrives this reports false rather than throwing, so the remaining checks in
   // this section still run and the output still names what broke.
   check(
-    'whole-document instructions become cards in the same rail',
+    'whole-document instructions become rows in the Chat tab',
     await page
-      .waitForSelector('.gly-overall-entries .gly-thread', { timeout: 5000 })
+      .waitForSelector(CHAT_ROW, { timeout: 5000 })
       .then(() => true)
       .catch(() => false),
   );
@@ -1989,33 +1457,24 @@ try {
       .catch(() => false),
   );
 
-  // A WHOLE-DOCUMENT COMPOSER LEFT OPEN WITH UNFILED TEXT is a draft with
-  // nowhere to go once the round is sent — only FILED instructions travel. Open
-  // it with a draft now; the check after the send below is that Revise closed
-  // and discarded it. See verdict.ts postVerdict and cards.ts closeCapture.
-  await openCaptureFromPanel(page);
-  await page.waitForSelector('.gly-capture:not([hidden])');
-  await page.fill('.gly-overall-input', 'an unsent draft');
-  check(
-    'the whole-document composer is open with an unfiled draft before Revise',
-    await page.locator('.gly-capture').isVisible(),
-  );
-  check(
-    'Revise visibly discloses its two exits',
-    (await page.locator('#gly-revise').innerText()).includes('Revise'),
-  );
-  await page.click('#gly-revise');
+  // THE CHAT BOX LEFT HOLDING UNFILED WORDS: only FILED instructions travel, so the
+  // check after the send is that those words were not sent and are still there.
+  await tabPress(page, 'Chat');
+  await page.fill('#gly-chat-box', 'an unsent draft');
+  // WITH WORK PENDING APPROVE WON'T SEAL OVER IT: it offers Revise & Approve, and
+  // plain Revise is on the send bar.
+  await openApproveMenu(page);
   const exits = await page.locator('.gly-verdict-menu button').allInnerTexts();
   check(
-    'the menu offers Revise and Revise & Approve',
-    JSON.stringify(exits) === JSON.stringify(['Revise', 'Revise & Approve']),
+    'Approve with work pending offers Revise & Approve, and no plain Revise',
+    JSON.stringify(exits) === JSON.stringify(['Revise & Approve']),
     JSON.stringify(exits),
   );
+  await page.keyboard.press('Escape');
   const beforeRevise = await windowMark(page);
   const startBefore = await stateStart(page);
-  await page.click('.gly-verdict-revise');
-  // The window, keyed to this press: the composer closes on the 204. See
-  // responseWindowOpen.
+  await page.click('#gly-revise');
+  // The window, keyed to this press. See responseWindowOpen.
   await responseWindowOpen(page, beforeRevise);
   // THE REPLY ENTERS AFTER THE STATE, so the state's text does not move.
   await page
@@ -2049,16 +1508,12 @@ try {
     leftPending === 0,
     `${leftPending} instruction(s) still pending`,
   );
-  // WAITED FOR, NOT READ AT AN INSTANT. The page closes the composer and
-  // settles the trail when it hears the 204, which can be a frame after the
-  // window opened on the server.
   check(
-    'and Revise closed the open whole-document composer — the unsent draft is discarded',
-    await page
-      .waitForSelector('.gly-capture', { state: 'hidden', timeout: 5000 })
-      .then(() => true)
-      .catch(() => false),
+    'and words left unfiled in the Chat box were not sent, and are still there',
+    (await page.inputValue('#gly-chat-box')) === 'an unsent draft',
+    await page.inputValue('#gly-chat-box'),
   );
+  await page.fill('#gly-chat-box', '');
   const settled = await page
     .waitForFunction(
       () =>
@@ -2204,9 +1659,9 @@ try {
       ]),
     );
     const asked = new Map(listed);
-    await openVerdictMenu(page);
+    await reviseReady(page);
     const before = await windowMark(page);
-    await page.click('.gly-verdict-revise');
+    await page.click('#gly-revise');
     // THE WINDOW, NOT THE CLEARED PENDING SET. The press clears the
     // instructions in its FIRST mutation and opens the response window several
     // steps later (a synchronous projection and a version commit in between),
@@ -2218,17 +1673,13 @@ try {
   }
 
   // The DRAFT's own metrics, read before History exists, because "the same type
-  // and the same measure as the draft" is a comparison and not a number
+  // as the draft" is a comparison and not a number
   // somebody wrote down. A number here would go green the day the draft's type
   // changed and History's did not, which is the whole bug.
   const draftType = await page.evaluate(() => {
     const pm = document.querySelector('.ProseMirror');
     const s = getComputedStyle(pm);
-    return {
-      size: s.fontSize,
-      line: s.lineHeight,
-      width: Math.round(pm.getBoundingClientRect().width),
-    };
+    return { size: s.fontSize, line: s.lineHeight };
   });
 
   const ask1 = await sendRound(['Open with the decision, not the background.']);
@@ -2253,7 +1704,7 @@ try {
   // disappear, and a fixture where everything was answered certifies that it
   // does not.
   // A BLOCK INSTRUCTION WITH A BLANK LINE, filed through the section grip and
-  // sent in the next round: two paragraphs on its card, in the amber box under
+  // sent in the next round: two paragraphs in its row, in the amber box under
   // its heading, and in History once the round is sent.
   const blockSaid = 'Say who the review is for.\n\nAnd why it matters now.';
   await openSectionForm(page);
@@ -2274,20 +1725,18 @@ try {
         (i) => i.text === want,
       ) || {}
     ).key;
-    const card = [...document.querySelectorAll('.gly-rail .gly-thread')].find(
-      (c) => c.dataset.key === key,
-    );
+    const row = document.querySelector(`[data-draft-id="${key}"] textarea`);
     const words = document.querySelector(
       `.gly-note[data-comment-id="${key}"] .gly-note-words`,
     );
     return {
       key,
-      card: card?.querySelector('.gly-thread-entry p')?.innerText || '',
+      card: row?.value || '',
       amber: words ? words.innerText : '',
     };
   }, blockSaid);
   check(
-    'a block instruction with a blank line shows two paragraphs on its card and in the amber box',
+    'a block instruction with a blank line shows two paragraphs in its row and in the amber box',
     blockShown.card === blockSaid && blockShown.amber === blockSaid,
     JSON.stringify(blockShown),
   );
@@ -2329,42 +1778,8 @@ try {
   // reading state, which is `showRound`'s whole job and is asserted where the
   // arrival strip is built. The second press is the cold path, which is the one
   // this section is about and the one the landing is behind.
-  // THE RAIL DOES NOT MOVE WHEN THE MODE DOES, and this is the only evidence
-  // anyone will have of it: `web/motion.mjs` is deleted, so nothing else in the
-  // tree compares two rects across a click.
-  //
-  // Court, watching the build: switching to History moved everything in the
-  // rail. Two contributors, both of them the one-rail defect seen from the
-  // surface — the two columns were the same surface built twice, so nothing
-  // held them to a shared geometry.
-  //
-  //   THE TOP OFFSET WAS A GUESS. The draft rail hangs off `--gly-bar-h`, which
-  //   is MEASURED and republished by an observer precisely because a guessed
-  //   chrome height is the failure mode this file already records. History's
-  //   hung off `--gly-sub-h`, WHICH WAS DEFINED NOWHERE — every use was the
-  //   literal fallback — and the sub-bar it named is `hidden` on the landing,
-  //   so the landing rail sat 40px below the paper it is a map of, permanently.
-  //
-  //   THE HEAD WAS A DIFFERENT SHAPE IN EACH MODE. `+ instruction on the whole
-  //   document`, `‹ all rounds` and `ROUNDS — NEWEST FIRST` are three unlike
-  //   controls in the one region that has to be stable, each taking its own
-  //   height.
-  //
-  // So the numbers are read at ONE WIDTH in all three states and required to
-  // agree. Shown red first by reverting the offset to its `calc(var(--gly-sub-h,
-  // 40px) + 24px)` form: `draft 52.2 / landing 116.2 / reading 116.2` against a
-  // draft head at 52.2 — the landing and the reading agreeing with each other
-  // and both 64px below the draft.
-  const railTops = {};
-  railTops.draft = await page.evaluate(() => {
-    const rail = document.querySelector('.gly-rail');
-    const head = rail.querySelector('.gly-rail-head');
-    return {
-      rail: +rail.getBoundingClientRect().top.toFixed(1),
-      head: head ? +head.getBoundingClientRect().top.toFixed(1) : null,
-      headH: head ? +head.getBoundingClientRect().height.toFixed(1) : null,
-    };
-  });
+  // Where the draft was, for the way back.
+  const draftScroll = await page.evaluate(() => window.scrollY);
 
   // THE ARRIVAL IS CONSUMED BEFORE THE DOOR IS PRESSED, and without this the
   // check below races the page NOTICING the round that just landed.
@@ -2511,17 +1926,8 @@ try {
       chip: document
         .querySelector('.gly-versions-open')
         ?.classList.contains('is-open'),
-      primary: document.querySelector('#gly-revise').innerText.trim(),
+      primary: document.querySelector('.kit-primary').innerText.trim(),
       readout: document.querySelector('#gly-status').innerText.trim(),
-    };
-  });
-  railTops.landing = await page.evaluate(() => {
-    const rail = document.querySelector('.gly-versions-rail');
-    const head = rail.querySelector('.gly-rail-head');
-    return {
-      rail: +rail.getBoundingClientRect().top.toFixed(1),
-      head: head ? +head.getBoundingClientRect().top.toFixed(1) : null,
-      headH: head ? +head.getBoundingClientRect().height.toFixed(1) : null,
     };
   });
   check(
@@ -2652,17 +2058,6 @@ try {
     landing?.readout === `${exchanges} rounds · draft is untouched`,
     landing?.readout,
   );
-  const outlined = await page.evaluate(() => {
-    const s = getComputedStyle(document.getElementById('gly-revise'));
-    return { bg: s.backgroundColor, border: s.borderTopColor, color: s.color };
-  });
-  check(
-    'the way out is OUTLINED signal, not the filled primary — it commits nothing',
-    outlined.border === outlined.color &&
-      !outlined.bg.startsWith('rgb(20, 110, 133)'),
-    JSON.stringify(outlined),
-  );
-
   // §5.3 — THE READING STATE.
   await page.click(`.gly-versions-round[data-round="${newest}"]`);
   await page.waitForFunction(
@@ -2672,25 +2067,6 @@ try {
     newest,
   );
   await page.waitForSelector('.gly-versions-change');
-  railTops.reading = await page.evaluate(() => {
-    const rail = document.querySelector('.gly-versions-rail');
-    const head = rail.querySelector('.gly-rail-head');
-    return {
-      rail: +rail.getBoundingClientRect().top.toFixed(1),
-      head: head ? +head.getBoundingClientRect().top.toFixed(1) : null,
-      headH: head ? +head.getBoundingClientRect().height.toFixed(1) : null,
-    };
-  });
-  check(
-    'the rail does not move when the mode does — one top and one head height, draft and History alike',
-    railTops.draft.rail === railTops.landing.rail &&
-      railTops.draft.rail === railTops.reading.rail &&
-      railTops.draft.head === railTops.landing.head &&
-      railTops.draft.head === railTops.reading.head &&
-      railTops.draft.headH === railTops.landing.headH &&
-      railTops.draft.headH === railTops.reading.headH,
-    JSON.stringify(railTops),
-  );
   const view = await page.evaluate(
     async (n) =>
       await (await fetch(`_galley/versions/view?to=${n}&view=inplace`)).json(),
@@ -2715,7 +2091,6 @@ try {
       ),
       size: s.fontSize,
       line: s.lineHeight,
-      width: Math.round(paper.getBoundingClientRect().width),
       // The old two-rail layout, by name. Deleting a surface means its
       // selectors are gone, not that nothing renders in them.
       oldRails: document.querySelectorAll(
@@ -2729,10 +2104,8 @@ try {
   if (process.env.GALLEY_SHOTS)
     await page.screenshot({ path: `${process.env.GALLEY_SHOTS}/reading.png` });
   check(
-    'the reading state is the draft’s paper wearing marks — same type, same measure',
-    reading.size === draftType.size &&
-      reading.line === draftType.line &&
-      Math.abs(reading.width - draftType.width) <= 2,
+    'the reading state is the draft’s paper wearing marks — same type',
+    reading.size === draftType.size && reading.line === draftType.line,
     JSON.stringify({ history: reading, draft: draftType }),
   );
   check(
@@ -3050,14 +2423,14 @@ try {
 
   // THE WAY OUT, AND THE SCROLL. History is a MODE and not a page: the sentence
   // the reviewer was reading has to be under the cursor when they come back.
-  await page.click('#gly-revise');
+  await page.click('.kit-primary');
   await page.waitForFunction(
     () => document.querySelector('.gly-versions')?.hidden === true,
   );
   const back = await page.evaluate(() => ({
     prose: !!document.querySelector('.ProseMirror'),
     mode: document.body.classList.contains('gly-history-mode'),
-    primary: document.getElementById('gly-revise').innerText.trim(),
+    primary: document.querySelector('.kit-primary')?.innerText.trim(),
     scroll: window.scrollY,
   }));
   check(
@@ -3067,8 +2440,8 @@ try {
   );
   check(
     'and the draft’s scroll position survived the round trip',
-    back.scroll === 0,
-    String(back.scroll),
+    Math.abs(back.scroll - draftScroll) <= 1,
+    JSON.stringify({ back: back.scroll, draftScroll }),
   );
   const rounds = await page.evaluate(
     async () => (await (await fetch('_galley/versions')).json()).rounds.length,
@@ -3081,204 +2454,12 @@ try {
     String(rounds),
   );
 
-  // --- PHASE 6 · WHAT 1440px TEACHES, 620px REPEATS ---
-  //
-  // §6.1 — THE TWO DOORS ARE ADJACENT. `Instructions · N` sat in the bottom bar
-  // and `History` sat in the TOP bar, so the two controls this product insists
-  // are peers were on opposite edges of the screen: nothing a reviewer learned
-  // at 1440px transferred to 620px, and the top bar's own pairing was the thing
-  // being unlearned. Board 1i.
-  //
-  // ONE INSTRUCTION IS PENDING FIRST, and it is filed through the rail while
-  // the rail still exists — the whole-document handle is wide-layout chrome, so
-  // this is the order the fixture has to be built in. It also gives the count a
-  // number to be wrong about and the sheet a card to hold, which is what makes
-  // §6.2 below capable of failing.
+  // One instruction pending, for the round below to send.
   await addOverallInstruction(
     page,
     'Name the retention window in the summary.',
     1,
   );
-  await page.setViewportSize({ width: 620, height: 900 });
-  await page.waitForFunction(
-    () => document.querySelector('.gly-bottombar')?.hidden === false,
-  );
-  const foot = await page.evaluate(() => {
-    const bar = document.querySelector('.gly-bottombar');
-    return {
-      order: [...bar.children].map((c) => c.className),
-      buttons: [...bar.querySelectorAll('button')].map((b) => ({
-        cls: b.className,
-        // innerText and not textContent: what a reviewer reads is what the
-        // browser renders, and a label collapsed out of the paint (this
-        // repository has measured one) reads identically in the source.
-        text: b.innerText.trim(),
-        name: (b.getAttribute('aria-label') || b.innerText || '').trim(),
-        // A RECT INSIDE THE WINDOW IS NOT A CONTROL THE REVIEWER CAN PRESS.
-        reachable: (() => {
-          const r = b.getBoundingClientRect();
-          const at = document.elementFromPoint(
-            r.x + r.width / 2,
-            r.y + r.height / 2,
-          );
-          return !!at && b.contains(at);
-        })(),
-      })),
-      rail: !document.querySelector('.gly-rail').hidden,
-      wideChip: !!document.querySelector('.gly-census .gly-versions-open')
-        ?.offsetParent,
-    };
-  });
-  check(
-    'Instructions and History are adjacent in the bottom bar, in the wide bar’s own order',
-    foot.buttons.length === 3 &&
-      /^Instructions · \d+$/.test(foot.buttons[0].text) &&
-      foot.buttons[1].text === 'History' &&
-      foot.order[0].includes('gly-bar-count') &&
-      foot.order[1].includes('gly-bar-versions'),
-    JSON.stringify(foot),
-  );
-  // THE CLAIM IS THE PLACE, NOT THE WORD. The primary's label is a live thing —
-  // `Revise · N ▾`, `Approve`, and `revising · 1s` while a round is in flight,
-  // which is what a countdown started a few checks earlier is still saying when
-  // this runs. Asserting the word made this check a race it lost the first time
-  // the timing shifted; what phase 6 actually promises is that the control
-  // stays IN THE TOP BAR and stays pressable when the rail is gone.
-  const primaryHere = await page.evaluate(() => {
-    const b = document.getElementById('gly-revise');
-    const bar = document.querySelector('.gly-bar');
-    if (!b || !bar || !bar.contains(b)) return null;
-    const r = b.getBoundingClientRect();
-    const at = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
-    return {
-      inTopBar: true,
-      width: Math.round(r.width),
-      top: Math.round(r.top),
-      reachable: !!at && b.contains(at),
-      inFoot: !!document.querySelector('.gly-bottombar #gly-revise'),
-    };
-  });
-  check(
-    'and Revise never leaves the top bar, where it is at every width',
-    primaryHere !== null &&
-      primaryHere.width > 0 &&
-      primaryHere.top < 60 &&
-      primaryHere.reachable === true &&
-      primaryHere.inFoot === false,
-    JSON.stringify(primaryHere),
-  );
-  // EVERY CONTROL CARRIES A VISIBLE LABEL. `▤` was an icon with an accessible
-  // name and a tooltip, and the first real review already proved of the History
-  // glyph that neither makes a bare symbol discoverable to a sighted reviewer.
-  // The claim is read off the RENDERED string of every button in the bar, so a
-  // fourth control added wearing a glyph fails here rather than shipping.
-  check(
-    'every control in the bottom bar says what it is — no bare icons left',
-    foot.buttons.every((b) => /[a-z]/i.test(b.text) && b.name.length > 0) &&
-      foot.buttons.some((b) => b.text === '↓ next'),
-    JSON.stringify(foot.buttons.map((b) => b.text)),
-  );
-  check(
-    'and every one of them can actually be pressed at 620px',
-    foot.buttons.every((b) => b.reachable),
-    JSON.stringify(foot.buttons),
-  );
-
-  // §6.2 — THE DEAD 620px INSTRUCTIONS CLICK. Reported as unverified and it is
-  // REAL: measured on the built binary at 620×900, the click was delivered
-  // (`elementFromPoint` at the control's centre returned `.gly-bar-count`,
-  // playwright resolved it in 9ms with no timeout) and `openInstructions` ran
-  // (`called 1 time(s)`, instrumented) — and `.gly-rail`, `.gly-sheet` and
-  // `.gly-versions` were ALL still hidden afterwards. Not the harness: a door
-  // that answers the press and shows nothing.
-  //
-  // THE CHECK READS WHAT IS ON SCREEN, never that the handler ran. `sheetOpen`
-  // is what the code SET, and a check reading it would have been green through
-  // the whole defect — the flag was true for the frame between the two lines
-  // that set it, and the surface was hidden the whole time.
-  await page.click('.gly-bar-count');
-  const narrowDoor = await page.evaluate(() => ({
-    sheet: !document.querySelector('.gly-sheet').hidden,
-    rail: !document.querySelector('.gly-rail').hidden,
-    cards: document.querySelectorAll('.gly-sheet .gly-thread').length,
-    text: document.querySelector('.gly-sheet')?.innerText || '',
-    barOverSheet: (() => {
-      const b = document.querySelector('.gly-bar-count');
-      const r = b.getBoundingClientRect();
-      const at = document.elementFromPoint(
-        r.x + r.width / 2,
-        r.y + r.height / 2,
-      );
-      return !!at && b.contains(at);
-    })(),
-  }));
-  check(
-    'the Instructions door at 620px opens the review’s list instead of nothing',
-    narrowDoor.sheet === true && narrowDoor.rail === false,
-    JSON.stringify({ sheet: narrowDoor.sheet, rail: narrowDoor.rail }),
-  );
-
-  // THE SHEET'S OWN ✕ HAS A NAME. The bottom bar's rule two checks up — every
-  // control says what it is — retired `▤` outright; this control kept its glyph
-  // and had NO accessible name at all, so the only way out of the review list
-  // announced itself as the character `✕`, or as nothing. The two cases differ
-  // on whether the glyph is legible to a SIGHTED reviewer (a ✕ closing a panel
-  // is; `▤` was not, which the first real review proved) and agree completely
-  // on the name.
-  const sheetClose = await page.evaluate(() => {
-    const b = document.querySelector('.gly-sheet-close');
-    return b
-      ? { name: b.getAttribute('aria-label') || '', title: b.title || '' }
-      : null;
-  });
-  check(
-    'the way out of the review list says what it is',
-    sheetClose &&
-      sheetClose.name.length > 0 &&
-      /[a-z]/i.test(sheetClose.name) &&
-      sheetClose.title === sheetClose.name,
-    JSON.stringify(sheetClose),
-  );
-  check(
-    'and the instruction that is pending is actually in it',
-    narrowDoor.cards > 0 &&
-      narrowDoor.text.includes('Name the retention window in the summary.'),
-    JSON.stringify({
-      cards: narrowDoor.cards,
-      text: narrowDoor.text.slice(0, 200),
-    }),
-  );
-  check(
-    'the bottom bar stays reachable over the surface it opened',
-    narrowDoor.barOverSheet === true,
-  );
-
-  // AND THE SECOND DOOR OPENS THE RECORD FROM THE SAME BAR — the pairing is
-  // only a pairing if both halves work down here.
-  await page.click('.gly-bar-versions');
-  await page.waitForSelector('.gly-versions:not([hidden])');
-  const narrowHistory = await page.evaluate(() => ({
-    open: !document.querySelector('.gly-versions').hidden,
-    sheet: !document.querySelector('.gly-sheet').hidden,
-    bar: !document.querySelector('.gly-bottombar').hidden,
-    to: document.querySelector('.gly-versions-paper')?.dataset.to,
-  }));
-  check(
-    'the History door beside it opens the record, and takes the other surfaces away',
-    narrowHistory.open === true &&
-      narrowHistory.sheet === false &&
-      narrowHistory.bar === false,
-    JSON.stringify(narrowHistory),
-  );
-  await page.click('#gly-revise');
-  await page.waitForFunction(
-    () => document.querySelector('.gly-versions')?.hidden === true,
-  );
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await page.waitForFunction(
-    () => document.querySelector('.gly-bottombar')?.hidden === true,
-  );
-
   // §6.3 — THE ARRIVAL STRIP. Board 1e. A round has to actually come back for
   // this to exist, so one is driven the way every other round here is driven.
   await sendRound([]);
@@ -3354,11 +2535,14 @@ try {
       probe.remove();
       return want;
     };
-    const chip = document.querySelector('.gly-census .gly-versions-open');
+    const chip = document.querySelector('.kit-stages .gly-versions-open');
     return {
       text: document.querySelector('.gly-strip-text').innerText.trim(),
       left: Math.round(r.left),
-      fromBottom: Math.round(window.innerHeight - r.bottom),
+      aboveSendBar: Math.round(
+        document.querySelector('.kit-sendbar').getBoundingClientRect().top -
+          r.bottom,
+      ),
       mono:
         s.fontFamily ===
         getComputedStyle(document.documentElement)
@@ -3379,7 +2563,7 @@ try {
       fade: !!document.querySelector('.gly-strip-fade')?.offsetParent,
       chipNew: chip.classList.contains('is-new'),
       chipColor: getComputedStyle(chip).color,
-      primary: document.getElementById('gly-revise').innerText.trim(),
+      primary: document.querySelector('.kit-primary').innerText.trim(),
     };
   });
   const record6 = await page.evaluate(
@@ -3415,9 +2599,10 @@ try {
     JSON.stringify({ changed: arrivedRound.changed }),
   );
   check(
-    'it sits bottom-left, mono, inside a 1px amber border — the arrived grammar',
+    'it sits at the foot on the left, clear above the send bar, mono, inside a 1px amber border — the arrived grammar',
     arrived.left <= 24 &&
-      arrived.fromBottom <= 24 &&
+      arrived.aboveSendBar >= 0 &&
+      arrived.aboveSendBar <= 24 &&
       arrived.mono === true &&
       arrived.border === arrived.accent &&
       arrived.borderWidth === '1px',
@@ -3443,8 +2628,8 @@ try {
     JSON.stringify(arrived),
   );
   check(
-    'the History chip is amber until the round is read',
-    arrived.chipNew === true && arrived.chipColor === arrived.accent,
+    'the History door is in the signal colour until the round is read',
+    arrived.chipNew === true && arrived.chipColor === arrived.signal,
     JSON.stringify(arrived),
   );
   check(
@@ -3482,7 +2667,7 @@ try {
     landedRead.strip === false,
     JSON.stringify(landedRead),
   );
-  await page.click('#gly-revise');
+  await page.click('.kit-primary');
   await page.waitForFunction(
     () => document.querySelector('.gly-versions')?.hidden === true,
   );
@@ -3490,7 +2675,7 @@ try {
     'and the door stops being amber once the round has been read',
     !(await page.evaluate(() =>
       document
-        .querySelector('.gly-census .gly-versions-open')
+        .querySelector('.kit-stages .gly-versions-open')
         .classList.contains('is-new'),
     )),
   );
@@ -3514,7 +2699,7 @@ try {
   );
   await page.waitForTimeout(1200);
   const outsidePrimary = await page.evaluate(() =>
-    document.getElementById('gly-revise').innerText.trim(),
+    document.querySelector('.kit-primary').innerText.trim(),
   );
   check(
     'an edit made outside the editor leaves the primary at Approve',
@@ -3549,7 +2734,7 @@ try {
   );
 
   await addOverallInstruction(page, 'Final trusted pass.', 1);
-  await openVerdictMenu(page);
+  await openApproveMenu(page);
   const beforeTrust = await windowMark(page);
   await page.click('.gly-verdict-trust');
   // The window this press opened, before the ack. See responseWindowOpen.
@@ -3568,8 +2753,8 @@ try {
   // plainly carried out; narrowing it without driving the narrow case is how it
   // would come back, because a state nothing drives is a state nothing protects.
   await addRangeInstruction(page, 'Rewrite this in the passive voice.', 1);
-  await openVerdictMenu(page);
-  await page.click('.gly-verdict-revise');
+  await reviseReady(page);
+  await page.click('#gly-revise');
   await page.waitForTimeout(900);
   const cannotCode = await page.evaluate(
     async () =>
@@ -3608,9 +2793,7 @@ try {
   // that was written straight into textContent the control moved 33.1px left
   // and shrank 125.8 -> 92.7 between the arming press and the confirming one —
   // the second click landing where the first was not, on the one verb here that
-  // cannot be undone. `.gly-thread-delete` has solved this since the day it was
-  // written; the copy never carried across, and §4 asks it of the WEIGHT rather
-  // than of that one button.
+  // cannot be undone.
   const restoreBox = async () =>
     page.evaluate(() => {
       const b = document.querySelector('.gly-versions-restore');
@@ -3678,20 +2861,8 @@ try {
     JSON.stringify(refusedRound),
   );
 
-  // §6.4 — THE REVIEWER'S OWN EDITS ARE IN THE RAIL.
-  //
-  // The rail is the list of what pressing Revise will send, and it showed half
-  // of it: an instruction is sent, and so is every edit the reviewer made by
-  // hand — that is what the round's `changes` carry, and without them an agent
-  // rewrites the reviewer's deletions back. There was no surface for that half
-  // anywhere, and the answer previously proposed was a SECOND list reachable
-  // from the Revise button. Court: "we don't need a second list or surface…
-  // one surface. all of the instructions."
-  //
-  // READ OFF THE SERVER'S LIST, not the browser's live trail: the trail runs
-  // ahead of the server by one save debounce and is not yet anything the agent
-  // could be told, so a rail painted from it would show work nobody has been
-  // sent.
+  // §6.4 — THE REVIEWER'S OWN EDITS ARE IN THE INSTRUCTIONS TAB, read off the
+  // server's list: an instruction is sent, and so is every edit made by hand.
   // A PARAGRAPH, NOT THE HEADING, and the difference is not cosmetic. Emptying
   // a heading leaves "#" behind, which is a `changed` whose new text appears in
   // every other heading — genuinely ambiguous, and the server refuses it by
@@ -3715,27 +2886,28 @@ try {
     editor.commands.focus();
     editor.view.dispatch(editor.state.tr.delete(last.from, last.to));
   });
+  await tabPress(page, 'Instructions');
   let railEdits = { cards: 0, head: '' };
   for (let i = 0; i < 24 && railEdits.cards === 0; i++) {
     await page.waitForTimeout(500);
     railEdits = await page.evaluate(() => ({
-      cards: document.querySelectorAll('.gly-rail-changes .gly-change').length,
+      cards: document.querySelectorAll('.gly-edit-row').length,
       head:
         document
-          .querySelector('.gly-rail-changes-head')
+          .querySelector('.gly-edit-row .kit-label')
           ?.innerText.trim()
           .toLowerCase() || '',
       quoted:
-        document.querySelector('.gly-change-before')?.innerText.trim() || '',
+        document.querySelector('.gly-edit-row del')?.innerText.trim() || '',
     }));
   }
   check(
-    'an edit the reviewer made by hand appears in the rail',
+    'an edit the reviewer made by hand appears in the Instructions tab',
     railEdits.cards > 0,
     JSON.stringify(railEdits),
   );
   check(
-    'and the section counts them, because that is what is checked before sending',
+    'and its row says it is the reviewer\u2019s edit',
     /your edit/.test(railEdits.head),
     JSON.stringify(railEdits),
   );
@@ -3747,18 +2919,14 @@ try {
   const beforeRevert = await page.evaluate(() =>
     document.querySelector('.ProseMirror').innerText.trim(),
   );
-  const revertArmed = await page.evaluate(() => {
-    const b = document.querySelector('.gly-change-revert');
-    if (!b) {
-      return null;
-    }
-    b.click();
-    const now = document.querySelector('.gly-change-revert');
-    return {
-      armed: !!now && now.classList.contains('gly-armed'),
-      said: now ? now.innerText.trim() : '',
-    };
-  });
+  const revert = page.locator('.gly-edit-row .kit-btn');
+  await revert.click();
+  await page.waitForFunction(() =>
+    /Revert\?/.test(
+      document.querySelector('.gly-edit-row .kit-btn')?.innerText,
+    ),
+  );
+  const revertArmed = { armed: true, said: await revert.innerText() };
   check(
     'the first press on revert arms it and changes nothing',
     revertArmed !== null &&
@@ -3770,7 +2938,7 @@ try {
       )),
     JSON.stringify(revertArmed),
   );
-  await page.click('.gly-change-revert');
+  await revert.click();
   let reverted = beforeRevert;
   for (let i = 0; i < 20 && reverted === beforeRevert; i++) {
     await page.waitForTimeout(300);
@@ -3787,10 +2955,10 @@ try {
     }),
   );
   const clearedRail = await page.evaluate(
-    () => document.querySelectorAll('.gly-rail-changes .gly-change').length,
+    () => document.querySelectorAll('.gly-edit-row').length,
   );
   check(
-    'and the edit leaves the rail, because it is no longer in the round',
+    'and the edit leaves the tab, because it is no longer in the round',
     clearedRail === 0,
     String(clearedRail),
   );
@@ -3895,7 +3063,7 @@ try {
   //
   // AND ITS ARRIVAL MOVES NOTHING. It appears without the reviewer asking, so
   // it is held to the rule `web/motion.mjs` held while it existed: the
-  // document, the rail and the bar's controls are where they were when it
+  // document, the column and the bar's controls are where they were when it
   // appears and when it goes. Shown red first on 725d7c8, where the notice was
   // a row in the wrapping bar and pushed the whole page down by its height.
   {
@@ -3920,13 +3088,10 @@ try {
         return {
           doc: at('.ProseMirror', true),
           firstLine: at('.ProseMirror > *', true),
-          rail: at('.gly-rail', true),
-          railHead: at('.gly-rail-head', true),
+          column: at('.kit-right-col'),
           status: at('#gly-status'),
-          mode: at('.gly-bar .gly-mode'),
-          revise: at('#gly-revise'),
           barH: +document
-            .querySelector('.gly-bar')
+            .querySelector('.kit-bar')
             .getBoundingClientRect()
             .height.toFixed(1),
         };
@@ -3961,22 +3126,15 @@ try {
     const notice = await page.evaluate(() => {
       const el = document.querySelector('.gly-disk-notice');
       const status = document.querySelector('#gly-status');
-      const revise = document.querySelector('#gly-revise');
-      const bar = document.querySelector('.gly-bar');
-      if (!el || !status || !revise || !bar) {
+      const bar = document.querySelector('.kit-bar');
+      if (!el || !status || !bar) {
         return null;
       }
       const r = el.getBoundingClientRect();
-      const row = Math.max(
-        status.getBoundingClientRect().bottom,
-        revise.getBoundingClientRect().bottom,
-      );
+      const row = status.getBoundingClientRect().bottom;
       const b = bar.getBoundingClientRect();
-      const prose = document.querySelector('.ProseMirror');
       return {
         text: el.textContent,
-        left: r.left,
-        proseRight: prose ? prose.getBoundingClientRect().right : null,
         visible: getComputedStyle(el).display !== 'none' && r.height > 0,
         scrollWidth: el.scrollWidth,
         clientWidth: el.clientWidth,
@@ -4010,16 +3168,9 @@ try {
         !/no longer at this path/.test(notice.statusText || ''),
       JSON.stringify(notice),
     );
-    check(
-      'and it does not cover the document’s text column',
-      !!notice &&
-        notice.proseRight !== null &&
-        notice.left >= notice.proseRight,
-      JSON.stringify(notice),
-    );
     const shownAt = await landmarks();
     check(
-      'and its appearing moves nothing: document, rail and bar controls stay put',
+      'and its appearing moves nothing: document, column and bar controls stay put',
       moved(before, shownAt).length === 0,
       JSON.stringify({ moved: moved(before, shownAt), before, shownAt }),
     );
@@ -4073,9 +3224,9 @@ try {
         ?.classList.contains('gly-seal-off') === false,
     { timeout: 8000 },
   );
+  await page.evaluate(() => window.scrollTo(0, 0));
   const sealedBar = await page.evaluate(() => {
     const door = document.querySelector('.gly-versions-open');
-    const count = document.querySelector('.gly-census-count');
     if (!door) {
       return null;
     }
@@ -4088,10 +3239,6 @@ try {
       doorShown: getComputedStyle(door).display !== 'none',
       doorDisabled: door.disabled,
       doorReachable: !!at && door.contains(at),
-      // The instruction list's door SHOULD be gone: on a sealed page every verb
-      // on every one of those cards is dead, so it leads to a surface nothing
-      // can be done on. History is the opposite — reading is all that is left.
-      countShown: !!count && getComputedStyle(count).display !== 'none',
     };
   });
   check(
@@ -4101,21 +3248,6 @@ try {
       sealedBar.doorDisabled === false &&
       sealedBar.doorReachable,
     JSON.stringify(sealedBar),
-  );
-  check(
-    'and the instruction list’s door does not, because every verb behind it is dead',
-    sealedBar && sealedBar.countShown === false,
-    JSON.stringify(sealedBar),
-  );
-  // A SEALED REVIEW TAKES NO INSTRUCTIONS, so the panel's blank space is
-  // just space.
-  const sealedSpot = await blankPanelPoint(page);
-  if (sealedSpot) await page.mouse.click(sealedSpot.x, sealedSpot.y);
-  await page.waitForTimeout(300);
-  check(
-    'a click on blank panel space does nothing on a sealed review',
-    !!sealedSpot && !(await page.locator('.gly-capture').isVisible()),
-    JSON.stringify(sealedSpot),
   );
   await page.click('.gly-versions-open');
   const sealedHistory = await page.evaluate(() => ({

@@ -113,8 +113,8 @@ export function clockTime(ms: number): string {
 // What verdictLabel reads: the two shapes /_galley/pending has answered with
 // (a rounds-only `{instructions}` payload, or the older `{comments}` shape
 // censusCounts reduces), loosened to the fields this function itself touches.
-// `comments` reuses rail.ts's own exported `PendingThread` rather than a
-// hand-rolled copy of it — see rail.ts's header on why that type is exported
+// `comments` reuses tabs.ts's own exported `PendingThread` rather than a
+// hand-rolled copy of it — see tabs.ts's header on why that type is exported
 // at all — and censusCounts' declared parameter type is what this is checked
 // against, so a drift there is a compile error here rather than a silent
 // disagreement.

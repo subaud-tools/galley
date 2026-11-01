@@ -185,7 +185,7 @@ export function sealLine(
  * `openBlockComposer`. `applySeal` runs none of them, and cannot sensibly —
  * re-placing the composer at an edge would reset a half-typed comment and its
  * note. So a painter counts here only if `applySeal` calls it (`paintCensus`,
- * `paintRail`); anything else belongs in `SEAL_ONLY_VERBS`, where the comment
+ * `paintTabs`); anything else belongs in `SEAL_ONLY_VERBS`, where the comment
  * button now is.
  *
  * THE THIRD HOLE, AND IT IS THE MERGE'S OWN. `.gly-composer-text` is the box a
@@ -199,7 +199,7 @@ export function sealLine(
  * precise failure the seal was built to remove (see §10 of web/typing.mjs). A
  * disabled field cannot take a keydown at all, so covering the box is what makes
  * the handler unreachable; guarding inside `submitOnEnter` would put `sealed`
- * into a helper in web/rail.ts that knows nothing about the App and would have
+ * into a helper in web/tabs.ts that knows nothing about the App and would have
  * to be re-guarded for every future caller.
  */
 // AND IT NAMES WHAT THE PRODUCT BUILDS, which is not a tidy-up: web/layers.mjs
@@ -481,7 +481,7 @@ export const sealMethods = {
     // them dead, which on a reopened review is a page with nothing the
     // reviewer can press. The next `refreshPending` is not a way out either:
     // it runs when `/_galley/rev` moves, and a reopen does not touch the
-    // document. So repaint, and let the owners answer: `paintRail` rebuilds
+    // document. So repaint, and let the owners answer: `paintTabs` rebuilds
     // every card, with fresh, live buttons, and `paintCensus` re-derives `✓ all`
     // from the counts rather than assuming it. (`dimCard` used to re-disable the
     // four verbs on every card whose mark was off the viewport on the way past.
@@ -616,7 +616,7 @@ export const sealMethods = {
   //
   // IT ONLY EVER TURNS THINGS OFF. `el.disabled = !!this.sealed` looks
   // symmetrical and is not: on a LIVE page it wrote `false` over flags that
-  // belong to other owners. It runs at the FOOT of `paintRail`, so it was the
+  // belong to other owners. It runs at the FOOT of `paintTabs`, so it was the
   // last thing every pending refresh did. The instance that was measured is
   // gone with the mechanism that produced it — `dimCard` disabled the four card
   // verbs on every card whose mark was off the viewport, this handed them

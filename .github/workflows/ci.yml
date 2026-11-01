@@ -189,7 +189,7 @@ jobs:
       # A CODE BLOCK TAKES A BLOCK-LEVEL INSTRUCTION, AND ONLY FROM ITS OWN
       # GRIP. A fence's grip sits in the gutter at rest; pressing it
       # opens the composer in BLOCK mode and sending files one block thread on
-      # the fence's own key, with a card in the rail beside it — while a
+      # the fence's own key, with a row in the Instructions tab — while a
       # SELECTION inside the fence still gets the deny line and no range
       # composer, which is the refusal this feature must not have weakened. It
       # then stops the server and reopens the document, because the note's
@@ -262,12 +262,19 @@ jobs:
         env:
           GALLEY: ${{ github.workspace }}/bin/galley
 
-      # SHARE TAKES REVISE'S SLOT, AND NOTHING ELSE ON THE BAR MOVES. After
-      # approval `Share ▾` sits in exactly Revise's box; Save HTML writes the
-      # branded page beside the document and copies its path; a page review
-      # offers only Copy path and has no preview link.
-      - name: Gate — Share takes Revise's slot
+      # AFTER APPROVAL THE SEND BAR HOLDS SHARE. Revise leaves it; Share's menu
+      # downloads the document or puts it on the clipboard; a page review has no
+      # preview link.
+      - name: Gate — approval hands the send bar to Share
         run: node web/share.mjs
+        env:
+          GALLEY: ${{ github.workspace }}/bin/galley
+
+      # ONE TAB HOLDS THE REVIEWS. Three documents on one server: the front page
+      # lists them with their pills, filter and groups, a row and the switcher
+      # navigate, and opening a review follows the tab rule.
+      - name: Gate — the switcher and the front page
+        run: node web/switcher.mjs
         env:
           GALLEY: ${{ github.workspace }}/bin/galley
 
@@ -288,6 +295,5 @@ jobs:
       # It is left OUT rather than made non-blocking. A gate that runs and
       # cannot fail is the shape this repository records six of and treats as
       # worse than no gate at all — and `continue-on-error` here would report
-      # paint coverage nobody has. It stays a local gate (`node web/layers.mjs`,
-      # 263 checks) until the two above are made font-independent, and then it
+      # paint coverage nobody has. It stays a local gate (`node web/layers.mjs`) until the two above are made font-independent, and then it
       # joins the three above it.

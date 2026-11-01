@@ -17,11 +17,6 @@
 // for the bar buries that distinction exactly where the next reader will not
 // look.
 //
-// paintVersionsButton also paints `this.bar.versions`, the narrow bottom-bar
-// chip owned by web/sheet.ts. That cross-group write is expected: mixins all
-// land on one shared prototype, so writing another module's element here is
-// ordinary, not a boundary violation.
-//
 // readArrival is driven from readRevise, which lives in web/verdict.ts now. A
 // method here being called from a method in another mixin is fine — same
 // prototype, same `this`.

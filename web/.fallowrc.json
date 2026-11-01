@@ -21,7 +21,7 @@
     "share.mjs",
     "undo.mjs",
     "layers.mjs",
-    "preflight.mjs",
+    "switcher.mjs",
     "schema.mjs",
     "schemacheck.mjs",
     "schemacorpus.mjs",

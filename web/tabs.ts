@@ -396,6 +396,7 @@ export const tabMethods = {
       select: (key) => this.selectDraft(key),
       file: (text) => this.fileChat(text),
       revert: (key) => this.revertEdit(key),
+      stranded: (words) => this.strandEdit(words),
     });
   },
 
@@ -412,8 +413,7 @@ export const tabMethods = {
       author: AUTHOR,
     }).then((res) => {
       if (res.status === 404) {
-        window.galleyChrome?.keepInChat(next);
-        this.say(STRANDED_EDIT);
+        this.strandEdit(next);
       } else if (!res.ok) {
         return res.text().then((said) => {
           this.say(said.trim() || `that edit was not saved: ${res.status}`);
@@ -421,6 +421,11 @@ export const tabMethods = {
       }
       return this.refreshPending();
     });
+  },
+
+  strandEdit(this: AppShell, words: string) {
+    window.galleyChrome?.keepInChat(words);
+    this.say(STRANDED_EDIT);
   },
 
   deleteDraft(this: AppShell, key: string) {

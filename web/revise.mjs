@@ -639,8 +639,8 @@ try {
     20000,
     async () => {
       const cards = await page.evaluate(() =>
-        [...document.querySelectorAll('.gly-rail-band .gly-thread')].map(
-          (c) => c.textContent,
+        [...document.querySelectorAll('.gly-tab [data-draft-id] textarea')].map(
+          (c) => c.value,
         ),
       );
       return (await pendingTexts()).includes(ASK_3) &&
@@ -651,11 +651,11 @@ try {
   ).catch(async () => ({
     pending: await pendingTexts(),
     cards: await page.evaluate(
-      () => document.querySelectorAll('.gly-rail-band .gly-thread').length,
+      () => document.querySelectorAll('.gly-tab [data-draft-id]').length,
     ),
   }));
   check(
-    "the cancelled round's instruction is back: pending on the server and a card on the page",
+    "the cancelled round's instruction is back: pending on the server and a row on the page",
     Array.isArray(card),
     card,
   );

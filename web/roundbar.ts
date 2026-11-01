@@ -31,6 +31,8 @@ export interface TabActions {
   select(key: string): void;
   file(text: string): Promise<boolean>;
   revert(key: string): void;
+  /** A row left the page while its box held words it hadn't saved. */
+  stranded(words: string): void;
 }
 
 export interface GalleyChrome {

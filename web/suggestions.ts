@@ -38,7 +38,7 @@ import type { Step } from '@tiptap/pm/transform';
 import type { Node as PMNode, Mark, ResolvedPos } from '@tiptap/pm/model';
 import type { Editor } from '@tiptap/core';
 import { ySyncPluginKey } from 'y-prosemirror';
-// THE BROWSER'S SINGLE READER OF THE SERVER'S DECIDABILITY ANSWER. rail.ts
+// THE BROWSER'S SINGLE READER OF THE SERVER'S DECIDABILITY ANSWER. tabs.ts
 // imports nothing, so this is not a cycle — and asking it rather than spelling
 // `kind !== 'comment'` here is the whole point: this file was the surface that
 // spelled NOTHING, which is the seventh silent site CLAUDE.md predicts.
@@ -681,7 +681,7 @@ export interface SuggestionRun {
 
 // attrString narrows a mark attribute — typed `any` by prosemirror-model's
 // own Attrs — to the string it is meant to be, or '' for anything else. The
-// same "no assertions, narrow with a real check" discipline rail.ts's
+// same "no assertions, narrow with a real check" discipline tabs.ts's
 // keyTargetIsEditable uses, applied to the one place this file reads an
 // attribute off a mark.
 function attrString(value: unknown): string {
@@ -814,7 +814,7 @@ export interface SuggestionLike {
   runId?: string;
   insRun?: string;
   // The server's own decidability answer for this entry (suggest.Kind's
-  // Decidable, carried onto the wire — see rail.ts's `decidable`). Not read
+  // Decidable, carried onto the wire — see tabs.ts's `decidable`). Not read
   // by anything in THIS file; added so `this.suggestions` (web/appshell.ts)
   // can be typed as `SuggestionLike[]` and still be filtered by `decidable`
   // without a second, narrower shape standing in for the same wire entry.

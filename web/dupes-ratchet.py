@@ -6,7 +6,7 @@ against a ceiling.
 
 THE 52 STANDING GROUPS ARE ALMOST ENTIRELY A DECISION. The overwhelming
 majority of the instances are in the NINE `.mjs` gate harnesses — loop,
-layers, preflight, typing, probe, rounds-ux, page, align, and now
+layers, typing, probe, rounds-ux, page, align, and now
 livestructure — and those are deliberately standalone with no cross-file
 imports: each boots its own server, builds its own fixture and carries its own
 assertion helper.
@@ -102,7 +102,7 @@ print(
 KNOWN = {
     "loop.mjs",
     "layers.mjs",
-    "preflight.mjs",
+    "switcher.mjs",
     "typing.mjs",
     "probe.mjs",
     "rounds-ux.mjs",

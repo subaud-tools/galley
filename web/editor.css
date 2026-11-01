@@ -797,8 +797,7 @@
 .gly-bubble button[disabled],
 .gly-card button[disabled],
 .gly-composer button[disabled],
-/* AND THE INSTRUCTION EDIT BOX, which joined SEALED_VERBS and did not join
-   this list. Measured by web/layers.mjs §8,
+.kit-rail-panel textarea[disabled],
 .gly-composer-text[disabled] {
   cursor: default;
   opacity: 0.55;
@@ -823,13 +822,13 @@
   --gly-rail-w: 320px;
   --gly-col-wide: 680px;
   /* GUTTER_PX, AND THE ONE SPELLING OF IT IN THIS FILE. It was the literal
-     `26px` in six rules and imported into none, while `rail.ts` exported the
+     `26px` in six rules and imported into none, while `tabs.ts` exported the
      constant and `just layers` §9 measured every card's left edge against it —
      so the number the check believes and the number the browser paints agreed
      only by everyone remembering. A stylesheet cannot import a JS constant;
      what it can do is spell it once, which is what makes the two a PAIR that a
      reader can see rather than six that a reader has to find. Change it here
-     and in rail.ts's GUTTER_PX together — §9 fails if they disagree, which is
+     and in tabs.ts's GUTTER_PX together — §9 fails if they disagree, which is
      the whole reason that check measures against the rail's own box. */
   --gly-rail-gutter: 26px;
   /* THE RAIL'S OWN RIGHT PADDING, AND IT IS HALF OF A CARD'S WIDTH.
@@ -848,12 +847,12 @@
      one. Change it here and both readers move together. */
   --gly-rail-pad: 16px;
   /* RAIL_GAP, AND IT IS THE SAME PAIRING GUTTER_PX IS — one distance between
-     two cards in a column, spelled once here and once in rail.ts, because a
+     two cards in a column, spelled once here and once in tabs.ts, because a
      stylesheet cannot import a JS constant and the honest answer to that is a
      pair a reader can SEE rather than six copies a reader has to find.
 
      IT IS 10 AND IT USED TO BE 12 HERE. `versions.js` carried `CARD_GAP = 12`
-     — History's own name for the number `rail.ts` had called `RAIL_GAP = 10`
+     — History's own name for the number `tabs.ts` had called `RAIL_GAP = 10`
      since the instruction rail was built — and the collapse of those two
      columns into one deleted the JS copy in favour of 10. The stylesheet kept
      12 at three sites for the same column, so the number the stacker places by
@@ -1261,7 +1260,7 @@ body:not(.gly-page) .kit-card-body > main {
 /* THE THREE BOXES A COMMENT IS TYPED INTO ARE ONE DESIGN: the whole-document
    box, the selected-text composer and the edit box. One type, one padding, so
    five rows (each box's `rows`) open them at one height; and one cap, half the
-   window, past which the box scrolls. `growOnInput` (web/rail.ts) writes the
+   window, past which the box scrolls. `growOnInput` (web/tabs.ts) writes the
    height from what is typed and reads this cap back, so the number lives
    here once. `box-sizing` because the height written is the border box's, and
    a content box would add the padding twice. Each box keeps its own radius and
@@ -2267,7 +2266,7 @@ body.gly-history-mode .kit-card-body > main {
    spelling of that number and cannot be anything else: a media query cannot
    read a custom property, let alone a module export. What it can do is say so.
    The three literal 992/991s left in this file are all of that kind, and each
-   sits beside a comment naming rail.ts's constant as the one to change with
+   sits beside a comment naming tabs.ts's constant as the one to change with
    it. A comment teaching a rule the code stopped following is worse than no
    comment, which is why this one was rewritten rather than left. */
 @media (max-width: 991px) {
