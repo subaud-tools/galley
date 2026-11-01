@@ -42,17 +42,16 @@ const REFUSAL_DWELL_MS = 1500;
 /** How much of the anchor the composer's head quotes. A BOUND, and said out
  * loud to be one: the head is one line of chrome in the mono voice, and a
  * reviewer who selects a whole paragraph would otherwise get the paragraph
- * back in 10px capitals above the box they are typing in. 48 is what fits the
- * composer's own 21rem form at that size with room for the fixed words either
- * side. MEASURED, not derived: the head renders at 6.96px per character in this
- * stack, so 336px of form holds 48 of them, and `INSTRUCTION · ON ""` spends 19
- * — which leaves 28 for the quote. The first cut of this said 36 on an
- * estimated character width and the head overflowed by 47px; `rounds-ux.mjs`
- * reads `scrollWidth` against `clientWidth` on a deliberately over-long anchor,
- * which is what caught it. Retune it WITH the head's type or the form's width,
+ * back in 10px capitals above the box they are typing in. MEASURED, not
+ * derived, against the box the head is drawn in: since the composer moved into
+ * the Instructions tab that box is 316px, and on CI's Linux fonts a 28-character
+ * quote drew 327px in it (the Mac's narrower fonts fitted it, which is how 28
+ * survived the move). 25 leaves room on both. `rounds-ux.mjs` reads
+ * `scrollWidth` against `clientWidth` on a deliberately over-long anchor, which
+ * is what caught it, twice. Retune it WITH the head's type or the box's width,
  * never on its own: a bound stated against a specific pair is a bound that lies
  * the moment either of them moves. */
-const COMPOSER_QUOTE_CHARS = 28;
+const COMPOSER_QUOTE_CHARS = 25;
 
 /** The same box, headed by a block grip: `INSTRUCTION · ON THE SECTION "…"`
  * spends the twelve characters of `the section ` before the quote, so the
