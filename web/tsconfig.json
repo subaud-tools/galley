@@ -50,6 +50,9 @@
     "moduleResolution": "bundler",
     "lib": ["es2020", "dom", "dom.iterable"],
 
+    // The kit is served at /_kit/ and stays out of the bundle; this is its types.
+    "paths": { "/_kit/kit.js": ["./kit/kit.d.ts"] },
+
     // A MOVED FILE'S IMPORTERS SPELL `.ts`, AND `tsc` HAS TO BE TOLD THAT IS
     // ALLOWED. Node's own ESM resolver does not guess extensions — the
     // harnesses run `.mjs` files straight with plain `node`, with no bundler

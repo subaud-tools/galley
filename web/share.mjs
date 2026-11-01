@@ -1,18 +1,14 @@
-// share.mjs — SHARE TAKES REVISE'S SLOT, AND NOTHING ELSE ON THE BAR MOVES.
+// share.mjs — AFTER APPROVAL THE SEND BAR HOLDS SHARE.
 //
-// After approval the reviewer hands the document to a reader. The bar's
-// primary slot, which Revise leaves when the review seals, shows `Share ▾`
-// instead; its menu downloads the branded HTML or the Markdown, and on macOS
-// puts either file on the clipboard to paste as an attachment. The bar's
-// `HTML preview ↗` button opens the same rendered page while the review is
-// live.
+// After approval the reviewer hands the document to a reader. Revise leaves the
+// send bar when the review seals, and `Share ▾` is there instead; its menu
+// downloads the branded HTML or the Markdown, and on macOS puts either file on
+// the clipboard to paste as an attachment. The send bar's `HTML preview ↗` button
+// opens the same rendered page while the review is live.
 //
 // What only a browser can see, and so what this gate measures:
 //
-//   · Share's box is Revise's box, to the pixel, and every bar control still
-//     on screen after the seal is where it was before it.
-//   · History, HTML preview, the verdict and Share are one width, and every
-//     visible bar button is one height.
+//   · Share is on the send bar after the seal, and Revise is not.
 //   · The menu's items, verbatim and in order: the two downloads everywhere,
 //     the two Shares on macOS only.
 //   · Download HTML and Download Markdown are downloads named doc.html and
@@ -167,44 +163,6 @@ async function open(url) {
   return page;
 }
 
-// Every bar control a reviewer can see, by a key that survives the seal, with
-// its box.
-const barBoxes = (page) =>
-  page.evaluate(() => {
-    const out = {};
-    const all = document.querySelectorAll(
-      '.gly-bar button, .gly-bar a, .gly-bar .gly-doc-name',
-    );
-    all.forEach((el, i) => {
-      const r = el.getBoundingClientRect();
-      if (r.width === 0 && r.height === 0) return;
-      if (getComputedStyle(el).visibility === 'hidden') return;
-      const key = el.id || `${el.className}#${i}`;
-      out[key] = { x: r.x, y: r.y, w: r.width, h: r.height };
-    });
-    return out;
-  });
-// Every bar BUTTON a reviewer can see, with its box: the height check's set.
-const barButtonBoxes = (page) =>
-  page.evaluate(() => {
-    const out = {};
-    document.querySelectorAll('.gly-bar button').forEach((el, i) => {
-      const r = el.getBoundingClientRect();
-      if (r.width === 0 && r.height === 0) return;
-      if (getComputedStyle(el).visibility === 'hidden') return;
-      out[el.id || `${el.className}#${i}`] = { w: r.width, h: r.height };
-    });
-    return out;
-  });
-const boxOf = (page, sel) =>
-  page.evaluate((s) => {
-    const el = document.querySelector(s);
-    if (!el) return null;
-    const r = el.getBoundingClientRect();
-    return { x: r.x, y: r.y, w: r.width, h: r.height };
-  }, sel);
-const same = (a, b) =>
-  !!a && !!b && ['x', 'y', 'w', 'h'].every((k) => Math.abs(a[k] - b[k]) <= 1);
 const shareVisible = (page) =>
   page.evaluate(() => {
     const el = document.querySelector('.gly-share');
@@ -286,20 +244,21 @@ async function statusSays(page, want) {
     !(await shareVisible(page)),
   );
   const preview = await page.evaluate(() => {
-    const b = document.querySelector('.gly-bar .gly-preview-open');
+    const b = document.querySelector('.kit-sendbar .gly-preview-open');
     if (!b) return null;
-    const bar = [...document.querySelectorAll('.gly-bar > *')];
+    const before = (x, y) =>
+      !!x &&
+      !!y &&
+      !!(x.compareDocumentPosition(y) & Node.DOCUMENT_POSITION_FOLLOWING);
     return {
       text: b.textContent,
       shown: b.getBoundingClientRect().width > 0,
-      afterMode:
-        bar.indexOf(b) > bar.indexOf(document.querySelector('.gly-mode')),
-      beforeRevise:
-        bar.indexOf(b) < bar.indexOf(document.getElementById('gly-revise')),
+      afterMode: before(document.querySelector('.gly-mode'), b),
+      beforeRevise: before(b, document.getElementById('gly-revise')),
     };
   });
   check(
-    'the bar carries the HTML preview button, between the mode toggle and Revise',
+    'the send bar carries the HTML preview button, between the mode toggle and Revise',
     !!preview &&
       preview.text === PREVIEW_LABEL &&
       preview.shown &&
@@ -314,7 +273,7 @@ async function statusSays(page, want) {
       calls.push(a);
       return null;
     };
-    document.querySelector('.gly-bar .gly-preview-open')?.click();
+    document.querySelector('.kit-sendbar .gly-preview-open')?.click();
     window.open = real;
     return calls;
   });
@@ -335,57 +294,15 @@ async function statusSays(page, want) {
       { status: res.status },
     );
   }
-  const previewBefore = await boxOf(page, '.gly-preview-open');
-  const historyBefore = await boxOf(page, '.gly-versions-open');
-  const reviseBefore = await boxOf(page, '#gly-revise');
-  check(
-    'History, HTML preview and Revise share one width',
-    !!historyBefore &&
-      !!previewBefore &&
-      !!reviseBefore &&
-      Math.abs(historyBefore.w - previewBefore.w) <= 1 &&
-      Math.abs(reviseBefore.w - previewBefore.w) <= 1,
-    { historyBefore, previewBefore, reviseBefore },
-  );
-  {
-    const heights = Object.entries(await barButtonBoxes(page));
-    const h0 = heights[0]?.[1].h;
-    check(
-      'every visible bar button is one height',
-      heights.length > 1 && heights.every(([, b]) => Math.abs(b.h - h0) <= 1),
-      heights.map(([k, b]) => ({ k, w: b.w, h: b.h })),
-    );
-  }
-
-  const before = await barBoxes(page);
-  const revise = await boxOf(page, '#gly-revise');
   const approved = await approve(base);
   check('the approve was accepted', approved.ok, approved.status);
   await shareShown(page);
+  check('after approval the Share button is showing', await shareVisible(page));
   check(
-    'after approval the Share button is on the bar',
-    await shareVisible(page),
-  );
-  const share = await boxOf(page, '.gly-share');
-  const previewAfter = await boxOf(page, '.gly-preview-open');
-  check(
-    'the HTML preview button keeps its box across approval',
-    same(previewBefore, previewAfter),
-    { previewBefore, previewAfter },
-  );
-  check("Share occupies exactly Revise's box", same(share, revise), {
-    share,
-    revise,
-  });
-  const historyAfter = await boxOf(page, '.gly-versions-open');
-  check(
-    "Share's width is HTML preview's and History's",
-    !!share &&
-      !!previewAfter &&
-      !!historyAfter &&
-      Math.abs(share.w - previewAfter.w) <= 1 &&
-      Math.abs(share.w - historyAfter.w) <= 1,
-    { share, previewAfter, historyAfter },
+    'and it is on the send bar',
+    await page.evaluate(
+      () => !!document.querySelector('.kit-sendbar .gly-share'),
+    ),
   );
   const label = await page.evaluate(
     () => document.querySelector('.gly-share')?.textContent || '',
@@ -404,17 +321,7 @@ async function statusSays(page, want) {
     const el = document.getElementById('gly-revise');
     return !el || el.getBoundingClientRect().width === 0;
   });
-  check('Revise has left the slot', reviseGone);
-  const after = await barBoxes(page);
-  const moved = Object.keys(after)
-    .filter((k) => k in before && !k.includes('gly-share'))
-    .filter((k) => !same(before[k], after[k]))
-    .map((k) => ({ k, before: before[k], after: after[k] }));
-  const kept = Object.keys(after).filter((k) => k in before);
-  check('no other bar control moved', moved.length === 0 && kept.length > 0, {
-    moved,
-    kept,
-  });
+  check('Revise has left the send bar', reviseGone);
 
   await page.click('.gly-share', { timeout: 5000 }).catch(() => {});
   const items = await menuItems(page);

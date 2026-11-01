@@ -482,7 +482,6 @@ check(
 // --- §4 Revise, the agent revises content.md, the page re-renders --------
 
 await page.click('#gly-revise');
-await page.click('.gly-verdict-menu .gly-verdict-revise');
 
 const woke = await heard('woke', 20000);
 check(

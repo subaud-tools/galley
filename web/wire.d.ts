@@ -98,6 +98,13 @@ export interface ChangeView {
   note?: string;
 }
 
+export interface PageView {
+  id: string;
+  name: string;
+  folder: string;
+  state: string;
+}
+
 export interface BlockRef {
   key: string;
   kind: string;

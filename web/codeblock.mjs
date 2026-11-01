@@ -28,15 +28,14 @@
 //
 //   SEND FILES A BLOCK THREAD — exactly one pending instruction, `anchor:
 //   "block"`, `blockKind: "codeBlock"`, `anchorKey` equal to the fence's own
-//   key in the server's block list, and a card in the rail carrying that key,
-//   labelled with the block, sitting BESIDE the fence rather than parked in the
-//   anchorless region at the rail's foot.
+//   key in the server's block list, and a row in the Instructions tab carrying
+//   that key, labelled with the block, not marked as having lost its place.
 //
 //   IT ROUND-TRIPS THROUGH THE FILES — the file holds the comment's ID mark,
 //   `{>>@comment cb-…<<}`, immediately after the fence and NOT its words; the
 //   unsent round, pending.json, holds the words. Both are still there after
 //   the server is stopped, and when `galley edit` is opened on the document
-//   again the card is back beside the fence with the same words. A thread that
+//   again the row is back, on the fence, with the same words. A thread that
 //   lives only in a session is not a thread that survives a round.
 //
 // Running it:
@@ -66,12 +65,7 @@ const GALLEY = process.env.GALLEY || 'bin/galley';
 // bind again a second later, which is exactly the shape that makes a run
 // intermittently talk to a socket the kernel has not finished releasing.
 
-// THE FIXTURE. A heading, prose, ONE top-level fence, prose — the fence sits a
-// couple of hundred pixels down the page on purpose, so the rail card's
-// placement beside it is a real measurement rather than one satisfied by the
-// band's own top (see stackCards: a card at a mark in the first paragraph is
-// held down to the band's ceiling, and a fence up there would let a wrongly
-// anchored card pass).
+// THE FIXTURE. A heading, prose, ONE top-level fence, prose.
 const COMMAND = 'npm install -g galley';
 const FENCE = '```bash\n' + COMMAND + '\ngalley edit README.md\n```';
 const PROSE = 'The installer is short, and a reviewer reads it before running.';
@@ -83,7 +77,7 @@ const FIXTURE =
   '\n\nThat is the whole of it, and nothing else is required.\n';
 
 // The reviewer's ask. It is never quoted back by the head — a block note has no
-// phrase — so this string appears in the pending view, the card and the file,
+// phrase — so this string appears in the pending view, the row and the file,
 // and nowhere else.
 const ASKED = 'use pnpm here, and say why in a comment above it';
 
@@ -146,9 +140,6 @@ process.on('exit', () => {
 });
 
 const chromePath = process.env.GALLEY_CHROME;
-// Wide enough that the rail is beside the document rather than under it — the
-// card's placement beside the fence is one of the claims, and a narrow window
-// folds the rail away where there is nothing to measure.
 const VIEWPORT = { width: 1400, height: 1000 };
 
 // open drives a fresh page against a running server and hands back the page and
@@ -228,6 +219,20 @@ check(
 // NO HOVER IS ISSUED before the read. The pointer is parked in the corner: a
 // grip that needs the pointer over the fence to appear is a grip nobody finds.
 
+// One draft's row in the Instructions tab, as the reviewer reads it.
+const ROW = '.gly-tab [data-draft-id]';
+const readRow = (on) =>
+  on.evaluate((sel) => {
+    const el = document.querySelector(sel);
+    return {
+      rows: document.querySelectorAll(sel).length,
+      key: el ? el.dataset.draftId : '',
+      head: el ? el.querySelector('.kit-draft-quote').textContent : '',
+      words: el ? el.querySelector('textarea').value : '',
+      adrift: el ? /words were removed/.test(el.textContent) : true,
+    };
+  }, ROW);
+
 const FENCE_GRIP = `.gly-block-grip[data-index="${ref ? ref.index : -1}"]`;
 await page.mouse.move(0, 0);
 {
@@ -302,11 +307,9 @@ await page.waitForTimeout(400);
 
 // --- §4 the grip opens the composer in BLOCK mode -----------------------
 //
-// ESC FIRST, AND IT IS PART OF THE CLAIM. The deny popover is placed under the
-// refused selection and lands ON the fence, so the reviewer's way out of a
-// refusal has to be the way in to the grip: `esc cancels`, the whisper the
-// composer prints beside its own cancel. Without it the pointer never reaches
-// the block again — measured, as a 30s hover timeout.
+// ESC FIRST, AND IT IS PART OF THE CLAIM. The reviewer's way out of a refusal has
+// to be the way in to the grip: `esc cancels`, the whisper the composer prints
+// beside its own cancel.
 await page.keyboard.press('Escape');
 await page.waitForFunction(
   () => document.querySelector('.gly-composer').hidden,
@@ -342,9 +345,6 @@ check(
       head: el('.gly-composer-head').innerText,
       send: el('.gly-composer-send').disabled,
       block: window.galleyEdit.app.composer.block,
-      below:
-        Math.round(el('.gly-composer').getBoundingClientRect().top) >=
-        Math.round(el('.ProseMirror pre').getBoundingClientRect().top),
     };
   });
   check(
@@ -358,8 +358,8 @@ check(
     opened,
   );
   check(
-    'and it is aimed at the fence\u2019s own block key, clear of the block it is about',
-    !!opened.block && opened.block.key === ref.key && opened.below,
+    'and it is aimed at the fence\u2019s own block key',
+    !!opened.block && opened.block.key === ref.key,
     opened,
   );
 }
@@ -368,7 +368,7 @@ check(
 
 await page.fill('.gly-composer-text', ASKED);
 await page.click('.gly-composer-send');
-await page.waitForSelector('.gly-rail-band .gly-thread', { timeout: 10000 });
+await page.waitForSelector(ROW, { timeout: 10000 });
 await page.waitForTimeout(600);
 
 // NOTHING SELECTS THE WHOLE FENCE AFTER THE SEND. A grip that selected its
@@ -421,46 +421,16 @@ const filed = await pendingOn(first);
     { quote: one && one.quote, label: ref.label, region: one && one.region },
   );
 
-  const card = await page.evaluate(() => {
-    const el = document.querySelector('.gly-rail-band .gly-thread');
-    const pre = document.querySelector('.ProseMirror pre');
-    return {
-      cards: document.querySelectorAll('.gly-rail-band .gly-thread').length,
-      key: el ? el.dataset.key : '',
-      head: el ? el.querySelector('.gly-card-head').textContent : '',
-      said: el
-        ? Array.from(el.querySelectorAll('.gly-thread-entry p')).map(
-            (p) => p.textContent,
-          )
-        : [],
-      adrift: el ? el.classList.contains('gly-adrift') : true,
-      // Both in viewport coordinates in the same frame: the card is placed at
-      // its anchor's document top, so beside the fence means the same number.
-      offset:
-        el && pre
-          ? Math.round(
-              el.getBoundingClientRect().top - pre.getBoundingClientRect().top,
-            )
-          : null,
-    };
-  });
+  const row = await readRow(page);
   check(
-    'a card is in the rail carrying that thread and the reviewer\u2019s words',
-    card.cards === 1 &&
-      !!one &&
-      card.key === one.key &&
-      card.said.length === 1 &&
-      card.said[0] === ASKED,
-    card,
+    'a row is in the Instructions tab carrying that thread and the reviewer\u2019s words',
+    row.rows === 1 && !!one && row.key === one.key && row.words === ASKED,
+    row,
   );
   check(
-    'and it is ANCHORED TO THE BLOCK \u2014 labelled with it, beside it, not adrift',
-    !card.adrift &&
-      card.head.includes(ref.label.slice(0, 12)) &&
-      card.offset !== null &&
-      card.offset > -12 &&
-      card.offset < 140,
-    { ...card, label: ref.label },
+    'and it is ANCHORED TO THE BLOCK \u2014 labelled with it, its place not lost',
+    !row.adrift && row.head.includes(ref.label.slice(0, 12)),
+    { ...row, label: ref.label },
   );
 }
 
@@ -524,9 +494,7 @@ browser = await launchOrSkip({
   ...(chromePath ? { executablePath: chromePath } : {}),
 });
 const reopened = await open(second);
-await reopened.waitForSelector('.gly-rail-band .gly-thread', {
-  timeout: 10000,
-});
+await reopened.waitForSelector(ROW, { timeout: 10000 });
 
 {
   const view = await pendingOn(second);
@@ -544,25 +512,15 @@ await reopened.waitForSelector('.gly-rail-band .gly-thread', {
       one.anchorKey === again.key,
     { one, again },
   );
-  const card = await reopened.evaluate(() => {
-    const el = document.querySelector('.gly-rail-band .gly-thread');
-    return {
-      cards: document.querySelectorAll('.gly-rail-band .gly-thread').length,
-      head: el ? el.querySelector('.gly-card-head').textContent : '',
-      entries: el ? el.querySelectorAll('.gly-thread-entry').length : 0,
-      words: (el && el.querySelector('.gly-thread-entry p')?.textContent) || '',
-      adrift: el ? el.classList.contains('gly-adrift') : true,
-    };
-  });
+  const row = await readRow(reopened);
   check(
-    'and the reviewer sees the same card in the rail, still on the block, with the same words',
-    card.cards === 1 &&
-      !card.adrift &&
-      card.entries === 1 &&
-      card.words === ASKED &&
+    'and the reviewer sees the same row in the tab, still on the block, with the same words',
+    row.rows === 1 &&
+      !row.adrift &&
+      row.words === ASKED &&
       !!again &&
-      card.head.includes(again.label.slice(0, 12)),
-    { ...card, label: again && again.label },
+      row.head.includes(again.label.slice(0, 12)),
+    { ...row, label: again && again.label },
   );
 }
 

@@ -43,7 +43,6 @@
 // header for what the second spelling of each of them cost. `stackCards` is the
 // same arithmetic `paintAnchors` uses; the card anatomy and the reveal are the
 // same ones a thread card wears.
-import { RAIL_MIN_WIDTH } from './rail.ts';
 import {
   cardShell,
   cardBody,
@@ -65,6 +64,10 @@ import {
 // its own words; describing it twice is how the two copies come to disagree.
 import type { RoundView, ChangeView, DiffView, VersionsView } from './wire';
 import { apiUrl, routes } from './net.ts';
+
+// Below this History's rail sits under the paper, not beside it. Pixels: the
+// stylesheet's media query is the same number in the same unit.
+const RAIL_MIN_WIDTH = 992;
 
 // An ARRIVAL is NOT a round, and this interface is the place that says so. It
 // is assembled in the browser from `GET /_galley/revise` — which carries the
@@ -153,7 +156,7 @@ const RESTORE_ARMED = 'replace draft?';
 const RESTORE_BUSY = 'restoring…';
 
 // `CARD_GAP = 12` WAS HERE, AND IT IS DELETED. It was this rail's own name for
-// the number `RAIL_GAP` has been in rail.ts since the instruction rail was
+// the number `RAIL_GAP` has been in tabs.ts since the instruction rail was
 // built, and the two disagreed by two pixels for no reason anybody chose —
 // which is the whole shape of this file's relationship to that one before
 // 2026-08-20. One stack, one gap, imported above.
@@ -697,8 +700,10 @@ export class VersionsPanel {
     body.append(this.paper, this.rail);
 
     root.append(sub, body);
-    // In body, never inside the editable node. See the header.
-    document.body.appendChild(root);
+    // In the centre card, never inside the editable node. See the header.
+    (document.querySelector('.kit-card-body') ?? document.body).appendChild(
+      root,
+    );
     this.root = root;
     this.sub = sub;
     this.body = body;
@@ -992,7 +997,7 @@ export class VersionsPanel {
 
   paintRail(): void {
     // The observer is holding cards this line is about to destroy — see
-    // `unwatchCards`, and `paintRail` in entry.ts, which is the same rebuild
+    // `unwatchCards`, and `paintTabs` in tabs.ts, which is the same rebuild
     // with the same hazard. `this.cards` goes with them: it is the container
     // `stack` and `paintPick` reach through, and a stale handle to a detached
     // node is a write nobody sees.

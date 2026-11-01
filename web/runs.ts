@@ -82,7 +82,7 @@ export function markElement(
 
 // --- reaching a run's position, for whoever needs one ---
 //
-// runTop has two callers that do not know about each other: cards.ts places
+// runTop has two callers that do not know about each other: card.ts places
 // an instruction card beside its run, and pending.ts asks the same question
 // to decide whether an arrival needs the strip. Neither owns the answer, so
 // it lives here instead of travelling with either.

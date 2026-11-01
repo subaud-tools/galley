@@ -1,0 +1,10 @@
+/* tools.css — galley's colours, as the inputs the kit takes. The same values as
+   editor.css's --gly-signal, so the kit's parts and the editor's agree. */
+:root {
+  --tool-signal-light: #146e85;
+  --tool-signal-dark: #5fb6c9;
+  --tool-signal-ink-light: #ffffff;
+  --tool-signal-ink-dark: #10141b;
+  --tool-agent-light: #b06f14;
+  --tool-agent-dark: #eba63f;
+}

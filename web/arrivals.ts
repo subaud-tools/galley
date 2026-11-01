@@ -6,7 +6,7 @@
 // the entire difference between a co-author and an interruption.
 //
 // Nothing here touches the DOM or the network, for the same reason nothing in
-// rail.ts does: the decisions are over plain values, probe.mjs drives every one
+// tabs.ts does: the decisions are over plain values, probe.mjs drives every one
 // of them with no browser, and the DOM half in entry.ts only renders what it is
 // told and starts the fade.
 
@@ -15,11 +15,11 @@
 // server's decidability answer that had no rule at all — it paired a
 // revision's runs against the whole pending list with no kind filter, and a
 // comment's run went into POST /_galley/accept. That is why
-// `suggest.Kind.Decidable` is carried onto the wire and why `rail.ts` exports
+// `suggest.Kind.Decidable` is carried onto the wire and why `tabs.ts` exports
 // `decidable` to read it. The card `batchRows` fed is deleted, so this module
 // no longer offers a verdict about anything — it announces, and announcing is
 // not offering. `decidable` is untouched and still governs every surface that
-// does offer one; see rail.ts.
+// does offer one; see tabs.ts.
 
 // The reviewer's own author name. Nothing of theirs is tracked any more (the
 // reviewer's-hand cut), so in practice every pending suggestion is the

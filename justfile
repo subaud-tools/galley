@@ -59,7 +59,7 @@ verify-extra: verify-web bundle-fresh
 # files, all copied from the module go.mod pins by the build: a copy that
 # disagrees with the pin is the same stale bundle.
 bundle-fresh: assets
-    git diff --exit-code -- internal/serve/assets/editor.js internal/serve/assets/editor.css internal/serve/assets/mermaid.js web/kit web/build web/mermaid-entry.ts \
+    git diff --exit-code -- internal/serve/assets/editor.js internal/serve/assets/editor.css internal/serve/assets/front.js internal/serve/assets/front.css internal/serve/assets/mermaid.js web/kit web/build web/mermaid-entry.ts \
       || { echo "the committed editor bundle does not match web/: run 'just assets' and commit the result"; exit 1; }
 
 # The browser gates (below): a real chromium, minutes, one at a time. Not in
@@ -283,7 +283,7 @@ dead-code: check-entries _web-deps
 # bound. The list is short enough to read and `just complexity-ratchet` prints
 # it on a red run — today it is trail.ts `apply`/`reanchor`/`settleEntries`/
 # `retractReverted`/`placeEmptyBlocks`, schemacheck.mjs `build`/`checkDrift`,
-# rail.ts `carryDrafts`, preflight.mjs `armLoop`/`anchor`, keys.ts `onKey`,
+# keys.ts `onKey`,
 # versions.ts `paintChanges`, bar.ts `paintReadout`. No per-function
 # inherent/accreted verdict is recorded anywhere in this repo any more (the
 # .superpowers/ assessment this comment used to cite is gone), so this does not
@@ -549,6 +549,7 @@ gates: build
     GALLEY="$PWD/bin/galley" node web/revise.mjs
     GALLEY="$PWD/bin/galley" node web/restart.mjs
     GALLEY="$PWD/bin/galley" node web/share.mjs
+    GALLEY="$PWD/bin/galley" node web/switcher.mjs
     cd web && GALLEY="$PWD/../bin/galley" node ./undo.mjs
 
 # Unwrap markdown prose. NOT part of `verify` — that gate is the Go binary,

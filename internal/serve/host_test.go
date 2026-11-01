@@ -2,11 +2,13 @@ package serve
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -439,5 +441,127 @@ func TestHostRenderPollsUnderTheBase(t *testing.T) {
 	base := "/api/docs/" + id
 	if _, page := f.get(t, base+"/_galley/render"); !strings.Contains(page, "fetch('"+base+"/_galley/saved'") {
 		t.Errorf("render does not poll %s/_galley/saved", base)
+	}
+}
+
+// pagesOf reads GET /api/pages as a page does: the cookie and nothing else.
+func pagesOf(t *testing.T, b *browser) (int, string, []PageView) {
+	t.Helper()
+	code, body := b.do(t, http.MethodGet, "/api/pages", "")
+	var views []PageView
+	if code == http.StatusOK {
+		if err := json.Unmarshal([]byte(body), &views); err != nil {
+			t.Fatalf("GET /api/pages: %v: %s", err, body)
+		}
+	}
+	return code, body, views
+}
+
+// The list a page can read says what each review is and where it stands, and
+// nothing a page under review could use: no owner, hook or path.
+func TestPagesHoldNoOwnerHookOrPath(t *testing.T) {
+	t.Setenv("GALLEY_HOME", t.TempDir())
+	r := startServe(t, Options{Sessions: presence(t, "session-secret"), Every: time.Hour})
+	doc := writeDoc(t, "doc.md", "# T\n\nHello.\n")
+	a := r.open(t, doc, DocOptions{Owner: "session-secret", OnRevise: "hook-secret", OnSettle: "settle-secret", Dir: filepath.Dir(doc)})
+
+	code, body, views := pagesOf(t, signIn(t, r))
+	if code != http.StatusOK {
+		t.Fatalf("GET /api/pages with the cookie = %d: %s", code, body)
+	}
+	want := []PageView{{ID: a.ID, Name: "doc.md", Folder: filepath.Base(filepath.Dir(doc)), State: PageWithYou}}
+	if !slices.Equal(views, want) {
+		t.Fatalf("pages = %+v, want %+v", views, want)
+	}
+	for _, secret := range []string{"session-secret", "hook-secret", "settle-secret", filepath.Dir(filepath.Dir(doc))} {
+		if strings.Contains(body, secret) {
+			t.Errorf("the pages view holds %q: %s", secret, body)
+		}
+	}
+}
+
+// The cookie reads the list and still opens nothing.
+func TestPagesTakeTheCookieWhilePostDocsRefusesIt(t *testing.T) {
+	t.Setenv("GALLEY_HOME", t.TempDir())
+	r := startServe(t, Options{Sessions: presence(t), Every: time.Hour})
+	writeDocAt := writeDoc(t, "doc.md", "# T\n")
+	b := signIn(t, r)
+	if code, body, _ := pagesOf(t, b); code != http.StatusOK {
+		t.Fatalf("GET /api/pages with the cookie = %d: %s", code, body)
+	}
+	raw, err := json.Marshal(OpenRequest{Path: writeDocAt})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code, body := b.do(t, http.MethodPost, "/api/docs", string(raw)); code != http.StatusForbidden {
+		t.Fatalf("POST /api/docs with the cookie = %d, want 403: %s", code, body)
+	}
+}
+
+// A review is with the reader, then with the agent while a Revise is out, then
+// approved once sealed.
+func TestPagesSayWhereEachStands(t *testing.T) {
+	h := NewHost()
+	t.Cleanup(func() { _ = h.closeAll() })
+	id, err := h.Open(writeDoc(t, "doc.md", "# T\n"), DocOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := func() string { return h.Pages()[0].State }
+	if got := state(); got != PageWithYou {
+		t.Fatalf("a new review stands %q, want %q", got, PageWithYou)
+	}
+	d, _ := h.doc(id)
+	d.server.reviseMu.Lock()
+	d.server.watch = &reviseWatch{at: time.Now()}
+	d.server.reviseMu.Unlock()
+	if got := state(); got != PageWithAgent {
+		t.Fatalf("with a Revise out it stands %q, want %q", got, PageWithAgent)
+	}
+	d.server.reviseMu.Lock()
+	d.server.watch = nil
+	d.server.reviseMu.Unlock()
+	d.server.seal("approve", 0)
+	if got := state(); got != PageApproved {
+		t.Fatalf("sealed it stands %q, want %q", got, PageApproved)
+	}
+}
+
+// A change to the list reaches the open pages as a `pages` event, once.
+func TestPagesEventFollowsAChange(t *testing.T) {
+	t.Setenv("GALLEY_HOME", t.TempDir())
+	r := startServe(t, Options{Sessions: presence(t), Every: 10 * time.Millisecond})
+	b := signIn(t, r)
+	r.open(t, writeDoc(t, "doc.md", "# T\n"), DocOptions{})
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		_, body := b.do(t, http.MethodGet, "/api/poll?tab=t1&page=", "")
+		if strings.Count(body, `"pages"`) == 1 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no one pages event after an open: %s", body)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// The front page and the kit are served at the root, with no token.
+func TestPagesFrontPageAndKitAreAtTheRoot(t *testing.T) {
+	t.Setenv("GALLEY_HOME", t.TempDir())
+	r := startServe(t, Options{Sessions: presence(t), Every: time.Hour})
+	for path, want := range map[string]string{"/": "/front.js", "/_kit/kit.js": "export", "/front.js": "/_kit/kit.js"} {
+		resp, err := http.Get(r.base + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, err := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), want) {
+			t.Errorf("GET %s = %s, want %q in it", path, resp.Status, want)
+		}
 	}
 }

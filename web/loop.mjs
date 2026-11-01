@@ -71,7 +71,7 @@
 //   somebody else's write, staged here as three agent writes landing under a
 //   textarea with a caret at offset 9. Edit mode has no reply box: an
 //   instruction card is a head, the reviewer's one sentence and a two-step
-//   delete (read `.gly-rail` on a live page and see), `/_galley/reply` and
+//   delete, `/_galley/reply` and
 //   `/_galley/resolve` are review-mode routes only, and `draftFields()` finds
 //   nothing to carry. Five checks.
 //
@@ -608,34 +608,27 @@ check(
 // two-sided one and a reply box appearing here would be the product quietly
 // growing a conversation back.
 //
-// ONE SIDE IS THE CLAIM, AND IT IS NOT THE SAME CLAIM AS ONE VERB — this check
-// asserted both under one name and the second half went stale the day the rail
-// gained `edit`. A reviewer's own words must be revisable, so an instruction
-// card carries edit at settle weight and delete at destroy weight; what would
-// mean the conversation had grown back is a REPLY BOX (`reply === false`) and a
-// second speaker in `said`, both of which are still asserted exactly. The verbs
-// are pinned as a pair rather than by count so that a third one arriving is a
-// decision somebody has to come here and make.
+// ONE SIDE IS THE CLAIM. A reviewer's own words must be revisable, so a row holds
+// them in its one box with Delete beside it; what would mean the conversation had
+// grown back is a second box or a second speaker, both asserted exactly. The verb
+// is pinned so that another one arriving is a decision somebody has to come here
+// and make.
 const railCard = await page.evaluate(() => {
-  const el = document.querySelector('.gly-rail-band .gly-thread');
+  const el = document.querySelector('.gly-tab [data-draft-id]');
   if (!el) return null;
   return {
-    said: Array.from(el.querySelectorAll('.gly-thread-entry p')).map(
-      (p) => p.textContent,
-    ),
-    reply: !!el.querySelector('[data-draft]'),
-    verbs: Array.from(el.querySelectorAll('.gly-card-actions button')).map(
-      (b) => (b.firstChild ? b.firstChild.textContent : '').trim(),
+    said: Array.from(el.querySelectorAll('textarea')).map((t) => t.value),
+    verbs: Array.from(el.querySelectorAll('button:not(.kit-draft-quote)')).map(
+      (b) => b.textContent.trim(),
     ),
   };
 });
 check(
-  'and it is a card in the rail carrying ONE side — an instruction is not a conversation',
+  'and it is a row in the Instructions tab carrying ONE side — an instruction is not a conversation',
   !!railCard &&
     railCard.said.length === 1 &&
     railCard.said[0] === REVIEWER_ASKED &&
-    railCard.reply === false &&
-    JSON.stringify(railCard.verbs) === JSON.stringify(['edit', 'delete']),
+    JSON.stringify(railCard.verbs) === JSON.stringify(['Delete']),
   railCard,
 );
 
@@ -653,14 +646,8 @@ check(
 
 // --- §3 Revise, and the agent is handed the round ------------------------
 
-// WITH WORK PENDING THE PRESS DISCLOSES, IT DOES NOT POST (the verdict
-// button's two exits — see verdict.ts's askRevise). This file predated that menu
-// and clicked once, which opened the disclosure and woke nobody: the agent's
-// two-minute backstop expired and every later section died on a null run. The
-// plain revise is the menu's first exit, so the reviewer's gesture is the two
-// clicks it really is.
+// Revise is the kit's Send on the send bar: the press is the send.
 await page.click('#gly-revise');
-await page.click('.gly-verdict-menu .gly-verdict-revise');
 
 const woke = await heard('woke', 20000);
 check(
