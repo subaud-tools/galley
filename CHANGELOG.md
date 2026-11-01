@@ -2,6 +2,14 @@
 
 Newest first. Notes for releases up to 0.10.2 are on the GitHub releases page: https://github.com/subaud-tools/galley/releases
 
+## 0.25.0
+
+- galley's page is built from the family's page kit, as diazo's is. A front page lists your open reviews by folder with where each stands, and the top bar switches between them.
+- Your instructions are in the right-hand column: the Instructions tab holds this round's instructions and your hand edits, each editable or revertible in place, and the Chat tab holds what you've said about the whole document, each Revise you sent and the agent's answer. The cards beside the text are gone.
+- Revise is on the send bar at the foot of the document, with the count of what it sends and Discard drafts. The rounds are on a track above the document, and a finished round opens History at that round. Approve is the top bar's one button.
+- An edit you made just before pressing Revise goes with that Revise, and words in the Chat box are kept if sending them fails. Leaving a review with words not yet sent asks first.
+- The window is a desktop layout: below about 1080px it scrolls sideways.
+
 ## 0.24.0
 
 - galley's server takes its kept token, new-install check and open-tab list from the family's shared server (tools-common 0.45.0), and its channel is the shared one. Nothing on the page changes, and the token and open documents carry over.
