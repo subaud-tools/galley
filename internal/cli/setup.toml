@@ -1,0 +1,15 @@
+[kempt]
+spec = 2
+
+[[packages.integration.json-merge]]
+file = "~/.claude/settings.json"
+merge = { extraKnownMarketplaces = { subaud-tools = { source = { source = "github", repo = "subaud-tools/plugins" }, autoUpdate = true } }, enabledPlugins = { "galley@subaud-tools" = true } }
+remove = ["extraKnownMarketplaces.galley", "enabledPlugins.galley@galley"]
+
+[[packages.integration.json-merge]]
+file = "~/.pi/agent/channels.json"
+merge = { channelServers = { galley = { command = "galley", args = ["channel", "--scope", "."] } } }
+
+[[packages.integration.json-merge]]
+file = "~/.claude.json"
+remove = ["mcpServers.galley"]
