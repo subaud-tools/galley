@@ -129,6 +129,8 @@ import { keyMethods } from './keys.ts';
 import { pendingMethods } from './pending.ts';
 import { tabMethods } from './tabs.ts';
 import { composerMethods, holdsWords } from './composer.ts';
+import { messagePill } from './kit/dom.js';
+import type { MessageState } from './kit/dom.js';
 import { figureMethods } from './figures.ts';
 import { historyMethods } from './history.ts';
 import { barMethods, MODE_ASK } from './bar.ts';
@@ -1103,7 +1105,7 @@ class App implements AppState {
     // the sealing edge (applySeal). See web/share.ts.
     this.shareMenu = null;
     this.share = this.makeShare();
-    // The rendered page's door, markdown reviews only, just before Revise.
+    // The rendered page's door, markdown reviews only, beside History.
     this.makePreview();
 
     // THE SEAL. Whether this review has ENDED, and how — read off
@@ -1707,7 +1709,9 @@ class App implements AppState {
 
   makeStrip() {
     const root = document.createElement('div');
-    root.className = 'gly-strip';
+    // A second cell of the bar's status slot: `.gly-msg` gives it the pill's
+    // colours and the one-line rules.
+    root.className = 'gly-msg gly-notice';
     root.hidden = true;
     // The strip is the only notice an off-screen arrival gets, so it has to
     // reach a screen reader too. polite, never assertive: interrupting what is
@@ -1716,7 +1720,7 @@ class App implements AppState {
     root.setAttribute('aria-live', 'polite');
 
     const text = document.createElement('span');
-    text.className = 'gly-strip-text';
+    text.className = 'gly-notice-text';
 
     // THE ONE FILLED VERB ON THE STRIP, and it is a DEEP LINK rather than a
     // scroll. Board 1e: the question a reviewer has the instant a round lands
@@ -1727,14 +1731,14 @@ class App implements AppState {
     // which answers the other question.
     const read = document.createElement('button');
     read.type = 'button';
-    read.className = 'gly-strip-read';
+    read.className = 'gly-notice-read';
     read.textContent = 'read changes';
     read.title = 'open this round in History, on what it changed';
     read.addEventListener('click', () => this.readChanges());
 
     const show = document.createElement('button');
     show.type = 'button';
-    show.className = 'gly-strip-show';
+    show.className = 'gly-notice-show';
     show.textContent = 'show me';
     show.title =
       'scroll to what arrived — the only thing on this strip that moves the page';
@@ -1746,7 +1750,7 @@ class App implements AppState {
     // looked at, and the amber is the only durable trace the arrival leaves.
     const dismiss = document.createElement('button');
     dismiss.type = 'button';
-    dismiss.className = 'gly-strip-dismiss';
+    dismiss.className = 'gly-notice-dismiss';
     dismiss.textContent = 'dismiss';
     dismiss.title = 'put this away — History stays marked until you read it';
     dismiss.addEventListener('click', () => this.hideStrip());
@@ -1754,11 +1758,11 @@ class App implements AppState {
     // Handoff §11, verbatim. It says both that this notice is about to go and
     // that the fact survives it, which is what makes fading acceptable.
     const fade = document.createElement('span');
-    fade.className = 'gly-strip-fade';
+    fade.className = 'gly-notice-fade';
     fade.textContent = ARRIVAL_SUFFIX;
 
     root.append(text, read, show, dismiss, fade);
-    document.body.appendChild(root);
+    document.getElementById('gly-drafts')?.after(root);
     return { root, text, read, show, dismiss, fade };
   }
 
@@ -1780,11 +1784,20 @@ class App implements AppState {
   // TAB ORDER as well as out of the paint. A button hidden in CSS is still a
   // button to the keyboard — this codebase learned that from the fold clusters
   // and pays for it every time it forgets.
-  showStrip(message: string, round: Arrival | null = null) {
+  //
+  // `pill` is the state an arrived round's words sit beside (`answered`).
+  showStrip(
+    message: string,
+    round: Arrival | null = null,
+    pill: MessageState | null = null,
+  ) {
     if (!message) {
       return;
     }
-    this.strip.text.textContent = message;
+    this.strip.text.replaceChildren(
+      pill ? messagePill(pill, message) : message,
+    );
+    this.strip.root.title = message;
     this.strip.read.hidden = !round;
     this.strip.dismiss.hidden = !round;
     this.strip.show.hidden = !!round;
@@ -1822,6 +1835,13 @@ class App implements AppState {
     // arrivals are still unseen, and `show me` is still how they are reached
     // once the strip has gone — through the card, or j/k, or the sheet.
     this.stripBatch = [];
+  }
+
+  // hideArrivedRound puts away an arrived round's notice, and only that.
+  hideArrivedRound() {
+    if (!this.strip.root.hidden && !this.strip.read.hidden) {
+      this.hideStrip();
+    }
   }
 
   // showMe is the ONE thing on this surface that moves the page, and it moves
@@ -2012,7 +2032,7 @@ class App implements AppState {
       document.documentElement.clientHeight || window.innerHeight || 0;
     const head = document.querySelector('.kit-bar');
     const top = head ? head.getBoundingClientRect().bottom : 0;
-    // The send bar sticks to the window's foot, and History hides it.
+    // The send bar is docked to the window's foot, and History hides it.
     const send = document.querySelector('.kit-sendbar');
     const sendTop = send ? send.getBoundingClientRect().top : 0;
     const floor = sendTop > 0 && sendTop < view ? sendTop : view;

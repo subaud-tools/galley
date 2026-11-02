@@ -30,7 +30,9 @@ export function sharedLine(path) {
 // items after it: nothing to press, and not in the tab order. A pick closes it and calls onPick(act, item); an
 // outside click, Escape and a resize close it. It opens right-aligned under
 // the button, so a button at the bar's right end grows its menu leftward
-// over the page rather than off its edge.
+// over the page rather than off its edge. Where it would run past the
+// window's foot and there is more room above the button, it opens above it
+// instead, so a button in a bar at the foot of the window opens up.
 export function shareMenu(button, items, onPick) {
   const el = document.createElement('div');
   el.className = 'kit-share-menu';
@@ -62,7 +64,12 @@ export function shareMenu(button, items, onPick) {
     const at = button.getBoundingClientRect();
     const right = document.documentElement.clientWidth - at.right;
     el.hidden = false;
-    el.style.top = `${at.bottom + window.scrollY + 4}px`;
+    // The menu's own measured height decides, so a menu with more items
+    // flips at the right point.
+    const high = el.getBoundingClientRect().height;
+    const below = window.innerHeight - at.bottom;
+    const up = below < high + 4 && at.top > below;
+    el.style.top = `${(up ? at.top - high - 4 : at.bottom + 4) + window.scrollY}px`;
     el.style.right = `${Math.max(4, right - window.scrollX)}px`;
     el.style.left = 'auto';
     button.setAttribute('aria-expanded', 'true');

@@ -43,6 +43,7 @@
 // header for what the second spelling of each of them cost. `stackCards` is the
 // same arithmetic `paintAnchors` uses; the card anatomy and the reveal are the
 // same ones a thread card wears.
+import type { MessageState } from './kit/dom.js';
 import {
   cardShell,
   cardBody,
@@ -379,37 +380,38 @@ export function arrivalSaid(round: Arrival | null): string {
   return `v${round.n} · agent revised · see History`;
 }
 
-// arrivedSaid is the ARRIVAL STRIP's sentence — board 1e, verbatim:
-// `round 3 answered · v4 · 3 changes`.
-//
-// IT CARRIES BOTH NUMBERS BECAUSE THEY ARE TWO DIFFERENT FACTS AND THE
-// REVIEWER USES BOTH. The ROUND is the exchange they counted in their head —
-// their third ask, answered — and it is an ORDINAL among the rounds that are
-// work, computed on every paint by `ordinalOf` and never stored (an ordinal
-// renumbers, which this repository has paid for more than once). The VERSION is
-// what the record and every card in it is keyed by, so `v4` is the word that
-// makes the strip and History agree about which cut is being talked about.
+// arrivedSaid is what the bar says of a round that came back: its pill and
+// `round 3 · 3 changes`. The ROUND is the exchange the reviewer counted in their
+// head — their third ask, answered — and it is an ORDINAL among the rounds that
+// are work, computed on every paint by `ordinalOf` and never stored (an ordinal
+// renumbers, which this repository has paid for more than once).
 //
 // THE COUNT IS THE SERVER'S, through `changedSaid`, and never a count of marks
-// this page managed to draw. The strip is the FIRST thing that says how much
+// this page managed to draw. The bar is the FIRST thing that says how much
 // moved, before anything has been rendered to count.
 //
 // AN EXCEPTION DOES NOT SAY `answered`, and it does not say a count either.
 // `galley cannot` cuts a round with the document unchanged — that is the fact
-// being recorded — so a strip reading `round 3 answered · v4 · 0 changes` would
-// be three-quarters of a lie told in the reviewer's own vocabulary. It says
-// what happened instead, in the same slot, which is `roundFoot`'s own answer to
-// the same question one surface over.
-export function arrivedSaid(rounds: RoundView[], n: number): string {
+// being recorded — so `answered · round 3 · 0 changes` would be three-quarters
+// of a lie told in the reviewer's own vocabulary. It says what happened instead,
+// in the same slot, which is `roundFoot`'s own answer to the same question one
+// surface over.
+export function arrivedSaid(
+  rounds: RoundView[],
+  n: number,
+): { pill: MessageState | null; line: string } {
   const round = (rounds || []).find((r) => r.n === n);
   if (!round) {
-    return '';
+    return { pill: null, line: '' };
   }
   const ordinal = ordinalOf(rounds, n) || workRounds(rounds).length;
   if (round.reason === COULD_NOT) {
-    return `round ${ordinal} · the agent could not · v${n}`;
+    return { pill: 'declined', line: `round ${ordinal} · the agent could not` };
   }
-  return `round ${ordinal} answered · v${n} · ${changedSaid(round.changed)}`;
+  return {
+    pill: 'answered',
+    line: `round ${ordinal} · ${changedSaid(round.changed)}`,
+  };
 }
 
 // workRounds is every round that is WORK — the file as galley opened it is not
