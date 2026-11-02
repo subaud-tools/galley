@@ -425,6 +425,31 @@ export interface Frame {
 /** The three columns of a .kit-app grid; the caller appends left, centre and right after its bar. */
 export function frame(o: FrameOptions): Frame;
 
+/** A side of the frame, or null for the centre. */
+export type NarrowSide = 'left' | 'right' | null;
+
+export interface NarrowOptions {
+  /** The .kit-app grid. */
+  root: HTMLElement;
+  /** Columns collapsible (or frame) drew. */
+  left?: HTMLElement | null;
+  right?: HTMLElement | null;
+  /** Hears each change of what has the frame. */
+  onShow?(side: NarrowSide): void;
+}
+
+export interface NarrowMode {
+  /** Gives the frame to a side, or to the centre with null. Does nothing while the page is wide. */
+  show(side: NarrowSide): void;
+  /** Puts n under a strip's toggle, none at zero. It shows only on a closed strip while narrow. */
+  setCount(side: 'left' | 'right', n: number): void;
+  /** Lets go of the window, when the page goes. */
+  stop(): void;
+}
+
+/** One thing at a time at 1080 wide or less: the centre, or a side in its place with the other a strip. A page opens on the centre. The fold and what is remembered of it are ignored and never written while narrow, so they come back when the window widens. */
+export function narrowMode(o: NarrowOptions): NarrowMode;
+
 // ---- index.js
 
 /** A row's needs-you dot, which says so in a tip. */
@@ -732,3 +757,30 @@ export interface ListGroup {
 
 /** Named groups of rows, each a card that folds in place. folded holds the keys that start folded; onFold hears each press with the key and whether it is now folded. The tool decides which groups to pass, and keeps what it hears for its next draw. */
 export function groupList(o: { groups: ListGroup[]; folded: string[]; onFold(key: string, folded: boolean): void }): HTMLElement;
+
+// ---- needs.js
+
+/** One thing that needs the reader. */
+export interface NeedsItem {
+  id: string;
+  label: string;
+  /** A second line in the menu. */
+  detail?: string;
+}
+
+export interface NeedsPill {
+  el: HTMLButtonElement;
+  /** The list now. Items that haven't changed leave an open menu and its rows alone. */
+  set(items: NeedsItem[]): void;
+  /** Closes the menu. A page that takes el out for good calls this. */
+  close(): void;
+}
+
+/** The count of what needs the reader, as a button: one item opens on a press, several open a menu naming each in the order given, none hides it. open hears the item's id. */
+export function needsPill(o: { items: NeedsItem[]; open(id: string): void }): NeedsPill;
+
+/** The line after an answer: how many are left and a button naming next, which calls open. With none left it says so, with no button. It never moves the page. */
+export function nextLine(o: { left: number; next?: NeedsItem | null; open(id: string): void }): HTMLElement;
+
+/** Shows el with its answer control on screen: the element marked data-answer, else a text box in it. On an el too tall for the screen the control wins. A text box is focused. */
+export function arrive(el: Element): void;
