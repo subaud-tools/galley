@@ -52,10 +52,6 @@ export interface GalleyChrome {
   openChat(): void;
   /** Words with nowhere else to go, added to the Chat box. */
   keepInChat(words: string): void;
-  /** The composer has something to ask: its tab comes forward. */
-  showComposer(): void;
-  /** The composer has gone: back to the tab it replaced. */
-  composerGone(): void;
   /** The Chat box holds words not filed. */
   chatHolds(): boolean;
   /** Files what the Chat box holds. False when the server didn't take it. */

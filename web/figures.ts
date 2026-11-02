@@ -405,9 +405,25 @@ export const figureMethods = {
 
     view.dispatch(view.state.tr.setMeta(scopeKey, span));
     this.paintScope();
+    // The head first: it is part of the box placeComposer measures.
     this.headBlockComposer(target, label);
-    window.galleyChrome?.showComposer();
 
+    // BENEATH THE BLOCK, never over it: a composer over the thing the note is
+    // about covers it. A heading's is beneath its LINE, which says which
+    // section this is; the rest of the section is outlined, not covered.
+    // Anything else is beneath its own box — a <pre> has padding and a chip
+    // below its last glyph, and its text's coordinates put the composer
+    // inside the fence.
+    const dom = target.kind === 'heading' ? null : view.nodeDOM(target.pos);
+    if (dom instanceof HTMLElement) {
+      const box = dom.getBoundingClientRect();
+      this.placeComposer(box, box, 6);
+    } else {
+      this.placeComposer(
+        view.coordsAtPos(target.pos + 1),
+        view.coordsAtPos(target.pos + node.nodeSize - 1),
+      );
+    }
     c.input.focus();
   },
 

@@ -6814,7 +6814,6 @@ function bindsContentField(src) {
         !src.includes('gly-capture') &&
         !src.includes('gly-sheet') &&
         !src.includes('gly-bottombar') &&
-        src.includes('gly-composer-slot') &&
         src.includes('railTabs') &&
         src.includes('draftList'),
     );

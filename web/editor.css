@@ -1192,10 +1192,10 @@ body:not(.gly-page) .kit-card-body > main {
 
 /* --- the comment composer --- */
 
-/* In the Instructions tab, above the drafts it adds to. */
 .gly-composer {
-  margin: 0 0 12px;
-  padding: 0.5rem;
+  position: absolute;
+  z-index: 30;
+  padding: 0.35rem;
   border: 1px solid var(--gly-line);
   /* THE KIND EDGE, the same 3px an instruction card wears in the rail. The
      composer makes exactly one kind of thing and the card it produces is
@@ -1206,6 +1206,7 @@ body:not(.gly-page) .kit-card-body > main {
   border-left: 3px solid var(--gly-hl);
   border-radius: 8px;
   background: var(--gly-bg);
+  box-shadow: var(--gly-lift);
   font: 13px/1.5 var(--gly-sans);
 }
 .gly-composer-bar { display: flex; gap: 0.3rem; }
@@ -1218,7 +1219,7 @@ body:not(.gly-page) .kit-card-body > main {
    check. The prototype's composer is this width for the same reason. The note
    and the refusal follow it, because three boxes in one popover with two widths
    is a popover that changes shape depending on what went wrong. */
-.gly-composer-form { display: flex; flex-direction: column; gap: 0.35rem; }
+.gly-composer-form { display: flex; flex-direction: column; gap: 0.35rem; width: 21rem; }
 /* The chrome voice is `.gly-card-head`'s, and this selector is IN that rule
    now rather than repeating it — the sentence that used to sit here said the
    composer's head and the card's head are one sentence about one object, and
@@ -1337,7 +1338,7 @@ body:not(.gly-page) .kit-card-body > main {
 }
 /* Red is for a request that FAILED. A strike that is simply unavailable for
    this selection is information, not an error, so it gets the muted voice. */
-.gly-composer-note { margin-top: 0.3rem; color: var(--gly-del); font-size: 12px; }
+.gly-composer-note { margin-top: 0.3rem; max-width: 21rem; color: var(--gly-del); font-size: 12px; }
 .gly-composer-note.gly-quiet { color: var(--gly-muted); }
 .gly-composer-note:empty { display: none; }
 

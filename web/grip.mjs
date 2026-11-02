@@ -570,7 +570,9 @@ let opened = false;
       [x, y, H2_GRIP],
     );
     const seated = await page.evaluate(
-      () => !!document.querySelector('#gly-composer-slot .gly-composer-form'),
+      () =>
+        document.querySelector('.gly-composer')?.parentElement ===
+        document.body,
     );
     check(
       'clicking the heading\u2019s grip moves no block, grip or bar control',
@@ -582,7 +584,7 @@ let opened = false;
       ),
     );
     check(
-      'the grip is still under the pointer, and the composer is in the Instructions tab',
+      'the grip is still under the pointer, and the composer is on the page\u2019s body',
       under && seated,
       { under, seated },
     );
@@ -1149,6 +1151,53 @@ for (const [kind, text, head] of [
   if (one) filed.push(one.key);
 }
 
+// --- §9b the box opens under its block ------------------------------------
+//
+// At both window sizes, a heading's grip opens the box under the heading's line
+// and a figure's under the figure, wholly inside the window.
+{
+  for (const [width, height] of [
+    [1440, 900],
+    [1100, 700],
+  ]) {
+    await page.setViewportSize({ width, height });
+    for (const kind of ['heading', 'image']) {
+      const ref = ((await pending()).blocks || []).find((b) => b.kind === kind);
+      const { opened } = await openGrip(ref);
+      const seat = await page.evaluate(
+        (index) => {
+          const el = window.blockDom(index);
+          const words = el.getBoundingClientRect();
+          const box = document
+            .querySelector('.gly-composer')
+            .getBoundingClientRect();
+          return {
+            wordsTop: words.top,
+            wordsBottom: words.bottom,
+            top: box.top,
+            bottom: box.bottom,
+            left: box.left,
+            right: box.right,
+          };
+        },
+        ref ? ref.index : -1,
+      );
+      check(
+        `${width}×${height}: the ${kind}'s grip opens the box under its block, wholly inside the window`,
+        opened &&
+          seat.top >= seat.wordsBottom &&
+          seat.top >= 0 &&
+          seat.left >= 0 &&
+          seat.right <= width &&
+          seat.bottom <= height,
+        seat,
+      );
+      await page.keyboard.press('Escape');
+    }
+  }
+  await page.setViewportSize({ width: 1440, height: 1000 });
+}
+
 // --- §10 a figure, whole ---------------------------------------------------
 //
 // The image's grip opens the composer on the whole picture, and offers the way to a part of it. The grip is the figure's one
@@ -1709,7 +1758,7 @@ const boxNow = () =>
 // --- §20 a grip low in a short window opens its box in the window --------
 //
 // THE BOX IS ALWAYS IN REACH. In a short window with the block in its lower half,
-// the box opens in the tab, inside the window, and the page stays where it is.
+// the box opens inside the window, and the page stays where it is.
 // With a lot of words in it, it stays inside the window and scrolls inside itself.
 {
   await page.setViewportSize({ width: 1440, height: 600 });
@@ -1745,9 +1794,12 @@ const boxNow = () =>
   await page.waitForTimeout(150);
   const grown = await boxNow();
   check(
-    'and with sixty lines typed it stays inside the window, and scrolls inside itself',
+    'and with sixty lines typed it stays inside the window, on its side of the words, and scrolls inside itself',
     grown.open &&
-      Math.abs(grown.top - low.top) <= 1 &&
+      // The edge beside the words stays: a box flipped above them grows upward.
+      (Math.abs(grown.top - low.top) <= 1 ||
+        Math.abs(grown.bottom - low.bottom) <= 1) &&
+      grown.top >= 0 &&
       grown.bottom <= grown.window + 0.5 &&
       grown.scrolls,
     { low, grown },

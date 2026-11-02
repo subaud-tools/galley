@@ -529,6 +529,11 @@ export interface AppMethods {
   makeRefusal(): HTMLElement;
   refuse(hit: LiteralHit): void;
   dismissRefusal(): void;
+  placeComposer(
+    start: { top: number; left: number },
+    end: { bottom: number; left?: number },
+    gap?: number,
+  ): void;
   placeComposerButton(byReviewer?: boolean): void;
 
   // --- the bar's own builders (web/bar.ts) ---

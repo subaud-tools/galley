@@ -200,8 +200,6 @@ function makeTabs(
   | 'showRow'
   | 'openChat'
   | 'keepInChat'
-  | 'showComposer'
-  | 'composerGone'
   | 'chatHolds'
   | 'fileWords'
   | 'settled'
@@ -281,7 +279,6 @@ function makeTabs(
   const instructions = h(
     'div',
     { class: 'gly-tab' },
-    h('div', { id: 'gly-composer-slot' }),
     h('div', { class: 'kit-label' }, 'This round · on the text'),
     textList.el,
     edits,
@@ -349,24 +346,9 @@ function makeTabs(
       { id: TAB_INSTRUCTIONS, label: 'Instructions', body: instructions },
       { id: TAB_CHAT, label: 'Chat', body: chat },
     ],
-    onOpen: (id) => {
-      inFront = id;
-      gaveWay = '';
-    },
   });
-  // Which tab is showing, and the one the composer took the place of. The kit
-  // remembers a press but doesn't say what it has open.
-  let inFront = tabs.el
-    .querySelector('.kit-ctl.on')
-    ?.textContent?.startsWith('Chat')
-    ? TAB_CHAT
-    : TAB_INSTRUCTIONS;
-  let gaveWay = '';
   cols.rightBody?.append(tabs.el);
-  const show = (id: string) => {
-    inFront = id;
-    tabs.setOpen(id);
-  };
+  const show = (id: string) => tabs.setOpen(id);
   // A fold is held on a card until the card changes, and each ask is a new one:
   // something the reader has to see opens the column even if they had folded it.
   let asks = 0;
@@ -411,7 +393,6 @@ function makeTabs(
     },
     showRow(key) {
       show(TAB_INSTRUCTIONS);
-      gaveWay = '';
       unfold();
       const row = [
         ...textList.el.querySelectorAll<HTMLElement>('[data-draft-id]'),
@@ -420,7 +401,6 @@ function makeTabs(
     },
     openChat() {
       show(TAB_CHAT);
-      gaveWay = '';
       unfold();
       box.box.focus();
     },
@@ -431,19 +411,6 @@ function makeTabs(
       }
       show(TAB_CHAT);
       unfold();
-    },
-    showComposer() {
-      if (inFront !== TAB_INSTRUCTIONS) {
-        gaveWay = inFront;
-        show(TAB_INSTRUCTIONS);
-      }
-      unfold();
-    },
-    composerGone() {
-      if (gaveWay) {
-        show(gaveWay);
-        gaveWay = '';
-      }
     },
     chatHolds: () => words.dirty(),
     fileWords,

@@ -107,6 +107,44 @@ async function selectPhrase(page, phrase) {
   }, phrase);
 }
 
+// The two window sizes the page's layout is checked at.
+const WINDOW_SIZES = [
+  [1440, 900],
+  [1100, 700],
+];
+
+// Where the selection's words, the button and the box are, in the window.
+function selectionSeat(page) {
+  return page.evaluate(() => {
+    const box = (el) => {
+      const r = el.getBoundingClientRect();
+      return { top: r.top, bottom: r.bottom, left: r.left, right: r.right };
+    };
+    // From the editor's state: focus in the box leaves no DOM selection to read.
+    const { view } = window.galleyEdit.editor;
+    const { from, to } = view.state.selection;
+    const first = view.coordsAtPos(from);
+    const last = view.coordsAtPos(to);
+    const button = box(document.querySelector('.gly-composer-bar'));
+    const dx = Math.max(button.left - last.right, last.right - button.right, 0);
+    const dy = Math.max(
+      button.top - last.bottom,
+      last.bottom - button.bottom,
+      0,
+    );
+    const root = document.querySelector('.gly-composer');
+    return {
+      words: { top: first.top, bottom: last.bottom },
+      button,
+      box: box(root),
+      column: box(document.querySelector('.gly-editor-card')),
+      fromEnd: Math.hypot(dx, dy),
+      inProse: !!document.activeElement?.closest('.ProseMirror'),
+      onBody: root.parentElement === document.body,
+    };
+  });
+}
+
 async function selectRetryBudget(page) {
   return selectPhrase(page, 'retry budget');
 }
@@ -123,8 +161,8 @@ async function textOf(page, selector) {
 }
 
 // Every top-level block of the prose, keyed by position. THE PROSE MAY NOT
-// REFLOW when the composer opens — it opens in the Instructions tab, and this is
-// what keeps it there.
+// REFLOW when the composer opens — it opens on the page's body, over the prose
+// and never in it.
 function proseRects(page) {
   return page.evaluate(() =>
     Object.fromEntries(
@@ -403,6 +441,89 @@ try {
       teach.hint === 'Select words in the document to add one.',
     JSON.stringify(teach),
   );
+
+  // --- THE BOX BESIDE THE WORDS ---
+  //
+  // At both window sizes: a selection ending far from where it starts puts
+  // the button beside its END, inside the document column, with focus still in
+  // the prose, because typing over a selection is a hand edit. The button opens
+  // the box under the words, not over them and wholly inside the window.
+  {
+    const phrase = 'Nothing else in the pipeline is told, which is a gap';
+    const wordsBefore = await page.evaluate(
+      () => window.galleyEdit.editor.state.doc.textContent,
+    );
+    for (const [width, height] of WINDOW_SIZES) {
+      await page.setViewportSize({ width, height });
+      await page.keyboard.press('Escape');
+      // Reselecting the same words is no selection change: move off them first.
+      await page.evaluate(() =>
+        window.galleyEdit.editor.commands.setTextSelection(1),
+      );
+      await selectPhrase(page, phrase);
+      const offered = await selectionSeat(page);
+      check(
+        `${width}×${height}: the button sits in the document column, within 40px of the selection's end`,
+        offered.button.left >= offered.column.left &&
+          offered.button.right <= offered.column.right &&
+          offered.fromEnd <= 40,
+        JSON.stringify(offered),
+      );
+      check(
+        `${width}×${height}: selecting leaves focus in the prose`,
+        offered.inProse,
+        JSON.stringify(offered),
+      );
+      await page.click('.gly-comment-button');
+      await page.waitForSelector('.gly-composer-form:not([hidden])');
+      const open = await selectionSeat(page);
+      check(
+        `${width}×${height}: the open box is under the words (or flipped above them) and wholly inside the window`,
+        (open.box.top >= open.words.bottom ||
+          open.box.bottom <= open.words.top) &&
+          open.box.top >= 0 &&
+          open.box.left >= 0 &&
+          open.box.right <= width &&
+          open.box.bottom <= height,
+        JSON.stringify(open),
+      );
+      check(
+        `${width}×${height}: the box lives on the page's body, never in the editor`,
+        open.onBody,
+        JSON.stringify(open),
+      );
+    }
+    await page.fill('.gly-composer-text', 'Name who should be told.');
+    await page.locator('.gly-composer-text').press('Enter');
+    await page.waitForFunction(
+      (sel) =>
+        [...document.querySelectorAll(sel)].some(
+          (row) =>
+            row.querySelector('textarea')?.value === 'Name who should be told.',
+        ),
+      INSTRUCTION_ROW,
+      { timeout: 5000 },
+    );
+    const filedBeside = await page.evaluate(() => ({
+      words: window.galleyEdit.editor.state.doc.textContent,
+      boxInTab: !!document.querySelector('.gly-tab .gly-composer'),
+      gone: document.querySelector('.gly-composer').hidden,
+    }));
+    check(
+      'Enter files a row in the Instructions tab, the box goes, and the words are unchanged',
+      filedBeside.words === wordsBefore &&
+        filedBeside.gone &&
+        !filedBeside.boxInTab,
+      JSON.stringify(filedBeside),
+    );
+    await page.click(`${INSTRUCTION_ROW} ${ROW_DELETE}`);
+    await page.waitForFunction(
+      (sel) => document.querySelectorAll(sel).length === 0,
+      INSTRUCTION_ROW,
+      { timeout: 5000 },
+    );
+    await page.setViewportSize({ width: 1440, height: 900 });
+  }
 
   // --- ONE NOUN, ONE VERB, NO SYSTEM RING ---
   //
