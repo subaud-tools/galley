@@ -1623,7 +1623,8 @@ body:not(.gly-page) .kit-card-body > main {
   font: 12px var(--gly-mono);
   animation: gly-notice-in 220ms ease-out;
 }
-.gly-notice-text { display: flex; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gly-notice-text { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gly-notice-text:has(.kit-msg) { display: flex; }
 .gly-notice-show {
   flex: none;
   font: inherit;
@@ -1635,7 +1636,8 @@ body:not(.gly-page) .kit-card-body > main {
   cursor: pointer;
   white-space: nowrap;
 }
-.gly-notice-fade { flex: none; color: var(--gly-muted); white-space: nowrap; }
+/* The suffix gives way before the words do. */
+.gly-notice-fade { flex: 0 1000 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--gly-muted); white-space: nowrap; }
 
 /* ONE FILLED VERB, IN THE SIGNAL COLOUR — board 1e. `read changes` is the only
    thing in this notice that takes the reviewer anywhere. */

@@ -1837,6 +1837,13 @@ class App implements AppState {
     this.stripBatch = [];
   }
 
+  // hideArrivedRound puts away an arrived round's notice, and only that.
+  hideArrivedRound() {
+    if (!this.strip.root.hidden && !this.strip.read.hidden) {
+      this.hideStrip();
+    }
+  }
+
   // showMe is the ONE thing on this surface that moves the page, and it moves
   // it because the reviewer asked. Repeat clicks step through the queue.
   showMe() {

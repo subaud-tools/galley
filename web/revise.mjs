@@ -624,6 +624,72 @@ try {
       page: { pill: 'sent', pillShown: true, disabled: true },
     },
   );
+  // A `show me` NOTICE WITH THE HANDOFF OPEN. Only an answered notice gives way
+  // to a round on its way: this one fades on its own clock, and its batch keeps
+  // adding up meanwhile. Its words shorten with an ellipsis, the fade suffix
+  // giving way first, and nothing leaves the bar. The handoff's own row is the
+  // tightest the bar gets.
+  {
+    const was = page.viewportSize();
+    const long = 'edits while you read '.repeat(8).trim();
+    for (const [width, height] of [
+      [1440, 900],
+      [1100, 700],
+    ]) {
+      await page.setViewportSize({ width, height });
+      await page.waitForTimeout(150);
+      const seat = await page.evaluate((said) => {
+        window.galleyEdit.app.showStrip(said);
+        const bar = document.querySelector('.kit-sendbar');
+        const notice = bar.querySelector('.gly-notice');
+        const text = notice.querySelector('.gly-notice-text');
+        const r = bar.getBoundingClientRect();
+        const n = notice.getBoundingClientRect();
+        const s = getComputedStyle(text);
+        const out = [notice, ...notice.children].filter((el) => {
+          const q = el.getBoundingClientRect();
+          return q.width > 0 && (q.right > r.right || q.right > n.right + 0.5);
+        });
+        return {
+          width: text.clientWidth,
+          scroll: text.scrollWidth,
+          overflow: s.textOverflow,
+          display: s.display,
+          out: out.map((el) => el.className),
+          barWidth: r.width,
+        };
+      }, long);
+      check(
+        `${width}×${height}: the show-me notice's words ellipsize and show, and nothing in it leaves the bar`,
+        seat.width > 0 &&
+          seat.scroll > seat.width &&
+          seat.overflow === 'ellipsis' &&
+          seat.display !== 'flex' &&
+          seat.out.length === 0,
+        seat,
+      );
+    }
+    await page.setViewportSize(was);
+    await page.evaluate(() => {
+      const app = window.galleyEdit.app;
+      app.stripBatch = [{ run: 'a' }];
+      app.showStrip('1 edit while you read');
+    });
+    await page.waitForTimeout(2500);
+    const held = await page.evaluate(() => {
+      const app = window.galleyEdit.app;
+      return { shown: !app.strip.root.hidden, batch: app.stripBatch.length };
+    });
+    check(
+      'with the handoff open, a show-me notice is still up past a second, and its batch still counts',
+      held.shown && held.batch === 1,
+      held,
+    );
+    const faded = await until('the show-me notice to fade', 8000, () =>
+      page.evaluate(() => window.galleyEdit.app.strip.root.hidden),
+    ).catch(() => false);
+    check('and it is gone after the fade', !!faded);
+  }
   await page.waitForSelector('.gly-handoff-cancel:not([disabled])', {
     timeout: 10000,
   });

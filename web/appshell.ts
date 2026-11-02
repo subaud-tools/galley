@@ -379,6 +379,7 @@ export interface AppMethods {
   menuAt(target: EventTarget | null): boolean;
   hideRefusal(): void;
   hideStrip(): void;
+  hideArrivedRound(): void;
   paintVersionsButton(): void;
   runsNow(): SuggestionRun[];
   step(direction: 1 | -1): void;

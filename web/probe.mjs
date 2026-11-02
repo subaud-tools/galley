@@ -318,7 +318,7 @@ function paintedRevise({
       reviseMessage: message,
       verdict,
       paintMessage: verdictMethods.paintMessage,
-      hideStrip() {},
+      hideArrivedRound() {},
     },
     (shell, button) => {
       verdictMethods.paintRevise.call(shell);
@@ -486,7 +486,7 @@ function paintedMessage({ message, sealed = false, history = false }) {
       sealed,
       versionsPanel: { open: history },
       reviseMessage: message,
-      hideStrip() {},
+      hideArrivedRound() {},
     },
     (shell) => {
       verdictMethods.paintMessage.call(shell);
