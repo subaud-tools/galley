@@ -2,6 +2,10 @@
 
 Newest first. Notes for releases up to 0.10.2 are on the GitHub releases page: https://github.com/subaud-tools/galley/releases
 
+## 0.26.1
+
+- The channel no longer logs `channelmcp: ignored report {"event":"activity","working":false}` each time a session starts or stops working: it takes pi's working and idle reports (tools-common 0.53.1), and galley's server accepts them and changes nothing.
+
 ## 0.26.0
 
 - Publishes this binary's reviewing-a-document skill and its existing Claude plugin and pi channel registrations as a release-owned setup bundle for kempt 0.13.0 or later. Removes only the known retired galley registrations; private configuration is preserved. Page servers remain on demand.
