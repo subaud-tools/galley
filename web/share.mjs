@@ -19,6 +19,8 @@
 //     stays where it was; Share Markdown says so too. On macOS this really sets the
 //     clipboard, to the file; nothing here reads it back.
 //   · The preview link answers.
+//   · Share's menu, opened from the bar at the window's foot, lies wholly inside
+//     the window.
 //   · A page under review (page mode) offers Download HTML and Share HTML, for
 //     the page itself, and has no preview link.
 //
@@ -332,6 +334,33 @@ async function statusSays(page, want) {
     `the menu holds ${MAC ? 'the downloads then the Shares' : 'the downloads and no Share (not macOS)'}, verbatim`,
     JSON.stringify(items) === JSON.stringify(want),
     items,
+  );
+  const seat = await page.evaluate(() => {
+    const m = [...document.querySelectorAll('.kit-share-menu')].find(
+      (el) => el.getBoundingClientRect().height > 0,
+    );
+    const r = m?.getBoundingClientRect();
+    const bar = document.querySelector('.kit-sendbar')?.getBoundingClientRect();
+    return r && bar
+      ? {
+          top: r.top,
+          bottom: r.bottom,
+          left: r.left,
+          right: r.right,
+          barBottom: bar.bottom,
+          w: window.innerWidth,
+          h: window.innerHeight,
+        }
+      : null;
+  });
+  check(
+    'with the bar at the foot of the window, the open menu lies wholly inside the window',
+    !!seat &&
+      seat.top >= 0 &&
+      seat.left >= 0 &&
+      seat.right <= seat.w &&
+      seat.bottom <= seat.h,
+    seat,
   );
   await page.click('.gly-share', { timeout: 5000 }).catch(() => {});
 
