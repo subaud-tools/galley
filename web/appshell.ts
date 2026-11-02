@@ -120,6 +120,7 @@ import type {
   MessageView,
 } from './wire';
 import type { Composer } from './composer.ts';
+import type { MessageState } from './kit/dom.js';
 import type { GripTarget } from './grips.ts';
 import type { Mode, ModeUI } from './bar.ts';
 import type { DocMenu, MenuItem } from './menu.ts';
@@ -399,7 +400,11 @@ export interface AppMethods {
     resolved: (string | undefined)[],
   ): void;
   sectionFor(run: SuggestionRun | null): string;
-  showStrip(text: string, arrival?: Arrival | null): void;
+  showStrip(
+    text: string,
+    arrival?: Arrival | null,
+    pill?: MessageState | null,
+  ): void;
   // SUPERSEDES an earlier generic stub (`<T extends { run?: string }>`)
   // written before this method's body existed. verdict.ts's withhold reads
   // `kind`/`author` off every arrival to reconstruct a `SuggestionLike` for

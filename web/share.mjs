@@ -3,8 +3,8 @@
 // After approval the reviewer hands the document to a reader. Revise leaves the
 // send bar when the review seals, and `Share ▾` is there instead; its menu
 // downloads the branded HTML or the Markdown, and on macOS puts either file on
-// the clipboard to paste as an attachment. The send bar's `HTML preview ↗` button
-// opens the same rendered page while the review is live.
+// the clipboard to paste as an attachment. The `HTML preview ↗` button beside
+// History opens the same rendered page while the review is live.
 //
 // What only a browser can see, and so what this gate measures:
 //
@@ -246,7 +246,7 @@ async function statusSays(page, want) {
     !(await shareVisible(page)),
   );
   const preview = await page.evaluate(() => {
-    const b = document.querySelector('.kit-sendbar .gly-preview-open');
+    const b = document.querySelector('.gly-stages .gly-preview-open');
     if (!b) return null;
     const before = (x, y) =>
       !!x &&
@@ -256,16 +256,16 @@ async function statusSays(page, want) {
       text: b.textContent,
       shown: b.getBoundingClientRect().width > 0,
       afterMode: before(document.querySelector('.gly-mode'), b),
-      beforeRevise: before(b, document.getElementById('gly-revise')),
+      afterHistory: before(document.querySelector('.gly-versions-open'), b),
     };
   });
   check(
-    'the send bar carries the HTML preview button, between the mode toggle and Revise',
+    'the HTML preview button is beside History, after the mode toggle',
     !!preview &&
       preview.text === PREVIEW_LABEL &&
       preview.shown &&
       preview.afterMode &&
-      preview.beforeRevise,
+      preview.afterHistory,
     preview,
   );
   const opened = await page.evaluate(() => {
@@ -275,7 +275,7 @@ async function statusSays(page, want) {
       calls.push(a);
       return null;
     };
-    document.querySelector('.kit-sendbar .gly-preview-open')?.click();
+    document.querySelector('.gly-stages .gly-preview-open')?.click();
     window.open = real;
     return calls;
   });

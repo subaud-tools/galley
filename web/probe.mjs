@@ -318,6 +318,7 @@ function paintedRevise({
       reviseMessage: message,
       verdict,
       paintMessage: verdictMethods.paintMessage,
+      hideStrip() {},
     },
     (shell, button) => {
       verdictMethods.paintRevise.call(shell);
@@ -481,7 +482,12 @@ function paintedMessage({ message, sealed = false, history = false }) {
   return onFakeRevise(
     FakeEl,
     FakeButton,
-    { sealed, versionsPanel: { open: history }, reviseMessage: message },
+    {
+      sealed,
+      versionsPanel: { open: history },
+      reviseMessage: message,
+      hideStrip() {},
+    },
     (shell) => {
       verdictMethods.paintMessage.call(shell);
       if (!cell) {
@@ -6943,8 +6949,8 @@ function bindsContentField(src) {
     // diff but lost the strip would announce nothing, and the symptom is
     // silence — indistinguishable from an agent that never suggested anything.
     check(
-      'the built bundle carries the arrival strip',
-      src.includes('gly-strip') &&
+      'the built bundle carries the arrival notice',
+      src.includes('gly-notice') &&
         src.includes('show me') &&
         src.includes('fades · the count keeps it'),
     );

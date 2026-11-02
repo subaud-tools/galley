@@ -23,13 +23,13 @@ Between rounds, galley loads your edits to an open document. If you and the revi
 
 **They will ask you this, and the answer is not in the browser.** galley opens onto a document with no instructions, and every gesture below is discoverable only by trying it. The page teaches one sentence in its empty Instructions tab — *"Select words in the document to add one."* — and that is the whole of the onboarding. Say the rest when they ask, and use these words, because they are the product's own.
 
-**Asking for a change.** Select the words and `Add instruction` appears in the Instructions tab of the right-hand column — the instruction hangs on that passage, and shows there as a row quoting it. For the whole document, type in the Chat tab's box, or right-click with nothing selected anywhere below the bar (the text, the margins, the space under the document) and choose `Instruction on the whole document`. A right-click on selected text is the browser's own menu, with its Copy. There is no mode to switch: a selection means the passage, no selection means the whole document.
+**Asking for a change.** Select the words and `Add instruction` appears beside them; pressing it opens the box under the words, and Enter files it. The instruction hangs on that passage, and shows in the Instructions tab of the right-hand column as a row quoting it. Selecting takes no focus, so typing over selected words is still a hand edit. For the whole document, type in the Chat tab's box, or right-click with nothing selected anywhere below the bar (the text, the margins, the space under the document) and choose `Instruction on the whole document`. A right-click on selected text is the browser's own menu, with its Copy. There is no mode to switch: a selection means the passage, no selection means the whole document.
 
 **Editing by hand.** Their typing applies directly. There is nothing to accept and nothing to propose — if a word is easier to fix than to explain, they fix it. Each hand edit is a `your edit` row in the Instructions tab, with the old and new words and a `Revert` if they change their mind.
 
 **The right-hand column has two tabs.** `Instructions` holds this round's drafts on the text and their hand edits; each row's words are edited in place and pressing a row shows its words in the document, and pressing a highlight opens its row. `Chat` is the whole document's thread: their whole-document drafts, each `Revise` sent with where it stands, and your answer note or your `galley cannot`. `Revise` sends both tabs' drafts together. Neither tab is the record — `History` beside the rounds, above the document, is, and every round is a version there with its own diff.
 
-**Sending.** `Revise`, on the bar at the foot of the document, sends the round to you, and `Discard drafts` beside it clears the round's unsent instructions in two presses. `Approve` is on the top bar; with drafts waiting, or words left in the Chat box, it offers `Revise & Approve`, which sends them and approves in the same press, for the last few nits they trust you to land without another look. `Approve` alone ends the review with the document as it stands.
+**Sending.** `Revise`, on the bar at the foot of the document, sends the round to you, and `Discard drafts` beside it clears the round's unsent instructions in two presses. That bar holds the round and nothing else: `live` and `HTML preview ↗` are beside `History`, above the document, and when a round comes back the bar says so, with `read changes` to open it. `Approve` is on the top bar; with drafts waiting, or words left in the Chat box, it offers `Revise & Approve`, which sends them and approves in the same press, for the last few nits they trust you to land without another look. `Approve` alone ends the review with the document as it stands.
 
 **Approving in the conversation.** If the reviewer tells you here that they approve the document, call the `galley_approve` tool with its path. It ends the review exactly as their `Approve` button would, and the page locks itself. Call it only on their word; never approve on their behalf because the revision looks done.
 
@@ -93,7 +93,7 @@ An edit you make to the file outside a round is recorded as a version, so the re
 
 ## Sharing an approved document
 
-After approval, the bar at the foot of the document holds a `Share ▾` button. Its menu, in order:
+After approval, the bar at the foot of the document holds a `Share ▾` button. Its menu opens up from the bar and holds, in order:
 
 - **`Download HTML`** renders the document in the project's theme and the browser downloads it as `<name>.html`. The file is self-contained: fonts, logos, Mermaid diagrams and images beside the document are inlined, so it opens offline; an image by `http(s)` address stays a link.
 - **`Download Markdown`** downloads the `.md` as it is on disk, as `<name>.md`.
@@ -104,7 +104,7 @@ The two Share items appear only on macOS. If the clipboard refuses the file, the
 
 An HTML page under review offers `Download HTML` and `Share HTML`, both for the page itself, and no Markdown items.
 
-**The preview.** For a Markdown review, `galley_open` also returns `preview`, the address of the same branded page served live. It reloads after every save of the document, by the reviewer or by you. Give it to the reviewer when they want to see the shared look while editing; the `HTML preview ↗` button in the bar opens it too. A page review has no preview address.
+**The preview.** For a Markdown review, `galley_open` also returns `preview`, the address of the same branded page served live. It reloads after every save of the document, by the reviewer or by you. Give it to the reviewer when they want to see the shared look while editing; the `HTML preview ↗` button beside `History`, above the document, opens it too. A page review has no preview address.
 
 ## Making a theme
 

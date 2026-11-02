@@ -343,12 +343,16 @@ await page.waitForSelector('#gly-revise', { timeout: 15000 });
 // it, and whether Revise can be pressed.
 const pageState = () =>
   page.evaluate(() => {
-    const pill = document.querySelector('.gly-msg .kit-pill');
-    const line = document.querySelector('.gly-msg .kit-msg-line');
+    // The cell where the last Revise stands, not the arrival notice beside it.
+    const pill = document.querySelector('.gly-msg:not(.gly-notice) .kit-pill');
+    const line = document.querySelector(
+      '.gly-msg:not(.gly-notice) .kit-msg-line',
+    );
     const revise = document.querySelector('#gly-revise');
     const face = revise ? revise.innerText : null;
     return {
       pill: pill ? pill.dataset.state : null,
+      pillShown: !!pill && pill.getBoundingClientRect().width > 0,
       line: line ? line.textContent : '',
       disabled: revise ? revise.disabled : null,
       face,
@@ -613,10 +617,13 @@ try {
     wake4.instructions.includes(ASK_3),
     wake4,
   );
-  await expect('the third Revise is sent', {
-    server: { state: 'sent', handoff: true },
-    page: { pill: 'sent', disabled: true },
-  });
+  await expect(
+    'the third Revise is sent, and the bar says so over the last answer',
+    {
+      server: { state: 'sent', handoff: true },
+      page: { pill: 'sent', pillShown: true, disabled: true },
+    },
+  );
   await page.waitForSelector('.gly-handoff-cancel:not([disabled])', {
     timeout: 10000,
   });

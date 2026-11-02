@@ -145,6 +145,75 @@ function selectionSeat(page) {
   });
 }
 
+// measureBar reads the send bar at both window sizes, in one of the round's
+// states, and leaves the window as it found it. Each reading is taken with the
+// page at its top and at its end: a docked bar is on the window's foot at both.
+const barHeights = {};
+async function measureBar(page, state) {
+  const was = page.viewportSize();
+  const scrolled = await page.evaluate(() => window.scrollY);
+  for (const [width, height] of WINDOW_SIZES) {
+    await page.setViewportSize({ width, height });
+    await page.waitForTimeout(150);
+    const read = await page.evaluate(() => {
+      const r = document.querySelector('.kit-sendbar').getBoundingClientRect();
+      const at = () =>
+        document.querySelector('.kit-sendbar').getBoundingClientRect().bottom;
+      window.scrollTo(0, 0);
+      const top = at();
+      window.scrollTo(0, document.documentElement.scrollHeight);
+      const end = at();
+      const buttons = [
+        ...document.querySelectorAll('.kit-sendbar button'),
+      ].filter((b) => b.getBoundingClientRect().width > 0);
+      const box = document.querySelector('.kit-sendbar');
+      const outside = [...box.querySelectorAll('button')]
+        .filter((b) => {
+          const q = b.getBoundingClientRect();
+          return q.width > 0 && (q.left < r.left || q.right > r.right);
+        })
+        .map((b) => b.innerText);
+      const verbs = [
+        ...box.querySelectorAll(
+          '.gly-notice:not([hidden]) button:not([hidden])',
+        ),
+      ];
+      return {
+        height: r.height,
+        top,
+        end,
+        outside,
+        verbsShown: verbs.every((b) => {
+          const q = b.getBoundingClientRect();
+          return q.width > 0 && q.left >= r.left && q.right <= r.right;
+        }),
+        rows: new Set(
+          buttons.map((b) => {
+            const q = b.getBoundingClientRect();
+            return Math.round((q.top + q.bottom) / 2);
+          }),
+        ).size,
+      };
+    });
+    barHeights[`${state} ${width}×${height}`] = read.height;
+    check(
+      `${state}, ${width}×${height}: the bar's bottom is the window's foot, and its buttons are one row`,
+      Math.abs(read.top - height) <= 0.5 &&
+        Math.abs(read.end - height) <= 0.5 &&
+        read.rows <= 1,
+      JSON.stringify(read),
+    );
+    check(
+      `${state}, ${width}×${height}: every button is inside the bar, and a notice's verbs are in reach`,
+      read.outside.length === 0 && read.verbsShown,
+      JSON.stringify(read),
+    );
+  }
+  await page.setViewportSize(was);
+  await page.evaluate((y) => window.scrollTo(0, y), scrolled);
+  await page.waitForTimeout(100);
+}
+
 async function selectRetryBudget(page) {
   return selectPhrase(page, 'retry budget');
 }
@@ -440,6 +509,28 @@ try {
     teach.empty === 'No instructions yet.' &&
       teach.hint === 'Select words in the document to add one.',
     JSON.stringify(teach),
+  );
+
+  await measureBar(page, 'idle');
+  check(
+    'live, hold and the HTML preview are beside History, not on the bar',
+    await page.evaluate(() => {
+      const row = document.querySelector('.gly-stages');
+      return ['.gly-mode', '.gly-hold', '.gly-preview-open'].every(
+        (sel) =>
+          row.querySelector(sel) &&
+          !document.querySelector(`.kit-sendbar ${sel}`),
+      );
+    }),
+  );
+  check(
+    "the bar's permanent sentence is Revise's title",
+    await page.evaluate(
+      () =>
+        !document.querySelector('.kit-sendbar-hint') &&
+        document.querySelector('#gly-revise').title ===
+          'Revise sends your instructions and edits together. The agent answers by revising the document.',
+    ),
   );
 
   // --- THE BOX BESIDE THE WORDS ---
@@ -1592,11 +1683,13 @@ try {
     JSON.stringify(exits),
   );
   await page.keyboard.press('Escape');
+  await measureBar(page, 'drafting');
   const beforeRevise = await windowMark(page);
   const startBefore = await stateStart(page);
   await page.click('#gly-revise');
   // The window, keyed to this press. See responseWindowOpen.
   await responseWindowOpen(page, beforeRevise);
+  await measureBar(page, 'with the agent');
   // THE REPLY ENTERS AFTER THE STATE, so the state's text does not move.
   await page
     .waitForFunction(
@@ -2617,33 +2710,39 @@ try {
   // authoritative here and the strip is what has to catch up to it.
   const landedN = await page.evaluate(async () => {
     const rounds = (await (await fetch('_galley/versions')).json()).rounds;
-    return rounds[rounds.length - 1].n;
+    return {
+      changed: rounds[rounds.length - 1].changed,
+      ordinal: rounds
+        .filter((r) => !(r.n === 1 && r.reason === 'opened'))
+        .filter((r) => !rounds.some((o) => o.answers === r.n)).length,
+    };
   });
+  const landedWords = `round ${landedN.ordinal} · ${
+    landedN.changed === 1 ? '1 change' : `${landedN.changed} changes`
+  }`;
   let stripUp = true;
   try {
-    await page.waitForSelector('.gly-strip:not([hidden])', { timeout: 15000 });
     await page.waitForFunction(
-      (n) =>
-        (document.querySelector('.gly-strip-text')?.innerText || '').includes(
-          `v${n}`,
-        ),
-      landedN,
+      (want) => {
+        const el = document.querySelector('.gly-notice');
+        return (
+          !!el &&
+          !el.hidden &&
+          el.querySelector('.kit-msg-line')?.innerText === want
+        );
+      },
+      landedWords,
       { timeout: 15000 },
     );
   } catch {
     stripUp = false;
   }
-  check('a round coming back raises the arrival strip at all', stripUp);
-  if (!stripUp)
-    await page.evaluate(() => {
-      document.querySelector('.gly-strip').hidden = false;
-    });
+  check('a round coming back says so in the bar', stripUp, landedWords);
+  await measureBar(page, 'answered');
   const arrived = await page.evaluate(() => {
-    const el = document.querySelector('.gly-strip');
-    const r = el.getBoundingClientRect();
-    const s = getComputedStyle(el);
-    const read = document.querySelector('.gly-strip-read');
-    const dismiss = document.querySelector('.gly-strip-dismiss');
+    const bar = document.querySelector('.kit-sendbar');
+    const read = document.querySelector('.gly-notice-read');
+    const dismiss = document.querySelector('.gly-notice-dismiss');
     const rs = read ? getComputedStyle(read) : null;
     const ds = dismiss ? getComputedStyle(dismiss) : null;
     const tone = (name) => {
@@ -2656,22 +2755,32 @@ try {
       probe.remove();
       return want;
     };
+    const prose = document
+      .querySelector('.ProseMirror')
+      .getBoundingClientRect();
+    const fixedOver = [...document.querySelectorAll('body *')]
+      .filter((el) => {
+        if (getComputedStyle(el).position !== 'fixed') return false;
+        const r = el.getBoundingClientRect();
+        return (
+          r.width > 0 &&
+          r.height > 0 &&
+          r.left < prose.right &&
+          r.right > prose.left &&
+          r.top < prose.bottom &&
+          r.bottom > prose.top
+        );
+      })
+      .map((el) => el.className || el.tagName);
     const chip = document.querySelector('.kit-stages .gly-versions-open');
     return {
-      text: document.querySelector('.gly-strip-text').innerText.trim(),
-      left: Math.round(r.left),
-      aboveSendBar: Math.round(
-        document.querySelector('.kit-sendbar').getBoundingClientRect().top -
-          r.bottom,
-      ),
-      mono:
-        s.fontFamily ===
-        getComputedStyle(document.documentElement)
-          .getPropertyValue('--gly-mono')
-          .trim(),
-      border: s.borderTopColor,
-      borderWidth: s.borderTopWidth,
-      accent: tone('--gly-accent'),
+      pill: document.querySelector('.gly-notice .kit-pill')?.innerText.trim(),
+      text: document
+        .querySelector('.gly-notice .kit-msg-line')
+        ?.innerText.trim(),
+      inBar: !!read && bar.contains(read),
+      fixedOver,
+      strip: !!document.querySelector('.gly-strip'),
       signal: tone('--gly-signal'),
       muted: tone('--gly-muted'),
       readText: read ? read.innerText.trim() : null,
@@ -2680,8 +2789,8 @@ try {
       dismissText: dismiss ? dismiss.innerText.trim() : null,
       dismissBorder: ds && ds.borderTopWidth,
       dismissColor: ds && ds.color,
-      showMe: !!document.querySelector('.gly-strip-show')?.offsetParent,
-      fade: !!document.querySelector('.gly-strip-fade')?.offsetParent,
+      showMe: !!document.querySelector('.gly-notice-show')?.offsetParent,
+      fade: !!document.querySelector('.gly-notice-fade')?.offsetParent,
       chipNew: chip.classList.contains('is-new'),
       chipColor: getComputedStyle(chip).color,
       primary: document.querySelector('.kit-primary').innerText.trim(),
@@ -2692,19 +2801,20 @@ try {
   );
   const arrivedRound = record6[record6.length - 1];
   check(
-    'the strip says which round came back, which version it made, and how much moved',
-    arrived.text ===
-      `round ${
-        record6
-          .filter((r) => !(r.n === 1 && r.reason === 'opened'))
-          .filter((r) => !record6.some((o) => o.answers === r.n)).length
-      } answered · v${arrivedRound.n} · ${
-        arrivedRound.changed === 1
-          ? '1 change'
-          : `${arrivedRound.changed} changes`
-      }`,
+    'the bar says answered, which round came back and how much moved',
+    arrived.pill === 'answered' &&
+      arrived.text ===
+        `round ${
+          record6
+            .filter((r) => !(r.n === 1 && r.reason === 'opened'))
+            .filter((r) => !record6.some((o) => o.answers === r.n)).length
+        } · ${
+          arrivedRound.changed === 1
+            ? '1 change'
+            : `${arrivedRound.changed} changes`
+        }`,
     JSON.stringify({
-      said: arrived.text,
+      said: arrived,
       n: arrivedRound.n,
       changed: arrivedRound.changed,
     }),
@@ -2720,13 +2830,8 @@ try {
     JSON.stringify({ changed: arrivedRound.changed }),
   );
   check(
-    'it sits at the foot on the left, clear above the send bar, mono, inside a 1px amber border — the arrived grammar',
-    arrived.left <= 24 &&
-      arrived.aboveSendBar >= 0 &&
-      arrived.aboveSendBar <= 24 &&
-      arrived.mono === true &&
-      arrived.border === arrived.accent &&
-      arrived.borderWidth === '1px',
+    'read changes is inside the bar, and nothing over the prose is fixed to the window',
+    arrived.inBar && arrived.fixedOver.length === 0 && !arrived.strip,
     JSON.stringify(arrived),
   );
   check(
@@ -2765,7 +2870,7 @@ try {
   // second one in mind. Read off the paper's own `data-to` (the SERVER's answer
   // to which version is on screen) and the sub-bar's presence, which is what
   // makes a reading state a reading state.
-  await page.click('.gly-strip-read');
+  await page.click('.gly-notice-read');
   await page.waitForSelector('.gly-versions:not([hidden])');
   await page.waitForFunction(
     () => !document.querySelector('.gly-versions-sub').hidden,
@@ -2774,7 +2879,7 @@ try {
     to: document.querySelector('.gly-versions-paper').dataset.to,
     reading: !document.querySelector('.gly-versions-sub').hidden,
     where: document.querySelector('.gly-versions-where').textContent,
-    strip: !document.querySelector('.gly-strip').hidden,
+    strip: !document.querySelector('.gly-notice').hidden,
   }));
   check(
     'read changes deep-links straight to that round’s reading state, not the landing',
@@ -3217,9 +3322,11 @@ try {
             .height.toFixed(1),
         };
       });
+    // Within a pixel: at the page's end a sticky column's top is at the mercy of
+    // half a pixel of the page's height, and nobody sees that.
     const moved = (a, b) =>
-      Object.keys(a).filter(
-        (k) => JSON.stringify(a[k]) !== JSON.stringify(b[k]),
+      Object.keys(a).filter((k) =>
+        [a[k]].flat().some((n, i) => Math.abs(n - [b[k]].flat()[i]) > 1),
       );
     const kept = readFileSync(doc, 'utf8');
     rmSync(doc);
@@ -3369,6 +3476,26 @@ try {
       sealedBar.doorDisabled === false &&
       sealedBar.doorReachable,
     JSON.stringify(sealedBar),
+  );
+  await measureBar(page, 'approved');
+  const sealedWords = await page.evaluate(() => ({
+    hint: document.querySelector('.gly-tab-hint')?.offsetParent ?? null,
+    bar: [
+      ...document.querySelectorAll('.kit-sendbar button, .kit-sendbar span'),
+    ]
+      .filter((el) => el.getBoundingClientRect().width > 0)
+      .map((el) => el.id || el.className),
+  }));
+  check(
+    "an approved document's tab no longer says to select words",
+    sealedWords.hint === null,
+    JSON.stringify(sealedWords),
+  );
+  const barSizes = Object.entries(barHeights);
+  check(
+    'the bar is one height in all five states at both window sizes',
+    barSizes.length === 10 && new Set(barSizes.map(([, h]) => h)).size === 1,
+    JSON.stringify(barHeights),
   );
   await page.click('.gly-versions-open');
   const sealedHistory = await page.evaluate(() => ({

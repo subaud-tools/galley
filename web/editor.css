@@ -1611,33 +1611,21 @@ body:not(.gly-page) .kit-card-body > main {
 :root { --gly-verb-w: calc(16ch + 30px); }
 
 
-/* --- the arrival strip ---
-   It says what landed and offers one control that moves the page. It is
-   deliberately NOT modal, NOT centred and NOT over the text column: an
-   announcement that has to be dismissed before reading can continue is an
-   interruption wearing a notification's clothes. */
-.gly-strip {
-  position: fixed;
-  left: 20px;
-  /* Over the send bar's height, so it never covers Revise. */
-  bottom: 124px;
-  z-index: 30;
-  display: flex;
+/* --- the arrival notice ---
+   It says what landed, in the bar's status slot, and offers one control that
+   moves the page. Nothing here floats over the text: an announcement that covers
+   what is being read is an interruption wearing a notification's clothes. */
+.gly-notice {
+  flex: 0 1 auto;
   align-items: center;
   gap: 10px;
-  max-width: min(38rem, calc(100vw - 40px));
-  padding: 9px 14px;
-  font-family: var(--gly-mono);
-  font-size: 13px;
-  color: var(--gly-fg);
-  background: var(--gly-bg);
-  border: 1px solid var(--gly-accent);
-  border-radius: 8px;
-  box-shadow: var(--gly-lift);
-  animation: gly-strip-in 220ms ease-out;
+  max-width: none;
+  font: 12px var(--gly-mono);
+  animation: gly-notice-in 220ms ease-out;
 }
-.gly-strip-text { flex: 1; min-width: 0; }
-.gly-strip-show {
+.gly-notice-text { display: flex; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gly-notice-show {
+  flex: none;
   font: inherit;
   padding: 4px 10px;
   border: 1px solid var(--gly-accent);
@@ -1647,14 +1635,12 @@ body:not(.gly-page) .kit-card-body > main {
   cursor: pointer;
   white-space: nowrap;
 }
-.gly-strip-fade { color: var(--gly-muted); white-space: nowrap; }
+.gly-notice-fade { flex: none; color: var(--gly-muted); white-space: nowrap; }
 
-/* ONE FILLED VERB, IN THE SIGNAL COLOUR — board 1e. The strip's border is amber
-   because amber means ARRIVED and nothing else; the button inside it is the
-   SIGNAL, because signal means "the action", and the two are different claims
-   about the same notice. `read changes` is the only thing on this strip that
-   takes the reviewer anywhere. */
-.gly-strip-read {
+/* ONE FILLED VERB, IN THE SIGNAL COLOUR — board 1e. `read changes` is the only
+   thing in this notice that takes the reviewer anywhere. */
+.gly-notice-read {
+  flex: none;
   font: inherit;
   font-weight: 600;
   padding: 4px 10px;
@@ -1668,7 +1654,8 @@ body:not(.gly-page) .kit-card-body > main {
 /* AND THE WAY OUT IS NOT A SECOND ONE. Borderless and muted — the composer's
    `cancel` and History's `restore` are drawn at these weights for the same
    reason: a dismiss dressed as a peer of the verb beside it is a coin toss. */
-.gly-strip-dismiss {
+.gly-notice-dismiss {
+  flex: none;
   font: inherit;
   padding: 4px 6px;
   border: none;
@@ -1677,12 +1664,12 @@ body:not(.gly-page) .kit-card-body > main {
   cursor: pointer;
   white-space: nowrap;
 }
-/* None of the strip's four declares a `display` today, and all four are still
+/* None of the notice's verbs declares a `display` today, and all are still
    guarded — the claim moved to the one rule at the foot of this file, where
    every surface's `hidden` is answered together and this observation is
    written out at length. */
 
-@keyframes gly-strip-in {
+@keyframes gly-notice-in {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: none; }
 }
@@ -1695,7 +1682,7 @@ body:not(.gly-page) .kit-card-body > main {
 /* Everything above is motion for its own sake to a reader who asked for none.
    The states stay; only the movement goes. */
 @media (prefers-reduced-motion: reduce) {
-  .gly-strip { animation: none; }
+  .gly-notice { animation: none; }
 }
 
 /* AND THE SWEEP'S HOVER GOES THE SAME WAY. `.gly-census-accept:hover` was the
@@ -2421,11 +2408,11 @@ body.gly-history-mode .kit-card-body > main {
 .gly-composer-form[hidden],
 .gly-menu[hidden],
 .gly-refusal[hidden],
-.gly-strip[hidden],
-.gly-strip-dismiss[hidden],
-.gly-strip-fade[hidden],
-.gly-strip-read[hidden],
-.gly-strip-show[hidden],
+.gly-notice[hidden],
+.gly-notice-dismiss[hidden],
+.gly-notice-fade[hidden],
+.gly-notice-read[hidden],
+.gly-notice-show[hidden],
 .gly-verdict-menu[hidden],
 .gly-versions[hidden] { display: none; }
 
@@ -2625,31 +2612,66 @@ body.gly-page .ProseMirror p.gly-shell-marker {
 }
 .kit-bar .gly-disk-notice[hidden] { display: none; }
 
-/* The send bar stays on screen at the foot of the window while the card scrolls. */
-.kit-sendbar { position: sticky; bottom: 8px; z-index: 9; margin-top: 12px; }
+/* The send bar is docked to the window's foot: the centre column fills the window
+   and has no foot of its own, the card ends at the bar, and the bar is one row at
+   one height in every state. What doesn't fit shortens; the buttons don't wrap. */
+:root { --gly-foot-h: 52px; }
+.kit-app > .kit-mid { display: flex; flex-direction: column; padding-bottom: 0; }
+body.gly-history-mode .kit-app > .kit-mid { padding-bottom: 32px; }
+.gly-editor-card { flex: 1 0 auto; margin: 0; border-bottom: 0; border-radius: 8px 8px 0 0; }
+.kit-sendbar {
+  position: sticky;
+  bottom: 0;
+  z-index: 9;
+  flex: none;
+  flex-wrap: nowrap;
+  height: var(--gly-foot-h);
+  padding: 0 12px;
+  border-radius: 0;
+  container-type: inline-size;
+}
 body.gly-history-mode .kit-sendbar { display: none; }
-.kit-sendbar .kit-sendbar-count { margin-right: 0; }
-.kit-sendbar .kit-btns { align-items: center; justify-content: flex-end; margin-left: auto; }
-/* The two the kit doesn't dress. Hold shows only while live: it sits left of the
-   switch in a right-aligned row, so its coming moves nothing. */
-.kit-sendbar .gly-mode, .kit-sendbar .gly-hold {
-  font: 13px var(--kit-mono);
+.kit-sendbar .kit-sendbar-count { flex: 0 1 auto; min-width: 0; margin-right: 0; overflow: hidden; text-overflow: ellipsis; }
+.kit-sendbar .kit-btns { flex: none; flex-wrap: nowrap; align-items: center; justify-content: flex-end; margin-left: auto; }
+.kit-sendbar .kit-btn { white-space: nowrap; }
+/* A notice takes the status slot whole. */
+.kit-sendbar:has(.gly-notice:not([hidden])) #gly-drafts,
+.kit-sendbar:has(.gly-notice:not([hidden])) .gly-msg:not(.gly-notice) { display: none; }
+/* Beside History: what isn't about sending. Hold shows only while live. */
+.gly-doc-tools { display: inline-flex; align-items: center; gap: 8px; }
+.gly-doc-tools .gly-mode, .gly-doc-tools .gly-hold, .gly-doc-tools .gly-preview-open {
+  font: 12px/18px var(--kit-mono);
   color: var(--kit-fg);
   background: transparent;
   border: 1px solid var(--kit-line);
   border-radius: 6px;
-  padding: 4px 12px;
+  padding: 0 10px;
   cursor: pointer;
+  white-space: nowrap;
 }
-.kit-sendbar .gly-hold.gly-reserved { display: none; }
-.kit-sendbar .kit-btn { white-space: nowrap; }
+.gly-doc-tools .gly-hold.gly-reserved { display: none; }
 /* Labels that change on a press or a tick keep their box. */
 #gly-revise { min-width: 22ch; }
 #gly-discard { min-width: 21ch; }
+/* And give the box up before the row runs off the bar: the status shortens first,
+   then the room kept for a longer label goes. */
+@container (max-width: 800px) {
+  #gly-discard { min-width: 0; }
+  #gly-revise { min-width: 16ch; }
+  .kit-sendbar .kit-btns { gap: 6px; }
+}
+@container (max-width: 560px) {
+  #gly-revise { min-width: 0; }
+  .kit-sendbar .kit-btn { padding-inline: 6px; }
+  .kit-sendbar .gly-notice { gap: 4px; }
+  .gly-notice-read { padding-inline: 6px; }
+  .gly-notice-dismiss { padding-inline: 2px; }
+  .kit-sendbar:has(.gly-notice:not([hidden])) #gly-discard:disabled { display: none; }
+}
 .kit-btn[hidden] { display: none; }
 .gly-seal-off { display: none; }
 .gly-handoff-cancel.gly-cancel-hidden { display: none; }
-body.gly-sealed #gly-drafts, body.gly-sealed .kit-sendbar-hint { display: none; }
+body.gly-sealed #gly-drafts { display: none; }
 
 /* Where the last Revise stands, beside the count, one line. */
 .gly-msg {
@@ -2661,9 +2683,8 @@ body.gly-sealed #gly-drafts, body.gly-sealed .kit-sendbar-hint { display: none; 
   --kit-ok: var(--gly-ins);
   --kit-danger: var(--gly-del);
   --kit-muted: var(--gly-muted);
-  margin-right: auto;
+  flex: 0 1 auto;
   min-width: 0;
-  max-width: 34ch;
   display: inline-flex;
   overflow: hidden;
 }
@@ -2675,6 +2696,7 @@ body.gly-sealed .gly-msg { display: none; }
 /* The right column's tabs. The kit draws them; these are what galley puts in. */
 .gly-tab > .kit-label { margin-bottom: 8px; }
 .gly-tab-hint { display: block; margin: 12px 0 0; font: 11.5px var(--kit-mono); color: var(--kit-muted); }
+body.gly-sealed .gly-tab-hint { display: none; }
 /* A hand edit is the same kind of row with no box: the words it changed and Revert. */
 .gly-edit-rows { margin-top: 8px; }
 .gly-edit-rows:empty { display: none; }

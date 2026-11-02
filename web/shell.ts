@@ -135,12 +135,13 @@ export function connect(o: {
 
 /** The kit's send bar, built once with the ids the editor paints it by. Its Send
  * is relabelled Revise and takes its label and its state from the editor: the
- * kit's own would rebuild the buttons on every tick of the counter. */
+ * kit's own would rebuild the buttons on every tick of the counter. It holds the
+ * round and nothing else, so the kit's hint goes: the sentence is Revise's title. */
 function makeSendBar(): HTMLElement {
   const el = sendBar({
     count: '',
     sends: 1,
-    hint: 'Revise sends your instructions and edits together. The agent answers by revising the document.',
+    hint: '',
     // verdict.ts listens on the buttons themselves.
     discard: () => {},
     send: () => {},
@@ -149,6 +150,7 @@ function makeSendBar(): HTMLElement {
   discard.id = 'gly-discard';
   send.id = 'gly-revise';
   el.querySelector('.kit-sendbar-count')!.id = 'gly-drafts';
+  el.querySelector('.kit-sendbar-hint')?.remove();
   return el;
 }
 
@@ -458,7 +460,10 @@ export function mountShell(verdict: () => void): void {
     right: { panel: 'thread', label: 'Instructions and chat' },
   });
   const crumb = h('span', { class: 'kit-card-crumb' }, name);
-  const stages = h('div', { class: 'gly-stages' });
+  // Live, hold and the preview: beside History, kept across each redraw of the
+  // track. bar.ts and share.ts put them in.
+  const docTools = h('span', { class: 'gly-doc-tools', id: 'gly-doc-tools' });
+  const stages = h('div', { class: 'gly-stages' }, docTools);
   const b: BarHandle = connect({
     page: id,
     status: name,
@@ -509,7 +514,12 @@ export function mountShell(verdict: () => void): void {
       }
       drawn = key;
       stages.replaceChildren(
-        stageTrack({ stages: values, open, label: 'Rounds', after: [door] }),
+        stageTrack({
+          stages: values,
+          open,
+          label: 'Rounds',
+          after: [door, docTools],
+        }),
       );
     },
   };

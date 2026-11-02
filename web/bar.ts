@@ -1,5 +1,5 @@
 // web/bar.ts owns the readout on the kit's bar, which surfaces are on screen at
-// this width, and the mode toggle on the send bar.
+// this width, and the mode toggle beside History.
 //
 // It is a MIXIN — an object of methods `Object.assign`ed onto `App.prototype`
 // in entry.ts — not a class of its own, so every method here still reads and
@@ -374,9 +374,8 @@ export const barMethods = {
     hold.append(holdOff, holdOn);
     hold.addEventListener('click', () => this.toggleHold());
 
-    // Left of Discard, hold outermost: its box is reserved while it is off, and
-    // there it holds no gap between the controls.
-    document.getElementById('gly-discard')?.before(hold, toggle);
+    // Beside History, hold first: it takes no room while it is off.
+    document.getElementById('gly-doc-tools')?.append(hold, toggle);
     return { toggle, hold, holdOff, holdOn };
   },
 
@@ -394,8 +393,7 @@ export const barMethods = {
     // is nothing to hold back, and a control that can never do anything in
     // this state is chrome rather than a choice.
     //
-    // It sits left of the switch in a right-aligned row (editor.css), so its
-    // coming moves nothing, and it is `disabled` as well as hidden: a card hidden
+    // It is `disabled` as well as hidden: a card hidden
     // in CSS was once still a button to the keyboard.
     hold.classList.toggle('gly-reserved', !on);
     hold.disabled = !on;

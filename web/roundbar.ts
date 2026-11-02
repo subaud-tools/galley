@@ -141,7 +141,8 @@ export function sendFace(o: {
   return {
     label: o.drafts > 0 ? `Revise · send ${o.drafts}` : 'Revise',
     disabled,
-    title: 'hand the document to the agent with your instructions and edits',
+    title:
+      'Revise sends your instructions and edits together. The agent answers by revising the document.',
   };
 }
 

@@ -1749,17 +1749,20 @@ const boxNow = () =>
       top: +c.top.toFixed(1),
       bottom: +c.bottom.toFixed(1),
       window: window.innerHeight,
+      footTop: document.querySelector('.kit-sendbar').getBoundingClientRect()
+        .top,
       scrollY: window.scrollY,
       scrolls:
         document.querySelector('.gly-composer-text').style.overflowY === 'auto',
     };
   });
 
-// --- §20 a grip low in a short window opens its box in the window --------
+// --- §20 a grip low in a short window opens its box beneath its block ----
 //
-// THE BOX IS ALWAYS IN REACH. In a short window with the block in its lower half,
-// the box opens inside the window, and the page stays where it is.
-// With a lot of words in it, it stays inside the window and scrolls inside itself.
+// THE BOX STAYS WITH ITS BLOCK. With a code block in the lower half of a short
+// window there is not room beneath it for the form, so the page is scrolled just
+// far enough that the form fits beneath its block, above the bar at the foot.
+// Growing, it is held to the room the window has, and the words scroll inside it.
 {
   await page.setViewportSize({ width: 1440, height: 600 });
   await page.waitForTimeout(600);
@@ -1778,13 +1781,18 @@ const boxNow = () =>
     .catch(() => {});
   await page.waitForTimeout(200);
   const low = await boxNow();
+  const blockBottom = await page.evaluate(
+    (i) => window.blockBox(i).bottom,
+    index,
+  );
   check(
-    'a grip on a block in the lower half of a short window opens its box in the window, and the page stays put',
+    'a grip on a block in the lower half of a short window opens its box just beneath the block, scrolling the page to make room',
     low.open &&
-      low.top >= 0 &&
-      low.bottom <= low.window + 0.5 &&
-      low.scrollY === before,
-    { ...low, before },
+      low.top >= blockBottom &&
+      low.top - blockBottom <= 8 &&
+      low.bottom <= low.footTop + 0.5 &&
+      low.scrollY > before,
+    { ...low, before, blockBottom },
   );
   await page.evaluate(() => {
     const t = document.querySelector('.gly-composer-text');
@@ -1794,13 +1802,10 @@ const boxNow = () =>
   await page.waitForTimeout(150);
   const grown = await boxNow();
   check(
-    'and with sixty lines typed it stays inside the window, on its side of the words, and scrolls inside itself',
+    'and with sixty lines typed it stays beneath the block and inside the window, and scrolls inside itself',
     grown.open &&
-      // The edge beside the words stays: a box flipped above them grows upward.
-      (Math.abs(grown.top - low.top) <= 1 ||
-        Math.abs(grown.bottom - low.bottom) <= 1) &&
-      grown.top >= 0 &&
-      grown.bottom <= grown.window + 0.5 &&
+      Math.abs(grown.top - low.top) <= 1 &&
+      grown.bottom <= grown.footTop + 0.5 &&
       grown.scrolls,
     { low, grown },
   );
