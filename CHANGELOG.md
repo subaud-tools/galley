@@ -2,6 +2,10 @@
 
 Newest first. Notes for releases up to 0.10.2 are on the GitHub releases page: https://github.com/subaud-tools/galley/releases
 
+## 0.26.0
+
+- Publishes this binary's reviewing-a-document skill and its existing Claude plugin and pi channel registrations as a release-owned setup bundle for kempt 0.13.0 or later. Removes only the known retired galley registrations; private configuration is preserved. Page servers remain on demand.
+
 ## 0.25.0
 
 - galley's page is built from the family's page kit, as diazo's is. A front page lists your open reviews by folder with where each stands, and the top bar switches between them.

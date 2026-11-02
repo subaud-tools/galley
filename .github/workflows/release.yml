@@ -41,7 +41,7 @@ jobs:
         with:
           ref: ${{ inputs.tag }}
       - id: rel
-        uses: subaud-tools/tools-actions/release-version@v0.12.0
+        uses: subaud-tools/tools-actions/release-version@v0.13.1
         with:
           mode: version-file
           dispatch-tag: ${{ inputs.tag }}
@@ -49,10 +49,18 @@ jobs:
         uses: actions/setup-go@v7.0.0
         with:
           go-version-file: go.mod
+      - name: Build release setup
+        if: steps.rel.outputs.skip != 'true'
+        env:
+          RELEASE_VERSION: ${{ steps.rel.outputs.version }}
+        run: |
+          mkdir -p dist
+          go run ./cmd/galley setup-bundle --version "$RELEASE_VERSION" --out dist/galley_setup.tar.gz
       - if: steps.rel.outputs.skip != 'true'
-        uses: subaud-tools/tools-actions/go-release@v0.12.0
+        uses: subaud-tools/tools-actions/go-release@v0.13.1
         with:
           setup-go: "false"
+          extra-assets: dist/galley_setup.tar.gz
           binaries: |
             galley=./cmd/galley
           ldflags: >-

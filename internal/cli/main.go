@@ -138,6 +138,7 @@ func newApp() *tools.App {
 			Date:   version.Date(),
 		},
 	})
+	app.Register(setupCommand())
 	app.Register(tools.Command{
 		Name:     "edit",
 		Group:    "review",
