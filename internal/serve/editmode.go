@@ -3019,12 +3019,13 @@ func (s *EditServer) handleReport(w http.ResponseWriter, r *http.Request) {
 }
 
 // checkReportEvent refuses an event the harness has no business sending.
+// activity (the session working or idle) is taken and changes nothing.
 func checkReportEvent(event channelmcp.ReportEvent) error {
 	switch event {
-	case channelmcp.ReportHeld, channelmcp.ReportLanded, channelmcp.ReportTurnEnded:
+	case channelmcp.ReportHeld, channelmcp.ReportLanded, channelmcp.ReportTurnEnded, channelmcp.ReportActivity:
 		return nil
 	}
-	return fmt.Errorf("event %q: want held, landed or turn_ended", event)
+	return fmt.Errorf("event %q: want held, landed, turn_ended or activity", event)
 }
 
 // applyReport moves the window's message as the report says.

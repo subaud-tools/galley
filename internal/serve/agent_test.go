@@ -422,6 +422,14 @@ func TestAgentReportReachesOnlyTheSessionsDocuments(t *testing.T) {
 	if code := r.call(t, http.MethodPost, "/api/agent/report", bad, nil); code != http.StatusBadRequest {
 		t.Fatalf("a bad event answered %d", code)
 	}
+	// activity (working or idle) is taken and changes nothing.
+	activity := map[string]string{"session": "sess-b", "event": "activity", "token": "idle"}
+	if code := r.call(t, http.MethodPost, "/api/agent/report", activity, nil); code != http.StatusNoContent {
+		t.Fatalf("an activity report answered %d", code)
+	}
+	if got := state(b.ID); got != "sent" {
+		t.Fatalf("activity moved the message to %q", got)
+	}
 }
 
 // galley_channel_status's answer: the documents, whether this session is
