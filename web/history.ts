@@ -149,18 +149,16 @@ export const historyMethods = {
     this.paintVersionsButton();
   },
 
-  // showArrival composes board 1e's sentence and puts it on the strip. It reads
+  // showArrival composes the bar's words for a round and puts them up. It reads
   // the panel's own rounds — the list the record was just refreshed into — so
-  // the strip, the History landing and the reading state are all quoting one
+  // the bar, the History landing and the reading state are all quoting one
   // fetch of one endpoint.
   showArrival(this: AppShell) {
     if (!this.arrival) {
       return;
     }
-    this.showStrip(
-      arrivedSaid(this.versionsPanel.rounds, this.arrival.n),
-      this.arrival,
-    );
+    const said = arrivedSaid(this.versionsPanel.rounds, this.arrival.n);
+    this.showStrip(said.line, this.arrival, said.pill);
   },
 
   // openStage is a press on the stage track: a finished round opens History at

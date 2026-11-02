@@ -1,7 +1,7 @@
 // share.ts — handing an approved document to a reader.
 //
 // The vocabulary in the top half is pure — every label the button, its menu
-// and the bar's preview button show, and the status line a save ends on — so
+// and the preview button show, and the status line a save ends on — so
 // probe.mjs and web/share.mjs import the spellings rather than restating them.
 //
 // THE BOTTOM HALF, `shareMethods`, IS A MIXIN `Object.assign`ed onto
@@ -191,13 +191,13 @@ export const shareMethods = {
       );
   },
 
-  // The send bar's way to the rendered page, markdown reviews only: a page under
-  // review already has its own preview pane. It sits to the right of the mode
-  // toggle; the seal does not touch it, because
+  // The way to the rendered page, markdown reviews only: a page under review
+  // already has its own preview pane. It sits beside History, to the right of the
+  // mode toggle; the seal does not touch it, because
   // reading the shared look is as useful after approval as before.
   makePreview(this: AppShell): HTMLButtonElement | null {
-    const revise = this.revise;
-    if (this.pageMode || !revise || !revise.parentNode) {
+    const tools = document.getElementById('gly-doc-tools');
+    if (this.pageMode || !tools) {
       return null;
     }
     const b = document.createElement('button');
@@ -208,10 +208,7 @@ export const shareMethods = {
     b.addEventListener('click', () => {
       window.open(apiUrl(routes.render), '_blank', 'noopener');
     });
-    revise.parentNode.insertBefore(
-      b,
-      document.getElementById('gly-discard') ?? revise,
-    );
+    tools.append(b);
     return b;
   },
 };

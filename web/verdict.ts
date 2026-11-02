@@ -613,6 +613,18 @@ export const verdictMethods = {
     }
     const m = this.reviseMessage;
     const history = !!(this.versionsPanel && this.versionsPanel.open);
+    // A round on its way outranks the answer to the last one: the two share the
+    // slot, and History keeps that answer's mark. A `show me` notice keeps its
+    // own clock.
+    if (
+      agentHolds({
+        handoff: !!this.handoff,
+        waiting: this.reviseWaiting,
+        message: m,
+      })
+    ) {
+      this.hideArrivedRound();
+    }
     cell.textContent = '';
     cell.title = '';
     if (!m || this.sealed || history) {

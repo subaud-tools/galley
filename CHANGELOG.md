@@ -2,6 +2,14 @@
 
 Newest first. Notes for releases up to 0.10.2 are on the GitHub releases page: https://github.com/subaud-tools/galley/releases
 
+## 0.27.0
+
+- Select words and `Add instruction` appears beside them; pressing it opens the instruction box right under the words, as it did before 0.25.0. A heading's or figure's grip opens the same box under its block. Filed instructions still land as rows in the Instructions tab, which no longer has a box of its own.
+- The bar at the foot of the document is docked to the window's foot: one row, the same height in every state, holding only the round (the count, where the last Revise stands, Discard drafts and Revise; after approval, Approved and Share). `live` and `HTML preview ↗` are beside History above the document.
+- When a round comes back, `answered · round N · K changes`, `read changes` and `dismiss` show in the bar, instead of a notice floating over the document.
+- Share's menu opens upward from the bar, inside the window (tools-common 0.56.0).
+- An approved document's Instructions tab no longer asks you to select words.
+
 ## 0.26.1
 
 - The channel no longer logs `channelmcp: ignored report {"event":"activity","working":false}` each time a session starts or stops working: it takes pi's working and idle reports (tools-common 0.53.1), and galley's server accepts them and changes nothing.

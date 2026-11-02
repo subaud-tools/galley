@@ -135,12 +135,13 @@ export function connect(o: {
 
 /** The kit's send bar, built once with the ids the editor paints it by. Its Send
  * is relabelled Revise and takes its label and its state from the editor: the
- * kit's own would rebuild the buttons on every tick of the counter. */
+ * kit's own would rebuild the buttons on every tick of the counter. It holds the
+ * round and nothing else, so the kit's hint goes: the sentence is Revise's title. */
 function makeSendBar(): HTMLElement {
   const el = sendBar({
     count: '',
     sends: 1,
-    hint: 'Revise sends your instructions and edits together. The agent answers by revising the document.',
+    hint: '',
     // verdict.ts listens on the buttons themselves.
     discard: () => {},
     send: () => {},
@@ -149,6 +150,7 @@ function makeSendBar(): HTMLElement {
   discard.id = 'gly-discard';
   send.id = 'gly-revise';
   el.querySelector('.kit-sendbar-count')!.id = 'gly-drafts';
+  el.querySelector('.kit-sendbar-hint')?.remove();
   return el;
 }
 
@@ -200,8 +202,6 @@ function makeTabs(
   | 'showRow'
   | 'openChat'
   | 'keepInChat'
-  | 'showComposer'
-  | 'composerGone'
   | 'chatHolds'
   | 'fileWords'
   | 'settled'
@@ -281,7 +281,6 @@ function makeTabs(
   const instructions = h(
     'div',
     { class: 'gly-tab' },
-    h('div', { id: 'gly-composer-slot' }),
     h('div', { class: 'kit-label' }, 'This round · on the text'),
     textList.el,
     edits,
@@ -349,24 +348,9 @@ function makeTabs(
       { id: TAB_INSTRUCTIONS, label: 'Instructions', body: instructions },
       { id: TAB_CHAT, label: 'Chat', body: chat },
     ],
-    onOpen: (id) => {
-      inFront = id;
-      gaveWay = '';
-    },
   });
-  // Which tab is showing, and the one the composer took the place of. The kit
-  // remembers a press but doesn't say what it has open.
-  let inFront = tabs.el
-    .querySelector('.kit-ctl.on')
-    ?.textContent?.startsWith('Chat')
-    ? TAB_CHAT
-    : TAB_INSTRUCTIONS;
-  let gaveWay = '';
   cols.rightBody?.append(tabs.el);
-  const show = (id: string) => {
-    inFront = id;
-    tabs.setOpen(id);
-  };
+  const show = (id: string) => tabs.setOpen(id);
   // A fold is held on a card until the card changes, and each ask is a new one:
   // something the reader has to see opens the column even if they had folded it.
   let asks = 0;
@@ -411,7 +395,6 @@ function makeTabs(
     },
     showRow(key) {
       show(TAB_INSTRUCTIONS);
-      gaveWay = '';
       unfold();
       const row = [
         ...textList.el.querySelectorAll<HTMLElement>('[data-draft-id]'),
@@ -420,7 +403,6 @@ function makeTabs(
     },
     openChat() {
       show(TAB_CHAT);
-      gaveWay = '';
       unfold();
       box.box.focus();
     },
@@ -431,19 +413,6 @@ function makeTabs(
       }
       show(TAB_CHAT);
       unfold();
-    },
-    showComposer() {
-      if (inFront !== TAB_INSTRUCTIONS) {
-        gaveWay = inFront;
-        show(TAB_INSTRUCTIONS);
-      }
-      unfold();
-    },
-    composerGone() {
-      if (gaveWay) {
-        show(gaveWay);
-        gaveWay = '';
-      }
     },
     chatHolds: () => words.dirty(),
     fileWords,
@@ -491,7 +460,10 @@ export function mountShell(verdict: () => void): void {
     right: { panel: 'thread', label: 'Instructions and chat' },
   });
   const crumb = h('span', { class: 'kit-card-crumb' }, name);
-  const stages = h('div', { class: 'gly-stages' });
+  // Live, hold and the preview: beside History, kept across each redraw of the
+  // track. bar.ts and share.ts put them in.
+  const docTools = h('span', { class: 'gly-doc-tools', id: 'gly-doc-tools' });
+  const stages = h('div', { class: 'gly-stages' }, docTools);
   const b: BarHandle = connect({
     page: id,
     status: name,
@@ -542,7 +514,12 @@ export function mountShell(verdict: () => void): void {
       }
       drawn = key;
       stages.replaceChildren(
-        stageTrack({ stages: values, open, label: 'Rounds', after: [door] }),
+        stageTrack({
+          stages: values,
+          open,
+          label: 'Rounds',
+          after: [door, docTools],
+        }),
       );
     },
   };
