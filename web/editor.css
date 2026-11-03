@@ -1,6 +1,6 @@
 /* Share's menu is tools-common's (web/kit/, refreshed from the module go.mod
    pins by `just assets`), bundled in here until the send bar takes Share. Its --share-* properties are set to galley's own
-   tokens beside the verdict menu below. An @import must come first. So does
+   tokens below. An @import must come first. So does
    the kit's message pill (kit/msgpill.css, cut out of kit.css by the same
    copy); its --kit-* properties are set on `.gly-msg` below. */
 @import './tools.css';
@@ -122,7 +122,7 @@
      WAS NOT. Every surface that floats off the page carries this and nothing
      else carries it, which is what makes "off the page" a thing the reviewer
      can read rather than four coincidences: the bubble, the composer, the
-     refusal note and the verdict menu. The verdict menu's own comment named
+     refusal note and the kit's menus. The old verdict menu's own comment named
      "the single elevation token" while spelling the fourth literal copy of it,
      and the arrival strip spelled a FIFTH — `0 6px 20px rgb(0 0 0 / 12%)`,
      a different blur, a different alpha and a different syntax for the same
@@ -1385,45 +1385,6 @@ body:not(.gly-page) .kit-card-body > main {
   pointer-events: none;
 }
 .gly-refusal-hint { margin-top: 0.2rem; opacity: 0.6; font-size: 12px; }
-/* --- THE CHROME BUTTON, ONCE ---
-
-   An outlined pill of hairline on the page's own ground, taking its type from
-   whatever it sits in: six declarations, and every chrome surface in this
-   editor wrote its own copy of them. Four copies — the narrow bar's controls,
-   the top bar's, the verdict menu's and the census strip's — thirty-two
-   declarations saying one thing, with each surface's real difference (a touch
-   target, a padding, a borderless rest) buried inside a re-statement of the
-   common case. That is the shape §1 of the visual-layers handoff calls a
-   CASTE: 6px is the chrome radius, and it now has one place that asserts it.
-
-   THE ORDER OF THE FOUR DELTA RULES IS UNCHANGED AND IS LOAD-BEARING.
-   `.gly-census button` and `.gly-bar button` tie at (0,1,1) and the census's
-   tighter `3px 10px` has to keep winning on source order — this file records
-   what happened the last time those two swapped. Nothing here moves either of
-   them relative to the other; what moved is only the declarations they AGREE
-   on, up to this rule, which is above all four. A shared value cannot be won
-   or lost in a tie it is on both sides of.
-
-   `.gly-verdict-menu button` KEEPS ITS CLAIM. The menu lives outside `.gly-bar`,
-   `.gly-card`, `.gly-bubble` and `.gly-composer`, so no container rule reaches
-   into it and this rule naming the selector explicitly is still the only thing
-   that claims those buttons.
-
-   AND `.gly-census button` KEEPS ITS OWN `font: inherit`, which looks redundant
-   beside the one here and is not. Every census button is also inside `.gly-bar`,
-   so it matches `.gly-bar button { font-size: 12px }` below at the same (0,1,1)
-   — and the census's 12px is meant to come from `.gly-census`'s own font-size
-   by inheritance, not from the bar's number happening to agree. Dropping it
-   would make changing `.gly-census`'s size stop moving its verbs, silently. */
-
-.gly-verdict-menu button {
-  font: inherit;
-  border: 1px solid var(--gly-line);
-  border-radius: 6px;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-}
 /* NOTHING TO SUPPRESS HERE, and its absence is the claim. A card used to carry
    its own connector leg and arm as children, so every surface the card renders
    on had to switch them off. There is no connector, and the LIGHT is not the
@@ -1541,53 +1502,7 @@ body:not(.gly-page) .kit-card-body > main {
    writing the clause and left the reserve behind, 23ch of nothing inside the
    primary — so the box goes with the words, and its argument survives one
    element to the left. */
-/* --- the verdict menu ---
-
-   The two-exit disclosure the Revise face's press opens (see askRevise). It
-   lives in `body`, NEVER inside `.ProseMirror` — anything appended there is
-   CONTENT and the next projection writes it into the .md — and it is
-   `absolute`, placed off the button's rect measured at open time, because the
-   bar folds and its height is not a constant. It COVERS whatever is under it
-   and displaces nothing. z-index 40 is the bubble's layer: over the bar (10)
-   and the rail (5), under the sheet (45).
-
-   ITS BUTTONS ARE ITS OWN. The menu is outside `.gly-bar`, `.gly-card`,
-   `.gly-bubble` and `.gly-composer`, so none of their (0,1,1) container rules
-   reach in here — `.gly-verdict-menu button` is the only rule that claims
-   them, at the same shape, and nothing out-specifies it. Both labels are
-   fixed strings (MENU_REVISE, MENU_TRUST), so no width reservation is needed:
-   nothing in this menu ever changes size once it is open. */
-.gly-verdict-menu {
-  position: absolute;
-  z-index: 40;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 6px;
-  border: 1px solid var(--gly-line);
-  /* The margin's furniture, so the disclosure reads as part of this editor
-     rather than as a list from nowhere: the card's own ground, one hairline,
-     the cards' 6px radius, and --gly-lift. That last clause said "the single
-     elevation token" while this rule spelled the fourth literal copy of the
-     value; there is a token now and this is one of its five readers. */
-  border-radius: 6px;
-  background: var(--gly-card);
-  box-shadow: var(--gly-lift);
-}
-/* A menu row rests BORDERLESS and takes the hairline back on hover — it is a
-   list of two choices, not two pills — so the only thing it overrides in the
-   chrome button is the border's colour. It reserves the 1px either way, so
-   hovering one cannot move the other. */
-.gly-verdict-menu button {
-  font-size: 12px;
-  padding: 5px 14px;
-  border-color: transparent;
-  text-align: left;
-  white-space: nowrap;
-}
-.gly-verdict-menu button:hover { border-color: var(--gly-signal); }
-
-/* Share's menu (tools-common's share.css) in the verdict menu's furniture:
+/* Share's menu and Revise's ▾ menu (tools-common's share.css) in galley's furniture:
    the card's ground, one hairline, --gly-lift, the page's sans. Its rows
    take no outline on hover, as they never have here. */
 .kit-share-menu {
@@ -2654,6 +2569,16 @@ body.gly-history-mode .kit-sendbar { display: none; }
 .gly-doc-tools .gly-hold.gly-reserved { display: none; }
 /* Labels that change on a press or a tick keep their box. */
 #gly-revise { min-width: 22ch; }
+/* Revise's ▾ is one control with it: no gap between them (the kit's 8px, taken
+   back), the shared edge squared, a hairline of the button's ink between. */
+#gly-revise:has(~ #gly-revise-more:not([hidden])) { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.kit-sendbar .gly-revise-more {
+  margin-left: -8px;
+  padding-inline: 8px;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-left-color: color-mix(in srgb, var(--kit-signal-ink) 35%, var(--kit-signal));
+}
 #gly-discard { min-width: 21ch; }
 /* And give the box up before the row runs off the bar: the status shortens first,
    then the room kept for a longer label goes. */
@@ -2661,6 +2586,7 @@ body.gly-history-mode .kit-sendbar { display: none; }
   #gly-discard { min-width: 0; }
   #gly-revise { min-width: 16ch; }
   .kit-sendbar .kit-btns { gap: 6px; }
+  .kit-sendbar .gly-revise-more { margin-left: -6px; }
 }
 @container (max-width: 560px) {
   #gly-revise { min-width: 0; }
@@ -2715,3 +2641,13 @@ body.gly-sealed .gly-tab-hint { display: none; }
 .gly-chat-said:not(.gly-chat-holds) > .gly-chat-drafts { display: none; }
 .gly-chat-drafts { margin-bottom: 12px; }
 .gly-chat-drafts .kit-draft-row { border-left: 3px solid var(--kit-signal); }
+
+/* THE TOP BUTTON KEEPS ITS PLACE. Its words change on its own press (Approve,
+   ← back to draft) and it has none while drafts are pending, the agent revises
+   or the review is approved; a box that changed with them would slide the bar
+   (the rule web/history.ts states for History's door). One width, fitting the
+   longest label: `← back to draft` is 15 characters of the 13px mono, given
+   16ch for the arrow's glyph, plus the kit's 26px padding each side. With no
+   words the box stays, unseen. */
+.kit-bar .kit-primary { width: calc(16ch + 52px); padding-inline: 0; text-align: center; white-space: nowrap; }
+.kit-bar .kit-primary[hidden] { display: inline-block; visibility: hidden; }

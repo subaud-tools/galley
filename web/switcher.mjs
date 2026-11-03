@@ -373,15 +373,19 @@ const rounds = async (doc) =>
     !(await sealed(doc)),
     await sealed(doc),
   );
+  // The press filed them instead: an instruction now, so Revise's ▾ offers
+  // Revise & approve, as for any unsent instruction.
+  const more = tab.locator('#gly-revise-more');
   check(
-    'it offers Revise & Approve, as for unsent instructions',
-    await tab.locator('.gly-verdict-menu button').isVisible(),
+    "it files them, and Revise's ▾ offers Revise & approve",
+    await until(() => more.isVisible(), 5000),
   );
-  if (await tab.locator('.gly-verdict-menu button').isVisible()) {
-    await tab.locator('.gly-verdict-menu button').click();
+  if (await more.isVisible()) {
+    await more.click();
+    await tab.locator('.kit-share-menu:not([hidden]) button').click();
   }
   check(
-    'Revise & Approve carries those words',
+    'Revise & approve carries those words',
     await until(
       async () => (await rounds(doc)).includes('words nobody has'),
       3000,

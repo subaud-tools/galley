@@ -276,13 +276,53 @@ async function reviseReady(page) {
   );
 }
 
-// With work pending Approve doesn't seal: it offers Revise & Approve.
-async function openApproveMenu(page) {
+// With work pending the top bar offers no Approve: Revise's ▾ holds Revise &
+// approve, in the kit's menu.
+const REVISE_MORE = '#gly-revise-more';
+const MORE_MENU = '.kit-share-menu:not([hidden])';
+async function openReviseMore(page) {
   await reviseReady(page);
-  await page.click('.kit-primary');
-  await page.waitForSelector('.gly-verdict-menu', {
-    state: 'visible',
-    timeout: 5000,
+  await page.waitForSelector(REVISE_MORE, { state: 'visible', timeout: 5000 });
+  await page.click(REVISE_MORE);
+  await page.waitForSelector(MORE_MENU, { state: 'visible', timeout: 5000 });
+}
+
+// Every child of the top bar, where it sits and how wide it is.
+function topBarSeats(page) {
+  return page.evaluate(() =>
+    [...document.querySelector('.kit-bar').children].map((el) => {
+      const r = el.getBoundingClientRect();
+      return { el: el.className, left: r.left, width: r.width };
+    }),
+  );
+}
+
+// Whether two readings of the top bar put everything in the same place. The
+// status is the readout, so its words (and its width) change with the state; the
+// spacer after it is empty and takes up the difference.
+function sameSeats(a, b) {
+  return (
+    a.length === b.length &&
+    a.every(
+      (x, i) =>
+        x.el === b[i].el &&
+        (x.el === 'kit-sp' ||
+          (Math.abs(x.left - b[i].left) <= 0.5 &&
+            (x.el === 'kit-status' || Math.abs(x.width - b[i].width) <= 0.5))),
+    )
+  );
+}
+
+// The top button as a reader sees it: shown, its words, and its box.
+function primarySeen(page) {
+  return page.evaluate(() => {
+    const b = document.querySelector('.kit-primary');
+    const r = b.getBoundingClientRect();
+    return {
+      visible: getComputedStyle(b).visibility !== 'hidden' && r.width > 0,
+      label: b.innerText.trim(),
+      width: r.width,
+    };
   });
 }
 
@@ -291,7 +331,8 @@ const tabPress = (page, name) =>
   page.locator('.kit-rail-tabrow .kit-ctl', { hasText: name }).click();
 const INSTRUCTION_ROW = '.gly-tab [data-draft-id]';
 const CHAT_ROW = '.gly-chat-drafts [data-draft-id]';
-const ROW_DELETE = 'button:not(.kit-draft-quote)';
+// Delete is the row's last button, after Edit.
+const ROW_DELETE = '.kit-btns .kit-btn:last-child';
 
 async function addOverallInstruction(page, text, want) {
   await tabPress(page, 'Chat');
@@ -496,6 +537,130 @@ try {
     'History is a door on the stage track, with no count',
     door === 'History',
     door,
+  );
+
+  // --- THE TOP BAR HOLDS STILL ---
+  //
+  // The top button changes its words on its own press (Approve, ← back to
+  // draft) and has nothing to say while drafts are pending; none of it may
+  // slide its neighbours. History in and out, at both window sizes.
+  for (const [width, height] of WINDOW_SIZES) {
+    await page.setViewportSize({ width, height });
+    await page.waitForTimeout(200);
+    const before = await topBarSeats(page);
+    await page.click('.gly-versions-open');
+    await page.waitForFunction(
+      () =>
+        document.querySelector('.kit-primary')?.innerText.trim() ===
+        '← back to draft',
+    );
+    const inHistory = await topBarSeats(page);
+    await page.click('.kit-primary');
+    await page.waitForFunction(
+      () => document.querySelector('.gly-versions')?.hidden === true,
+    );
+    await page.waitForFunction(
+      () =>
+        document.querySelector('.kit-primary')?.innerText.trim() === 'Approve',
+    );
+    const after = await topBarSeats(page);
+    check(
+      `${width}×${height}: entering and leaving History moves nothing in the top bar`,
+      sameSeats(before, inHistory) && sameSeats(before, after),
+      JSON.stringify({ before, inHistory, after }),
+    );
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.waitForTimeout(200);
+  const idleSeats = await topBarSeats(page);
+  const idlePrimary = await primarySeen(page);
+  check(
+    'with nothing pending the top button reads Approve, and Revise has no ▾',
+    idlePrimary.visible &&
+      idlePrimary.label === 'Approve' &&
+      (await page.locator(REVISE_MORE).isHidden()),
+    JSON.stringify(idlePrimary),
+  );
+  await addRangeInstruction(page, 'A draft for the split button.');
+  await page.waitForSelector(REVISE_MORE, { state: 'visible', timeout: 10000 });
+  await page.waitForFunction(() => {
+    const b = document.querySelector('.kit-primary');
+    return getComputedStyle(b).visibility === 'hidden' || !b.innerText.trim();
+  });
+  const draftPrimary = await primarySeen(page);
+  check(
+    'with a draft pending the top button says nothing and keeps its box',
+    !draftPrimary.visible &&
+      Math.abs(draftPrimary.width - idlePrimary.width) <= 0.5,
+    JSON.stringify({ draftPrimary, idlePrimary }),
+  );
+  check(
+    'and the top bar has not moved',
+    sameSeats(idleSeats, await topBarSeats(page)),
+    JSON.stringify({ idleSeats, now: await topBarSeats(page) }),
+  );
+  check(
+    'the ▾ sits on Revise as one control',
+    await page.evaluate(() => {
+      const a = document.querySelector('#gly-revise').getBoundingClientRect();
+      const b = document
+        .querySelector('#gly-revise-more')
+        .getBoundingClientRect();
+      return (
+        Math.abs(b.left - a.right) <= 1 &&
+        Math.abs(a.top - b.top) <= 0.5 &&
+        Math.abs(a.height - b.height) <= 0.5
+      );
+    }),
+  );
+  for (const [width, height] of WINDOW_SIZES) {
+    await page.setViewportSize({ width, height });
+    await page.waitForTimeout(200);
+    await openReviseMore(page);
+    const menu = await page.evaluate((sel) => {
+      const el = document.querySelector(sel);
+      const r = el.getBoundingClientRect();
+      return {
+        items: [...el.querySelectorAll('button')].map((b) =>
+          b.innerText.trim(),
+        ),
+        top: r.top,
+        left: r.left,
+        right: r.right,
+        bottom: r.bottom,
+      };
+    }, MORE_MENU);
+    check(
+      `${width}×${height}: the ▾ opens one item, Revise & approve, wholly inside the window`,
+      JSON.stringify(menu.items) === JSON.stringify(['Revise & approve']) &&
+        menu.top >= 0 &&
+        menu.left >= 0 &&
+        menu.right <= width &&
+        menu.bottom <= height,
+      JSON.stringify(menu),
+    );
+    await page.keyboard.press('Escape');
+    await page
+      .waitForSelector(MORE_MENU, { state: 'detached', timeout: 5000 })
+      .catch(() => {});
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await tabPress(page, 'Instructions');
+  await page.click(`${INSTRUCTION_ROW} ${ROW_DELETE}`);
+  await page.waitForFunction(
+    async () =>
+      (await (await fetch('_galley/pending')).json()).instructions.length === 0,
+  );
+  await page.waitForFunction(
+    () =>
+      document.querySelector('.kit-primary')?.innerText.trim() === 'Approve',
+    null,
+    { timeout: 10000 },
+  );
+  check(
+    'with the draft gone the top button reads Approve again, and the ▾ goes',
+    (await primarySeen(page)).visible &&
+      (await page.locator(REVISE_MORE).isHidden()),
   );
 
   // THE EMPTY TAB SAYS HOW. A first-time reviewer doesn't know how to ask for
@@ -1673,13 +1838,14 @@ try {
   // check after the send is that those words were not sent and are still there.
   await tabPress(page, 'Chat');
   await page.fill('#gly-chat-box', 'an unsent draft');
-  // WITH WORK PENDING APPROVE WON'T SEAL OVER IT: it offers Revise & Approve, and
-  // plain Revise is on the send bar.
-  await openApproveMenu(page);
-  const exits = await page.locator('.gly-verdict-menu button').allInnerTexts();
+  // WITH WORK PENDING NOTHING SEALS OVER IT: the top bar offers no Approve, and
+  // Revise's ▾ holds Revise & approve beside plain Revise.
+  await openReviseMore(page);
+  const exits = await page.locator(`${MORE_MENU} button`).allInnerTexts();
   check(
-    'Approve with work pending offers Revise & Approve, and no plain Revise',
-    JSON.stringify(exits) === JSON.stringify(['Revise & Approve']),
+    'with work pending the ▾ offers Revise & approve, and the top bar no Approve',
+    JSON.stringify(exits) === JSON.stringify(['Revise & approve']) &&
+      !(await primarySeen(page)).visible,
     JSON.stringify(exits),
   );
   await page.keyboard.press('Escape');
@@ -2960,15 +3126,15 @@ try {
   );
 
   await addOverallInstruction(page, 'Final trusted pass.', 1);
-  await openApproveMenu(page);
+  await openReviseMore(page);
   const beforeTrust = await windowMark(page);
-  await page.click('.gly-verdict-trust');
+  await page.click(`${MORE_MENU} button`);
   // The window this press opened, before the ack. See responseWindowOpen.
   await responseWindowOpen(page, beforeTrust);
   await ack(page, 'failed', 'cannot complete the trusted pass');
   await page.waitForTimeout(1700);
   check(
-    'Revise & Approve leaves a failed result open for another round',
+    'Revise & approve leaves a failed result open for another round',
     !(await page.isVisible('#gly-seal:not(.gly-seal-off)')),
   );
 

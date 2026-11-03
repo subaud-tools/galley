@@ -149,6 +149,21 @@ function makeSendBar(): HTMLElement {
   const [discard, send] = el.querySelectorAll('.kit-btn');
   discard.id = 'gly-discard';
   send.id = 'gly-revise';
+  // Revise's ▾, one control with it: Revise & approve, shown while work is
+  // pending. verdict.ts paints it and opens its menu.
+  send.after(
+    h(
+      'button',
+      {
+        class: 'kit-btn fill gly-revise-more',
+        id: 'gly-revise-more',
+        type: 'button',
+        'aria-label': 'More ways to send',
+        hidden: true,
+      },
+      '▾',
+    ),
+  );
   el.querySelector('.kit-sendbar-count')!.id = 'gly-drafts';
   el.querySelector('.kit-sendbar-hint')?.remove();
   return el;
@@ -427,8 +442,8 @@ function makeTabs(
 }
 
 /** Builds the page around the editor's <main>: the rounds, the centre card and
- * the send bar. Approve asks the editor's own verdict, so a press can't seal over
- * unsent work: with drafts it offers Revise & Approve. */
+ * the send bar. The top button asks the editor's own verdict: Approve on a clean
+ * document, the way back in History. */
 export function mountShell(verdict: () => void): void {
   const app = document.getElementById('app');
   const main = document.querySelector('main');
