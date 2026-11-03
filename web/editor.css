@@ -2330,7 +2330,6 @@ body.gly-history-mode .kit-card-body > main {
 .gly-notice-fade[hidden],
 .gly-notice-read[hidden],
 .gly-notice-show[hidden],
-.gly-verdict-menu[hidden],
 .gly-versions[hidden] { display: none; }
 
 /* ============================================================================

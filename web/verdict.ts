@@ -96,6 +96,10 @@ const DISCARD_ARM_MS = 4000;
 /** What Revise's ▾ offers over a document with work still pending. */
 export const MENU_TRUST = 'Revise & approve';
 
+/** What Approve says when it filed the whole-document box's words instead. */
+const FILED_NOT_APPROVED =
+  'filed your words as an instruction — Revise or Revise & approve sends them';
+
 /** The verdicts the server can seal a review with that the seal paints apart.
  * The third, `approved`, is sealLine's default branch and needs no name. */
 export const VERDICT_ENTRUSTED = 'approved-entrusted';
@@ -349,7 +353,11 @@ export const verdictMethods = {
       return;
     }
     if (this.chatHolds()) {
-      void window.galleyChrome?.fileWords();
+      void window.galleyChrome?.fileWords().then((ok) => {
+        if (ok) {
+          this.say(FILED_NOT_APPROVED);
+        }
+      });
       return;
     }
     if (this.verdict === APPROVE_IDLE) {

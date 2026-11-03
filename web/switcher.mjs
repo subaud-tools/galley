@@ -385,6 +385,16 @@ const rounds = async (doc) =>
     "it files them, and Revise's ▾ offers Revise & approve",
     await until(() => more.isVisible(), 5000),
   );
+  check(
+    'and the status line says the words were filed, not approved',
+    await until(
+      async () =>
+        ((await tab.locator('#gly-status').textContent()) || '').includes(
+          'filed your words as an instruction',
+        ),
+      5000,
+    ),
+  );
   if (await more.isVisible()) {
     await more.click();
     await tab.locator('.kit-share-menu:not([hidden]) button').click();
