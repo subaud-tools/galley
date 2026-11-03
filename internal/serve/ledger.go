@@ -103,7 +103,7 @@ func clipContext(s string) string {
 func verdictRecord(kind ledger.Kind, reason string) ledger.Record {
 	return ledger.Record{
 		Kind:   kind,
-		Author: review.AuthorCourt,
+		Author: review.AuthorUser,
 		Reason: reason,
 	}
 }

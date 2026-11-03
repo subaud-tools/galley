@@ -188,15 +188,29 @@ var DeciderKinds = []Kind{
 	KindReopened,
 }
 
-// Authors. These MIRROR review.AuthorCourt / review.AuthorAgent and are
+// Authors. These MIRROR review.AuthorUser / review.AuthorAgent and are
 // restated rather than imported: internal/review pulls the CRDT in behind it,
 // and this package has no business carrying that weight for two string
 // constants. TestAuthorConstantsMatchReview imports review in the TEST alone
 // and asserts the two vocabularies have not drifted.
 const (
 	AuthorAgent    = "agent"
-	AuthorReviewer = "court"
+	AuthorReviewer = "user"
 )
+
+// legacyReviewer is the value galley wrote for the reviewer before it was
+// AuthorReviewer. The log is committed and append-only, so lines carrying it
+// stay on disk; every read maps it to AuthorReviewer (see readAuthor).
+const legacyReviewer = "court"
+
+// readAuthor is the author a stored line means: AuthorReviewer for the legacy
+// value, the value itself otherwise.
+func readAuthor(a string) string {
+	if a == legacyReviewer {
+		return AuthorReviewer
+	}
+	return a
+}
 
 // Record is one decision. THE FIELD ORDER IS THE JSON ORDER and is part of the
 // format: encoding/json emits struct fields in declaration order, so two

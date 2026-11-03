@@ -519,7 +519,7 @@ func (s *EditServer) reviewerInstruction(sending map[string]bool) (string, []led
 			continue
 		}
 		for _, e := range th.Entries {
-			if e.Author != review.AuthorCourt {
+			if e.Author != review.AuthorUser {
 				continue
 			}
 			t := strings.TrimSpace(e.Text)

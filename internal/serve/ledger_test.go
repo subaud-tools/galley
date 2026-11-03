@@ -37,7 +37,7 @@ func TestReviseRecordsReviewerInstructionsOnTheirRound(t *testing.T) {
 	h := s.Handler()
 
 	if rec := post(t, h, "/_galley/instruct", map[string]any{
-		"op": "comment", "target": "retryBudget", "text": "Spell this out.", "author": review.AuthorCourt,
+		"op": "comment", "target": "retryBudget", "text": "Spell this out.", "author": review.AuthorUser,
 	}); rec.Code != http.StatusOK {
 		t.Fatalf("instruction: %d %s", rec.Code, rec.Body.String())
 	}

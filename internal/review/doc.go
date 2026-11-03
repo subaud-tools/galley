@@ -13,7 +13,7 @@
 //	    heading:  string               the quoted words the comment is on
 //	    entries:  YArray               chronological
 //	      [n]: YMap
-//	        author: "court" | "agent"
+//	        author: "user" | "agent"
 //	        at:     RFC3339 string
 //	        text:   YText              character-level, so concurrent edits merge
 //
@@ -37,9 +37,23 @@ import (
 // Authors. Kept as constants because the browser and the CLI both branch on
 // them and a typo would silently create a third kind of participant.
 const (
-	AuthorCourt = "court"
+	AuthorUser  = "user"
 	AuthorAgent = "agent"
 )
+
+// legacyUser is the value galley wrote for the reviewer before AuthorUser.
+// A pending.json from before the change, and a page still running the older
+// editor bundle, carry it.
+const legacyUser = "court"
+
+// ReadAuthor is the author a stored or received value means: AuthorUser for
+// the legacy value, the value itself otherwise.
+func ReadAuthor(a string) string {
+	if a == legacyUser {
+		return AuthorUser
+	}
+	return a
+}
 
 const threadsRoot = "threads"
 
@@ -147,7 +161,7 @@ func (r Region) Valid() error {
 // thread. It is what "read my comments" means.
 func (t Thread) Comment() string {
 	for _, e := range t.Entries {
-		if e.Author == AuthorCourt {
+		if e.Author == AuthorUser {
 			return e.Text
 		}
 	}
@@ -243,7 +257,8 @@ func readThread(key string, tm *crdt.YMap) Thread {
 func readEntry(em *crdt.YMap) Entry {
 	var e Entry
 	if v, ok := em.Get("author"); ok {
-		e.Author, _ = v.(string)
+		a, _ := v.(string)
+		e.Author = ReadAuthor(a)
 	}
 	if v, ok := em.Get("at"); ok {
 		if s, ok := v.(string); ok {
@@ -439,7 +454,7 @@ func (s *Session) SetComment(key, heading, text string, at time.Time) {
 				if !ok {
 					continue
 				}
-				if author, _ := mustGet[string](em, "author"); author == AuthorCourt {
+				if author, _ := mustGet[string](em, "author"); ReadAuthor(author) == AuthorUser {
 					body, _ = mustGet[*crdt.YText](em, "text")
 					break
 				}
@@ -470,7 +485,7 @@ func (s *Session) SetComment(key, heading, text string, at time.Time) {
 		if body == nil {
 			entry := crdt.NewMapPrelim()
 			entries.PushType(txn, entry)
-			entry.Set(txn, "author", AuthorCourt)
+			entry.Set(txn, "author", AuthorUser)
 			entry.Set(txn, "at", at.UTC().Format(time.RFC3339))
 			body = crdt.NewTextPrelim()
 			entry.Set(txn, "text", body)

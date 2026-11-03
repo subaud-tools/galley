@@ -129,6 +129,12 @@ func Load(path string) (File, error) {
 	if err := ondisk.Strict(raw, &f); err != nil {
 		return File{}, fmt.Errorf("%w %s: %w", ErrUnreadable, path, err)
 	}
+	// A round written before the reviewer's author value was review.AuthorUser
+	// carries the legacy value; it is the user's, and the next Save writes it
+	// the new way.
+	for i := range f.Comments {
+		f.Comments[i].Author = review.ReadAuthor(f.Comments[i].Author)
+	}
 	return f, nil
 }
 
@@ -203,7 +209,7 @@ func FromThreads(ts []review.Thread) []Comment {
 
 func reviewerEntry(th review.Thread) (review.Entry, bool) {
 	for _, e := range th.Entries {
-		if e.Author == review.AuthorCourt && strings.TrimSpace(e.Text) != "" {
+		if e.Author == review.AuthorUser && strings.TrimSpace(e.Text) != "" {
 			return e, true
 		}
 	}

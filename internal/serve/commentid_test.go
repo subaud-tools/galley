@@ -144,7 +144,7 @@ func TestACommentWhoseMarkThisServerNeverSawIsNotSwept(t *testing.T) {
 	}
 	c := unsent.Comment{
 		Key: unsent.NewID(unsent.KindText), Kind: unsent.KindText, Text: "which fox?",
-		Author: review.AuthorCourt, At: time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC), Quote: "the quick fox",
+		Author: review.AuthorUser, At: time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC), Quote: "the quick fox",
 	}
 	if err := unsent.Save(unsent.Path(md), unsent.File{Comments: []unsent.Comment{c}}); err != nil {
 		t.Fatal(err)

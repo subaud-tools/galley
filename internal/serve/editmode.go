@@ -1646,12 +1646,12 @@ const (
 // change silent.
 //
 // The author is a distinction this server already carries and already trusts
-// for exactly this meaning: review.Read reads `Author == AuthorCourt` as "the
+// for exactly this meaning: review.Read reads `Author == AuthorUser` as "the
 // reviewer said this", and the editor bundle names itself on every mutating
 // request it sends (web/entry.js's AUTHOR). So anything that is NOT the
 // reviewer's own name is a write on the agent's behalf.
 func requesterFor(author string) requester {
-	if author == review.AuthorCourt {
+	if review.ReadAuthor(author) == review.AuthorUser {
 		return byReviewer
 	}
 	return byAgent
@@ -1864,11 +1864,11 @@ func (s *EditServer) handleInstruction(w http.ResponseWriter, r *http.Request) {
 	if s.refuseHandoff(w) {
 		return
 	}
-	author := in.Author
+	author := review.ReadAuthor(in.Author)
 	if author == "" {
-		author = review.AuthorCourt
+		author = review.AuthorUser
 	}
-	if author != review.AuthorCourt {
+	if author != review.AuthorUser {
 		http.Error(w, "instructions belong to the reviewer", http.StatusForbidden)
 		return
 	}
@@ -1947,7 +1947,7 @@ func (s *EditServer) handleInstruction(w http.ResponseWriter, r *http.Request) {
 					continue
 				}
 				for _, entry := range thread.Entries {
-					if entry.Author == review.AuthorCourt && strings.TrimSpace(entry.Text) != "" {
+					if entry.Author == review.AuthorUser && strings.TrimSpace(entry.Text) != "" {
 						target = thread
 					}
 				}
@@ -2049,7 +2049,7 @@ func (s *EditServer) handleInstructionDelete(w http.ResponseWriter, r *http.Requ
 				continue
 			}
 			for _, entry := range thread.Entries {
-				if entry.Author == review.AuthorCourt && strings.TrimSpace(entry.Text) != "" {
+				if entry.Author == review.AuthorUser && strings.TrimSpace(entry.Text) != "" {
 					instruction = true
 					break
 				}

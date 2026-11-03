@@ -36,7 +36,7 @@ import (
 // `PRAGMA user_version`. Bumping it and adding a migration step is the whole
 // upgrade procedure; `rebuild` is the escape hatch when a step would be more
 // trouble than re-reading the logs.
-const schemaVersion = 3
+const schemaVersion = 4
 
 // migrations[i] takes the schema from version i to version i+1. Append only —
 // an existing entry has already run on somebody's machine.
@@ -151,6 +151,14 @@ CREATE TABLE sources (
 			return err
 		}
 		_, err := tx.Exec(`ALTER TABLE decisions ADD COLUMN text TEXT NOT NULL DEFAULT ''`)
+		return err
+	},
+
+	// 3 -> 4: the reviewer's author value is AuthorReviewer, not the legacy
+	// value. Rows an older build indexed are rewritten once; raw and digest
+	// keep the line as written (see Sync).
+	func(_ context.Context, tx *sql.Tx) error {
+		_, err := tx.Exec(`UPDATE decisions SET author = ? WHERE author = ?`, AuthorReviewer, legacyReviewer)
 		return err
 	},
 }
@@ -438,8 +446,11 @@ func (x *Index) Sync(logPath string) (SyncResult, error) {
 			// KEPT AND COUNTED — see SyncResult.Future.
 			res.Future++
 		}
+		// The digest is of the line AS WRITTEN, before the legacy author is
+		// mapped: rows an older build indexed carry that digest, and the same
+		// line read again elsewhere must dedupe against them.
 		out, err := ins.Exec(abs, lineno, rec.Digest(), rec.V, rec.At.UTC().Format(time.RFC3339Nano),
-			rec.At.UnixNano(), rec.Doc, rec.Review, string(rec.Kind), rec.Author,
+			rec.At.UnixNano(), rec.Doc, rec.Review, string(rec.Kind), readAuthor(rec.Author),
 			rec.Old, rec.New, rec.Reason, rec.Quote, rec.Context, rec.Round, rec.Text, trimmed)
 		if err != nil {
 			return res, err
@@ -656,6 +667,7 @@ func (x *Index) Decisions(limit int) ([]Record, error) {
 		if err := json.Unmarshal([]byte(raw), &rec); err != nil {
 			return nil, err
 		}
+		rec.Author = readAuthor(rec.Author)
 		out = append(out, rec)
 	}
 	return out, rows.Err()
@@ -684,6 +696,7 @@ func (x *Index) Instructions(doc string, round int) ([]Record, error) {
 		if err := json.Unmarshal([]byte(raw), &rec); err != nil {
 			return nil, err
 		}
+		rec.Author = readAuthor(rec.Author)
 		out = append(out, rec)
 	}
 	return out, rows.Err()

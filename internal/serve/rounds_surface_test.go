@@ -24,7 +24,7 @@ func TestRemovedWorkflowEndpointsAreGone(t *testing.T) {
 func TestInstructionHasItsOwnEndpoint(t *testing.T) {
 	s := newEditServer(t, t.TempDir(), "doc.md", "Hello world.\n")
 	rec := post(t, s.Handler(), "/_galley/instruct", map[string]any{
-		"op": "comment", "target": "world", "text": "Be specific.", "author": "court",
+		"op": "comment", "target": "world", "text": "Be specific.", "author": "user",
 	})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("instruction: %d %s", rec.Code, rec.Body.String())
@@ -36,7 +36,7 @@ func TestInstructionRangeSelectsTheExactDuplicate(t *testing.T) {
 	defer func() { _ = s.Close() }()
 	rec := post(t, s.Handler(), "/_galley/instruct", map[string]any{
 		"op": "comment", "target": "word", "text": "Change the second one.",
-		"author": "court", "path": []int{1}, "from": 10, "to": 14,
+		"author": "user", "path": []int{1}, "from": 10, "to": 14,
 	})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("range instruction answered %d: %s", rec.Code, rec.Body.String())

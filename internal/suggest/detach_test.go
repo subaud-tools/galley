@@ -43,7 +43,7 @@ func TestDetachTakesTheRightOneOfTwoNotesOnOneBlock(t *testing.T) {
 func TestDetachingADocumentCommentChangesNothing(t *testing.T) {
 	d := parseDoc(t, "# Spec\n\n{>>@document look at this<<}\n")
 	threads := []review.Thread{{Key: "cd-0000000000000001", Anchor: string(suggest.AnchorDocument),
-		Entries: []review.Entry{{Author: review.AuthorCourt, Text: "look at this"}}}}
+		Entries: []review.Entry{{Author: review.AuthorUser, Text: "look at this"}}}}
 	out, ok := suggest.Detach(d, threads, "cd-0000000000000001")
 	if ok {
 		t.Error("Detach claimed to remove a mark a document comment does not have")
@@ -58,14 +58,14 @@ func TestDetachingADocumentCommentChangesNothing(t *testing.T) {
 func TestDetachLiftsARangeCommentsHighlight(t *testing.T) {
 	at := time.Date(2026, 8, 8, 9, 0, 0, 0, time.UTC)
 	d := parseDoc(t, "A picture and an age.\n")
-	d, err := suggest.CommentOn(d, "age", "cm-0000000000000019", review.AuthorCourt, at)
+	d, err := suggest.CommentOn(d, "age", "cm-0000000000000019", review.AuthorUser, at)
 	if err != nil {
 		t.Fatal(err)
 	}
 	threads := []review.Thread{{
 		Key:     "cm-0000000000000019",
 		Heading: "age",
-		Entries: []review.Entry{{Author: review.AuthorCourt, At: at, Text: "which age?"}},
+		Entries: []review.Entry{{Author: review.AuthorUser, At: at, Text: "which age?"}},
 	}}
 
 	out, ok := suggest.Detach(d, threads, "cm-0000000000000019")
@@ -87,9 +87,9 @@ func TestPairForPairsByIDWhenTextsCollide(t *testing.T) {
 	at := time.Date(2026, 8, 8, 9, 0, 0, 0, time.UTC)
 	pending := []suggest.Pending{
 		{Run: "run-a", Kind: suggest.KindComment, Anchor: suggest.AnchorRange,
-			Author: review.AuthorCourt, At: at, Text: "old", CommentID: idA},
+			Author: review.AuthorUser, At: at, Text: "old", CommentID: idA},
 		{Run: "run-b", Kind: suggest.KindComment, Anchor: suggest.AnchorRange,
-			Author: review.AuthorCourt, At: at, Text: "old", CommentID: idB},
+			Author: review.AuthorUser, At: at, Text: "old", CommentID: idB},
 	}
 	for key, run := range map[string]string{idA: "run-a", idB: "run-b"} {
 		p, ok := suggest.PairFor(pending, review.Thread{Key: key, Heading: "old"})
@@ -112,8 +112,8 @@ func TestDetachLiftsEveryPieceOfOneComment(t *testing.T) {
 		"{==two==}{>>@comment "+idA+"<<} `code` {==three==}{>>@comment "+idA+"<<} and "+
 		"{==keep==}{>>@comment "+idB+"<<} end.\n")
 	threads := []review.Thread{
-		{Key: idA, Heading: "one two", Entries: []review.Entry{{Author: review.AuthorCourt, Text: "cut"}}},
-		{Key: idB, Heading: "keep", Entries: []review.Entry{{Author: review.AuthorCourt, Text: "keep"}}},
+		{Key: idA, Heading: "one two", Entries: []review.Entry{{Author: review.AuthorUser, Text: "cut"}}},
+		{Key: idB, Heading: "keep", Entries: []review.Entry{{Author: review.AuthorUser, Text: "keep"}}},
 	}
 
 	out, ok := suggest.Detach(d, threads, idA)
@@ -145,7 +145,7 @@ func TestPairForIgnoresTextAndUsesTheID(t *testing.T) {
 	}
 	for i, key := range []string{idA, idB} {
 		th := review.Thread{Key: key, Heading: "same words",
-			Entries: []review.Entry{{Author: review.AuthorCourt, Text: "why?"}}}
+			Entries: []review.Entry{{Author: review.AuthorUser, Text: "why?"}}}
 		p, ok := suggest.PairFor(pending, th)
 		if !ok {
 			t.Errorf("%s did not pair", key)
@@ -169,7 +169,7 @@ func TestDetachReportsNothingRatherThanGuessing(t *testing.T) {
 	d := parseDoc(t, "# Spec\n\nThe build is slow.\n\n{>>a different note<<}\n")
 	threads := []review.Thread{{
 		Key: "cd-gone", Anchor: string(suggest.AnchorDocument),
-		Entries: []review.Entry{{Author: review.AuthorCourt, Text: "the note that is gone"}},
+		Entries: []review.Entry{{Author: review.AuthorUser, Text: "the note that is gone"}},
 	}}
 	out, ok := suggest.Detach(d, threads, "cd-gone")
 	if ok {

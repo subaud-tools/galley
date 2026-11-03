@@ -29,7 +29,7 @@ func TestAReviewerRoundReportsWhatWasRemoved(t *testing.T) {
 	commit(t, s, "# Doc\n\nKept paragraph.\n\nDoomed paragraph.\n",
 		versions.Round{N: 1, Reason: versions.ReasonOpened})
 	commit(t, s, "# Doc\n\nKept paragraph.\n",
-		versions.Round{N: 2, Reason: versions.ReasonRevise, Authors: []string{"court"}})
+		versions.Round{N: 2, Reason: versions.ReasonRevise, Authors: []string{"user"}})
 
 	got, dropped := ReviewerChanges(s)
 	if dropped != 0 {
@@ -69,7 +69,7 @@ func TestAnAgentRoundReportsNothing(t *testing.T) {
 func TestTheFirstRoundReportsNothing(t *testing.T) {
 	s := versions.Open(t.TempDir() + "/doc.md")
 	commit(t, s, "# Doc\n\nOne.\n",
-		versions.Round{N: 1, Reason: versions.ReasonRevise, Authors: []string{"court"}})
+		versions.Round{N: 1, Reason: versions.ReasonRevise, Authors: []string{"user"}})
 
 	if got, _ := ReviewerChanges(s); len(got) != 0 {
 		t.Errorf("the opening round reported changes: %+v", got)
@@ -102,7 +102,7 @@ func TestTheCapIsStatedRatherThanSilent(t *testing.T) {
 	}
 	s := versions.Open(t.TempDir() + "/doc.md")
 	commit(t, s, before.String(), versions.Round{N: 1, Reason: versions.ReasonOpened})
-	commit(t, s, after.String(), versions.Round{N: 2, Reason: versions.ReasonRevise, Authors: []string{"court"}})
+	commit(t, s, after.String(), versions.Round{N: 2, Reason: versions.ReasonRevise, Authors: []string{"user"}})
 
 	got, dropped := ReviewerChanges(s)
 	if len(got) > reviewerChangeCap {
@@ -125,7 +125,7 @@ func TestOneChangeIsReportedOnce(t *testing.T) {
 	commit(t, s, "# Draft\n\nKept paragraph.\n\nA section the reviewer will delete.\n",
 		versions.Round{N: 1, Reason: versions.ReasonOpened})
 	commit(t, s, "# Draft\n\nKept paragraph.\n",
-		versions.Round{N: 2, Reason: versions.ReasonRevise, Authors: []string{"court"}})
+		versions.Round{N: 2, Reason: versions.ReasonRevise, Authors: []string{"user"}})
 
 	got, _ := ReviewerChanges(s)
 	var removals int
@@ -159,7 +159,7 @@ func TestTwoIdenticalParagraphsAreTwoRemovals(t *testing.T) {
 	commit(t, s, "# Draft\n\nCut this line.\n\nKeep me.\n\nCut this line.\n\nKeep me too.\n",
 		versions.Round{N: 1, Reason: versions.ReasonOpened})
 	commit(t, s, "# Draft\n\nKeep me.\n\nKeep me too.\n",
-		versions.Round{N: 2, Reason: versions.ReasonRevise, Authors: []string{"court"}})
+		versions.Round{N: 2, Reason: versions.ReasonRevise, Authors: []string{"user"}})
 
 	got, _ := ReviewerChanges(s)
 	var removals int
@@ -195,7 +195,7 @@ func TestNoBoundarySentinelReachesTheAgent(t *testing.T) {
 	commit(t, s, "# Draft\n\nKeep me.\n\nCut this line.\n\nCut this line.\n\nKeep me too.\n",
 		versions.Round{N: 1, Reason: versions.ReasonOpened})
 	commit(t, s, "# Draft\n\nKeep me.\n\nKeep me too.\n",
-		versions.Round{N: 2, Reason: versions.ReasonRevise, Authors: []string{"court"}})
+		versions.Round{N: 2, Reason: versions.ReasonRevise, Authors: []string{"user"}})
 
 	got, _ := ReviewerChanges(s)
 	for _, c := range got {
@@ -222,7 +222,7 @@ func TestTwoNeighbouringBlocksAreBothReported(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			s := versions.Open(t.TempDir() + "/doc.md")
 			commit(t, s, tc.before, versions.Round{N: 1, Reason: versions.ReasonOpened})
-			commit(t, s, tc.after, versions.Round{N: 2, Reason: versions.ReasonRevise, Authors: []string{"court"}})
+			commit(t, s, tc.after, versions.Round{N: 2, Reason: versions.ReasonRevise, Authors: []string{"user"}})
 			got, _ := ReviewerChanges(s)
 			var texts []string
 			for _, c := range got {

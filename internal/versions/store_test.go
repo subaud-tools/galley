@@ -112,7 +112,7 @@ func TestARoundMayCarryBothAuthors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := Authors(r.Authors); got != "court and agent" {
+	if got := Authors(r.Authors); got != "user and agent" {
 		t.Errorf("a live round reads as %q", got)
 	}
 	back, ok, err := s.Get(r.N)
