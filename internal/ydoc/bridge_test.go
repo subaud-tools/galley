@@ -114,16 +114,16 @@ func TestRoundTrip_SuggestionMarksCarryAuthorAndAt(t *testing.T) {
 	at := "2026-08-05T12:30:00Z"
 	want := docmodel.Doc{Blocks: []docmodel.Block{
 		{Kind: docmodel.Heading, Attrs: map[string]string{"level": "2"},
-			Inlines: []docmodel.Inline{marked("Review", mark(docmodel.Highlight, "author", "court", "at", at))}},
+			Inlines: []docmodel.Inline{marked("Review", mark(docmodel.Highlight, "author", "user", "at", at))}},
 		para(
 			text("keep "),
-			marked("added", mark(docmodel.Ins, "author", "court", "at", at)),
+			marked("added", mark(docmodel.Ins, "author", "user", "at", at)),
 			text(" "),
 			marked("removed", mark(docmodel.Del, "author", "agent", "at", at)),
 			text(" "),
 			marked("noted", mark(docmodel.Highlight, "author", "agent", "at", at)),
 			text(" "),
-			marked("bold+ins", mark(docmodel.Bold), mark(docmodel.Ins, "author", "court", "at", at)),
+			marked("bold+ins", mark(docmodel.Bold), mark(docmodel.Ins, "author", "user", "at", at)),
 			text(" "),
 			marked("here", mark(docmodel.Link, "href", "https://example.com/a?b=1&c=2")),
 		),
@@ -143,7 +143,7 @@ func TestRoundTrip_Multibyte(t *testing.T) {
 			text("café ☕ 😀"),
 			marked("café ☕ 😀", mark(docmodel.Bold)),
 			text(" tail"),
-			marked("😀", mark(docmodel.Ins, "author", "court", "at", "2026-08-05T00:00:00Z")),
+			marked("😀", mark(docmodel.Ins, "author", "user", "at", "2026-08-05T00:00:00Z")),
 			text("café"),
 		),
 		{Kind: docmodel.CodeBlock, Attrs: map[string]string{"language": "go"},
@@ -164,10 +164,10 @@ func TestRoundTrip_HardBreak(t *testing.T) {
 			docmodel.Inline{Marks: []docmodel.Mark{mark(docmodel.HardBreak)}},
 			text("line two"),
 			docmodel.Inline{Marks: []docmodel.Mark{
-				mark(docmodel.Ins, "author", "court", "at", "2026-08-05T00:00:00Z"),
+				mark(docmodel.Ins, "author", "user", "at", "2026-08-05T00:00:00Z"),
 				mark(docmodel.HardBreak),
 			}},
-			marked("line three", mark(docmodel.Ins, "author", "court", "at", "2026-08-05T00:00:00Z")),
+			marked("line three", mark(docmodel.Ins, "author", "user", "at", "2026-08-05T00:00:00Z")),
 		),
 	}}
 	got := roundTrip(t, want)
@@ -263,7 +263,7 @@ func TestRoundTrip_OverTheWire(t *testing.T) {
 			Inlines: []docmodel.Inline{text("café ☕ 😀")}},
 		para(
 			marked("linked", mark(docmodel.Link, "href", "https://example.com")),
-			marked("suggested", mark(docmodel.Ins, "author", "court", "at", "2026-08-05T00:00:00Z")),
+			marked("suggested", mark(docmodel.Ins, "author", "user", "at", "2026-08-05T00:00:00Z")),
 		),
 	}}
 	ydoc.Load(src, own(src), want)

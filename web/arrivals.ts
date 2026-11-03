@@ -24,9 +24,8 @@
 // The reviewer's own author name. Nothing of theirs is tracked any more (the
 // reviewer's-hand cut), so in practice every pending suggestion is the
 // agent's — but the filter stays: announcing anything of the reviewer's back
-// to them would be the editor telling them what they just did, and a mark
-// attributed 'court' loaded from an old document must never be announced.
-const SELF = 'court';
+// to them would be the editor telling them what they just did.
+const SELF = 'user';
 
 // How long the strip stays before it fades. THE STRIP IS NOT THE RECORD — the
 // census count is, and it does not fade. Someone who looked away must still be
@@ -47,8 +46,7 @@ export const ARRIVAL_SUFFIX = 'fades · the count keeps it';
  * of the same session.
  *
  * The reviewer's OWN work is never an arrival. Their edits apply directly and
- * never enter the pending set at all now; the author filter stays for the
- * mark loaded from an old document that still reads 'court', because
+ * never enter the pending set at all now; the author filter stays because
  * announcing the reviewer to the reviewer would be the editor narrating their
  * own hands.
  *

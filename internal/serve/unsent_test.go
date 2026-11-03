@@ -484,7 +484,7 @@ func TestOneSendDoesNotReleaseAnotherSendsRound(t *testing.T) {
 	s.OnRevise = "true"
 	fileThreeComments(t, s)
 	other := unsent.Comment{Key: "cd-00000000000000aa", Kind: unsent.KindDocument,
-		Text: "another send's round", Author: review.AuthorCourt, At: time.Now()}
+		Text: "another send's round", Author: review.AuthorUser, At: time.Now()}
 	s.mu.Lock()
 	s.sending = map[string]unsent.Comment{other.Key: other}
 	s.mu.Unlock()

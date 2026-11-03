@@ -963,7 +963,7 @@ const takeBack = (key) =>
       await fetch('_galley/instruct', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ op: 'edit', key: k, text, author: 'court' }),
+        body: JSON.stringify({ op: 'edit', key: k, text, author: 'user' }),
       });
       await window.galleyEdit.app.refreshPending();
     },
@@ -1046,7 +1046,7 @@ const takeBack = (key) =>
           op: 'comment_block',
           target: k,
           text: 'paint check',
-          author: 'court',
+          author: 'user',
         }),
       });
       await window.galleyEdit.app.refreshPending();
@@ -2350,7 +2350,7 @@ const placeComposer = (nth = 0) =>
       body: JSON.stringify({
         op: 'comment_document',
         text: 'tighten the closing paragraph',
-        author: 'court',
+        author: 'user',
       }),
     }).then((r) => r.status),
   );

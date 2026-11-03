@@ -76,15 +76,15 @@ func TestInlineAttr(t *testing.T) {
 		Text: "click here",
 		Marks: []Mark{
 			{Kind: Link, Attrs: map[string]string{"href": "https://example.com"}},
-			{Kind: Ins, Attrs: map[string]string{"author": "court", "at": "2026-08-02T10:00:00Z"}},
+			{Kind: Ins, Attrs: map[string]string{"author": "user", "at": "2026-08-02T10:00:00Z"}},
 		},
 	}
 
 	if got := in.Attr(Link, "href"); got != "https://example.com" {
 		t.Fatalf("want href https://example.com, got %q", got)
 	}
-	if got := in.Attr(Ins, "author"); got != "court" {
-		t.Fatalf("want author court, got %q", got)
+	if got := in.Attr(Ins, "author"); got != "user" {
+		t.Fatalf("want author user, got %q", got)
 	}
 	if got := in.Attr(Ins, "at"); got != "2026-08-02T10:00:00Z" {
 		t.Fatalf("want at 2026-08-02T10:00:00Z, got %q", got)
@@ -147,7 +147,7 @@ func TestEqualNilVsEmptyNormalized(t *testing.T) {
 func TestEqualDiffersOnMarkAttrs(t *testing.T) {
 	a := Doc{Blocks: []Block{
 		{Kind: Paragraph, Inlines: []Inline{
-			{Text: "hi", Marks: []Mark{{Kind: Ins, Attrs: map[string]string{"author": "court"}}}},
+			{Text: "hi", Marks: []Mark{{Kind: Ins, Attrs: map[string]string{"author": "user"}}}},
 		}},
 	}}
 	b := Doc{Blocks: []Block{

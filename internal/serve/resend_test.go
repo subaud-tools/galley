@@ -52,7 +52,7 @@ func cancelAndClear(t *testing.T, s *EditServer) {
 func instructDocument(t *testing.T, s *EditServer, text string) {
 	t.Helper()
 	if rec := post(t, s.Handler(), "/_galley/instruct", map[string]any{
-		"op": "comment_document", "text": text, "author": "court",
+		"op": "comment_document", "text": text, "author": "user",
 	}); rec.Code != http.StatusOK {
 		t.Fatalf("instruct %q: %d %s", text, rec.Code, rec.Body.String())
 	}

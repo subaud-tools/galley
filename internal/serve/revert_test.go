@@ -13,7 +13,7 @@ import (
 
 const beforeDoc = "# Title\n\nAlpha one here.\n\nBeta two here.\n\nGamma three here.\n"
 
-// TestRevertingARemovalPutsTheBlockBackWhereItWas is the case Court asked for:
+// TestRevertingARemovalPutsTheBlockBackWhereItWas is the case the user asked for:
 // undo the paragraph I deleted, and keep the edits I made after it. ⌘Z cannot
 // do that at any price — it is sequential, and this is targeted.
 func TestRevertingARemovalPutsTheBlockBackWhereItWas(t *testing.T) {

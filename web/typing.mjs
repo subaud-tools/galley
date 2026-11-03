@@ -158,7 +158,7 @@ const check = (name, ok, detail) =>
 // the file is opened — before anybody has typed. The first re-anchor rung for
 // a block-emptying deletion counted EVERY empty textblock in the document, so
 // this one fence is enough to make §6's ghost refuse: two empties, ambiguity,
-// adrift, and Court's original bug back unchanged in a document nobody would
+// adrift, and the user's original bug back unchanged in a document nobody would
 // call unusual. It is also unreachable to the reviewer twice over — the
 // transaction filter refuses every edit inside a fence — so counting it can
 // only ever produce a false refusal or a wrong anchor.
@@ -877,7 +877,7 @@ const tableRows = () =>
 // --- §1 A KEYSTROKE PRODUCES NO MARK — the contract, stated smallest -------
 //
 // RED AGAINST THE TRACKED-TYPING BUILD, all four checks: typing used to land
-// ins-marked and attributed 'court', a card appeared in /_galley/pending, and
+// ins-marked and attributed to the reviewer, a card appeared in /_galley/pending, and
 // the projection wrote {++XY++} into the author's file.
 
 await selectWithin('about the connection', 0, 0);
@@ -1501,7 +1501,7 @@ const filedInstructions = async () =>
       op: 'comment',
       target: 'pauses at the edge',
       text: 'does this line still read?',
-      author: 'court',
+      author: 'user',
     }),
   });
   check(
@@ -1668,9 +1668,9 @@ const filedInstructions = async () =>
 
   // The comment above is another whole-document rebuild, so §6's ghost gets
   // one more crossing — through the reviewer's OWN gesture this time, which
-  // is exactly the sequence Court reported.
+  // is exactly the sequence the user reported.
   check(
-    "and §6's ghost survived that rebuild too — Court's own sequence, end to end",
+    "and §6's ghost survived that rebuild too — the user's own sequence, end to end",
     (await ghostsFor(WHOLE)).length === 1,
     await trailGhosts(),
   );
@@ -1978,7 +1978,7 @@ const ghostPlaces = () =>
       op: 'comment',
       target: 'very last gap',
       text: 'and this one rebuilds the document under the pair',
-      author: 'court',
+      author: 'user',
     }),
   });
   check(

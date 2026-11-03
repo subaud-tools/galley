@@ -33,10 +33,10 @@ func TestPathIsBesideTheRounds(t *testing.T) {
 func TestARoundTripKeepsEveryFieldVerbatim(t *testing.T) {
 	at := time.Date(2026, 10, 1, 9, 30, 0, 0, time.UTC)
 	want := File{V: Version, Comments: []Comment{
-		{Key: "cm-0123456789abcdef", Kind: KindText, Text: "line one\n\nline three <<} stays", Author: review.AuthorCourt, At: at, Quote: "the words"},
-		{Key: "cb-0123456789abcdef", Kind: KindBlock, Text: "this part of the figure", Author: review.AuthorCourt, At: at.Add(time.Minute),
+		{Key: "cm-0123456789abcdef", Kind: KindText, Text: "line one\n\nline three <<} stays", Author: review.AuthorUser, At: at, Quote: "the words"},
+		{Key: "cb-0123456789abcdef", Kind: KindBlock, Text: "this part of the figure", Author: review.AuthorUser, At: at.Add(time.Minute),
 			BlockKind: "image", Region: &review.Region{X: 0.1, Y: 0.2, W: 0.3, H: 0.4}, Quote: "Figure 1"},
-		{Key: "cd-0123456789abcdef", Kind: KindDocument, Text: "the whole thing is too long", Author: review.AuthorCourt, At: at.Add(2 * time.Minute)},
+		{Key: "cd-0123456789abcdef", Kind: KindDocument, Text: "the whole thing is too long", Author: review.AuthorUser, At: at.Add(2 * time.Minute)},
 	}}
 	path := filepath.Join(t.TempDir(), ".galley", "versions", "doc.md", "pending.json")
 	// V is stamped by Save, not trusted from the caller.
@@ -114,7 +114,7 @@ func TestANewerFileWithANewKeyIsRefusedAsNewerNotUnreadable(t *testing.T) {
 // PRIVATE MEANS STRICT: a key this build does not know is a shape it cannot
 // honour, and reading half of it misattributes the round.
 func TestAnUnknownFieldIsRefused(t *testing.T) {
-	_, err := Load(writeRaw(t, `{"v":1,"comments":[{"key":"cm-0123456789abcdef","kind":"text","txet":"x","author":"court","at":"2026-10-01T09:30:00Z"}]}`))
+	_, err := Load(writeRaw(t, `{"v":1,"comments":[{"key":"cm-0123456789abcdef","kind":"text","txet":"x","author":"user","at":"2026-10-01T09:30:00Z"}]}`))
 	if err == nil {
 		t.Fatal("a renamed key decoded in silence")
 	}
@@ -172,10 +172,10 @@ func TestNewIDPanicsOnAnUnknownKind(t *testing.T) {
 func TestThreadsRoundTrip(t *testing.T) {
 	at := time.Date(2026, 10, 1, 9, 30, 0, 0, time.UTC)
 	ts := []review.Thread{
-		{Key: "cm-0123456789abcdef", Heading: "the words", Entries: []review.Entry{{Author: review.AuthorCourt, At: at, Text: "line one\n\nline three"}}},
+		{Key: "cm-0123456789abcdef", Heading: "the words", Entries: []review.Entry{{Author: review.AuthorUser, At: at, Text: "line one\n\nline three"}}},
 		{Key: "cb-0123456789abcdef", Heading: "Figure 1", Anchor: "block", BlockKind: "image", Region: &review.Region{X: 0.1, Y: 0.2, W: 0.3, H: 0.4},
-			Entries: []review.Entry{{Author: review.AuthorCourt, At: at.Add(time.Minute), Text: "this corner"}}},
-		{Key: "cd-0123456789abcdef", Anchor: "document", Entries: []review.Entry{{Author: review.AuthorCourt, At: at.Add(2 * time.Minute), Text: "too long"}}},
+			Entries: []review.Entry{{Author: review.AuthorUser, At: at.Add(time.Minute), Text: "this corner"}}},
+		{Key: "cd-0123456789abcdef", Anchor: "document", Entries: []review.Entry{{Author: review.AuthorUser, At: at.Add(2 * time.Minute), Text: "too long"}}},
 	}
 	cs := FromThreads(ts)
 	if len(cs) != 3 {
@@ -186,7 +186,7 @@ func TestThreadsRoundTrip(t *testing.T) {
 			t.Fatalf("comment %d kind = %q, want %q", i, cs[i].Kind, want)
 		}
 	}
-	if cs[0].Quote != "the words" || cs[0].Text != "line one\n\nline three" || cs[0].Author != review.AuthorCourt || !cs[0].At.Equal(at) {
+	if cs[0].Quote != "the words" || cs[0].Text != "line one\n\nline three" || cs[0].Author != review.AuthorUser || !cs[0].At.Equal(at) {
 		t.Fatalf("comment 0 = %+v — Quote is the Heading, and Text/Author/At the reviewer's entry", cs[0])
 	}
 	if got := ToThreads(cs); !reflect.DeepEqual(got, ts) {
@@ -195,7 +195,7 @@ func TestThreadsRoundTrip(t *testing.T) {
 
 	skipped := []review.Thread{
 		{Key: "cm-agentonly000000", Entries: []review.Entry{{Author: review.AuthorAgent, At: at, Text: "an answer"}}},
-		{Key: "cm-blank0000000000", Entries: []review.Entry{{Author: review.AuthorCourt, At: at, Text: "  \n "}}},
+		{Key: "cm-blank0000000000", Entries: []review.Entry{{Author: review.AuthorUser, At: at, Text: "  \n "}}},
 		{Key: "cm-none00000000000"},
 	}
 	if got := FromThreads(skipped); len(got) != 0 {
@@ -204,9 +204,25 @@ func TestThreadsRoundTrip(t *testing.T) {
 	// The reviewer's entry is found even when it is not the first one.
 	later := []review.Thread{{Key: "cm-later0000000000", Entries: []review.Entry{
 		{Author: review.AuthorAgent, At: at, Text: "an answer"},
-		{Author: review.AuthorCourt, At: at.Add(time.Minute), Text: "the ask"},
+		{Author: review.AuthorUser, At: at.Add(time.Minute), Text: "the ask"},
 	}}}
 	if got := FromThreads(later); len(got) != 1 || got[0].Text != "the ask" {
 		t.Fatalf("FromThreads = %+v, want the reviewer's entry", got)
+	}
+}
+
+// TestALegacyReviewerAuthorReplaysAsTheUser: a pending.json written before the
+// reviewer's author value became "user" replays with the user's comments
+// still the user's, so a review in progress across the upgrade keeps them.
+func TestALegacyReviewerAuthorReplaysAsTheUser(t *testing.T) {
+	f, err := Load(writeRaw(t, `{"v":1,"comments":[{"key":"cm-0123456789abcdef","kind":"text","text":"x","author":"court","at":"2026-10-01T09:30:00Z"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(f.Comments) != 1 || f.Comments[0].Author != review.AuthorUser {
+		t.Fatalf("comments = %+v, want one authored %q", f.Comments, review.AuthorUser)
+	}
+	if got := ToThreads(f.Comments); len(got) != 1 || got[0].Comment() != "x" {
+		t.Fatalf("threads = %+v, want the user's comment read back as theirs", got)
 	}
 }

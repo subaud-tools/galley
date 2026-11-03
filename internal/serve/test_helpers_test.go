@@ -56,7 +56,7 @@ func press(t *testing.T, s *EditServer, body string) {
 func commentAs(t *testing.T, s *EditServer, target, instruction string) {
 	t.Helper()
 	rec := post(t, s.Handler(), "/_galley/instruct", map[string]any{
-		"op": "comment", "target": target, "text": instruction, "author": "court",
+		"op": "comment", "target": target, "text": instruction, "author": "user",
 	})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("instruction answered %d: %s", rec.Code, rec.Body.String())

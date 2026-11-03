@@ -34,7 +34,7 @@ func writeRestartDoc(t *testing.T) string {
 // — and it means the reviewer's document appears twice, and the next
 // projection writes the doubled text to disk.
 //
-// Court saw this as a 21-line document becoming 41 lines.
+// The user saw this as a 21-line document becoming 41 lines.
 func TestMergingTwoRunsWouldDuplicateTheDocument(t *testing.T) {
 	path := writeRestartDoc(t)
 

@@ -13,7 +13,7 @@
 //   test    — same three edits, ONE instruction filed, three undos:
 //     "Alpha one here. ONE TWO THREE"    changed at all? false
 //
-// Court asked "is there only one level of undo?". There was not one — after any
+// The user asked "is there only one level of undo?". There was not one — after any
 // server-side mutation there were ZERO. Yjs owns undo and the stack was fine;
 // it was ORPHANED, because every server-side mutation went through ydoc.Load,
 // which deletes the fragment's children and writes them again, so each undo

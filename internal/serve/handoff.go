@@ -326,10 +326,10 @@ func (s *EditServer) refileAsks(round int) {
 			session := review.Bind(doc, tx)
 			for _, f := range refiled {
 				if f.about == nil {
-					session.Append(f.key, f.heading, review.AuthorCourt, f.text, at)
+					session.Append(f.key, f.heading, review.AuthorUser, f.text, at)
 					continue
 				}
-				session.AppendAbout(f.key, f.heading, review.AuthorCourt, f.text, at, *f.about)
+				session.AppendAbout(f.key, f.heading, review.AuthorUser, f.text, at, *f.about)
 			}
 		}, nil
 	})
@@ -359,7 +359,7 @@ func refiledAsks(model docmodel.Doc, asks []versions.Ask, at time.Time) (docmode
 		}
 		if a.Quote != "" {
 			key := unsent.NewID(unsent.KindText)
-			if next, err := suggest.CommentOn(model, a.Quote, key, review.AuthorCourt, at); err == nil {
+			if next, err := suggest.CommentOn(model, a.Quote, key, review.AuthorUser, at); err == nil {
 				model = next
 				heading := a.Quote
 				if anchored, ok := suggest.CommentText(next, key); ok {

@@ -34,7 +34,7 @@ func TestARoundCanBeReadAgain(t *testing.T) {
 	doc := roundStore(t,
 		versions.Round{N: 1, Reason: versions.ReasonOpened, At: time.Now().UTC()},
 		versions.Round{N: 2, Reason: versions.ReasonRevise, At: time.Now().UTC(),
-			Authors: []string{"court"},
+			Authors: []string{"user"},
 			Asks: []versions.Ask{
 				ask("cm-aaa", "spell this out", "the retryBudget"),
 				ask("cd-bbb", "tighten the opening", ""),
@@ -61,7 +61,7 @@ func TestARoundCanBeReadAgain(t *testing.T) {
 func TestTheDefaultIsTheRoundThatAsked(t *testing.T) {
 	doc := roundStore(t,
 		versions.Round{N: 1, Reason: versions.ReasonOpened},
-		versions.Round{N: 2, Reason: versions.ReasonRevise, Authors: []string{"court"},
+		versions.Round{N: 2, Reason: versions.ReasonRevise, Authors: []string{"user"},
 			Asks: []versions.Ask{ask("cm-aaa", "spell this out", "the retryBudget")}},
 		versions.Round{N: 3, Reason: versions.ReasonLanded, Authors: []string{"agent"}, Answers: 2},
 	)

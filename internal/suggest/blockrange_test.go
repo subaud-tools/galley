@@ -29,7 +29,7 @@ var when = time.Date(2026, 8, 23, 12, 0, 0, 0, time.UTC)
 // block by block, so no single block could ever contain it.
 func TestASelectionCrossingBlocksAnchors(t *testing.T) {
 	d := threePara()
-	out, err := suggest.CommentAcross(d, []int{0}, 5, []int{2}, 8, "cm-000000000000000e", "court", when)
+	out, err := suggest.CommentAcross(d, []int{0}, 5, []int{2}, 8, "cm-000000000000000e", "user", when)
 	if err != nil {
 		t.Fatalf("a selection across three paragraphs was refused: %v", err)
 	}
@@ -55,7 +55,7 @@ func TestASelectionCrossingBlocksAnchors(t *testing.T) {
 // than three that happen to look alike. docmodel.RunAttr names ONE authored
 // edit; this is that rule applied across blocks.
 func TestEveryTouchedBlockCarriesTheSameRun(t *testing.T) {
-	out, err := suggest.CommentAcross(threePara(), []int{0}, 5, []int{2}, 8, "cm-000000000000000f", "court", when)
+	out, err := suggest.CommentAcross(threePara(), []int{0}, 5, []int{2}, 8, "cm-000000000000000f", "user", when)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +86,7 @@ func TestEveryTouchedBlockCarriesTheSameRun(t *testing.T) {
 
 // TestTheEndsArePartialAndTheMiddleIsWhole.
 func TestTheEndsArePartialAndTheMiddleIsWhole(t *testing.T) {
-	out, err := suggest.CommentAcross(threePara(), []int{0}, 5, []int{2}, 8, "cm-0000000000000010", "court", when)
+	out, err := suggest.CommentAcross(threePara(), []int{0}, 5, []int{2}, 8, "cm-0000000000000010", "user", when)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestTheEndsArePartialAndTheMiddleIsWhole(t *testing.T) {
 // TestDeletingACrossBlockCommentLiftsEveryBlocksHighlight. Lifting it from the
 // first block alone would leave the rest marked with a run no thread points at.
 func TestDeletingACrossBlockCommentLiftsEveryHighlight(t *testing.T) {
-	out, err := suggest.CommentAcross(threePara(), []int{0}, 5, []int{2}, 8, "cm-0000000000000011", "court", when)
+	out, err := suggest.CommentAcross(threePara(), []int{0}, 5, []int{2}, 8, "cm-0000000000000011", "user", when)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,11 +142,11 @@ func TestDeletingACrossBlockCommentLiftsEveryHighlight(t *testing.T) {
 // paragraphs are two decisions however alike they look.
 func TestTwoAdjacentCommentsStayTwo(t *testing.T) {
 	d := threePara()
-	one, err := suggest.CommentOnRange(d, []int{0}, 0, 4, "cm-0000000000000012", "court", when)
+	one, err := suggest.CommentOnRange(d, []int{0}, 0, 4, "cm-0000000000000012", "user", when)
 	if err != nil {
 		t.Fatal(err)
 	}
-	two, err := suggest.CommentOnRange(one, []int{1}, 0, 4, "cm-0000000000000013", "court", when)
+	two, err := suggest.CommentOnRange(one, []int{1}, 0, 4, "cm-0000000000000013", "user", when)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +159,7 @@ func TestTwoAdjacentCommentsStayTwo(t *testing.T) {
 // this is a contract check — and swapping the ends quietly would hide a caller
 // bug rather than report it.
 func TestABackwardsRangeIsRefused(t *testing.T) {
-	if _, err := suggest.CommentAcross(threePara(), []int{2}, 0, []int{0}, 4, "cm-0000000000000014", "court", when); err == nil {
+	if _, err := suggest.CommentAcross(threePara(), []int{2}, 0, []int{0}, 4, "cm-0000000000000014", "user", when); err == nil {
 		t.Error("a backwards selection was accepted")
 	}
 }
@@ -167,11 +167,11 @@ func TestABackwardsRangeIsRefused(t *testing.T) {
 // TestOverlappingAnExistingCommentIsRefusedBeforeAnythingIsWritten — a
 // selection crossing something already commented on must not half-apply.
 func TestOverlappingAnExistingCommentIsRefused(t *testing.T) {
-	first, err := suggest.CommentOnRange(threePara(), []int{1}, 0, 4, "cm-0000000000000015", "court", when)
+	first, err := suggest.CommentOnRange(threePara(), []int{1}, 0, 4, "cm-0000000000000015", "user", when)
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := suggest.CommentAcross(first, []int{0}, 5, []int{2}, 8, "cm-0000000000000016", "court", when)
+	out, err := suggest.CommentAcross(first, []int{0}, 5, []int{2}, 8, "cm-0000000000000016", "user", when)
 	if err == nil {
 		t.Fatal("a selection across an existing comment was accepted")
 	}
@@ -184,11 +184,11 @@ func TestOverlappingAnExistingCommentIsRefused(t *testing.T) {
 // what commenting on a range means, and a degenerate cross-block call reaches
 // it rather than duplicating it.
 func TestASameBlockRangeGoesThroughTheOnePath(t *testing.T) {
-	across, err := suggest.CommentAcross(threePara(), []int{1}, 0, []int{1}, 4, "cm-0000000000000017", "court", when)
+	across, err := suggest.CommentAcross(threePara(), []int{1}, 0, []int{1}, 4, "cm-0000000000000017", "user", when)
 	if err != nil {
 		t.Fatal(err)
 	}
-	direct, err := suggest.CommentOnRange(threePara(), []int{1}, 0, 4, "cm-0000000000000017", "court", when)
+	direct, err := suggest.CommentOnRange(threePara(), []int{1}, 0, 4, "cm-0000000000000017", "user", when)
 	if err != nil {
 		t.Fatal(err)
 	}

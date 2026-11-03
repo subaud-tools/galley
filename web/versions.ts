@@ -1139,7 +1139,7 @@ export class VersionsPanel {
     // This surface had the identical two facts and took them apart: the answer
     // was bare text at the top of the rail, the ask was a card stranded at the
     // foot beside whatever change happened to be last, and between them sat a
-    // CHANGE card with an empty body. Court, looking at the two side by side:
+    // CHANGE card with an empty body. The user, looking at the two side by side:
     // *"if we have the info here we should have it here."*
     //
     // This is NOT the attribution guess the manifest exists to avoid. Pairing a

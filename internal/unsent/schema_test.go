@@ -21,7 +21,7 @@ func TestTheUnsentKeysAreTheContract(t *testing.T) {
 	}{
 		{"File", File{V: 1, Comments: []Comment{{Key: "k"}}}, "v,comments"},
 		{"Comment", Comment{
-			Key: "cb-0123456789abcdef", Kind: KindBlock, Text: "t", Author: review.AuthorCourt, At: time.Now(),
+			Key: "cb-0123456789abcdef", Kind: KindBlock, Text: "t", Author: review.AuthorUser, At: time.Now(),
 			BlockKind: "image", Region: &review.Region{X: 0, Y: 0, W: 1, H: 1}, Quote: "q",
 		}, "key,kind,text,author,at,blockKind,region,quote"},
 	} {

@@ -12,7 +12,7 @@ import (
 
 // WHAT THE REVIEWER HAS CHANGED BY HAND SINCE THE LAST ROUND, computed live.
 //
-// ONE SURFACE, ALL OF IT. Court: "the list on the right rail is the list of
+// ONE SURFACE, ALL OF IT. The user: "the list on the right rail is the list of
 // instructions going to be revised. we don't need a second list or surface…
 // one surface. all of the instructions."
 //

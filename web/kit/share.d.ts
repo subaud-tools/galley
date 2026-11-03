@@ -90,8 +90,6 @@ export interface Frame {
   right: HTMLElement | null;
   /** Where the caller draws the thread. */
   rightBody: HTMLElement | null;
-  /** Says whether the thread of card has no messages: an empty one folds to its strip and its first message opens it. card is an id unique across the tool, e.g. `${folder}/${card}`. A press on the toggle wins until the card changes, over a reload too. */
-  setRightEmpty(empty: boolean, card?: string): void;
 }
 
 /** The three columns of a .kit-app grid; the caller appends left, centre and right after its bar. */
@@ -113,7 +111,7 @@ export interface NarrowOptions {
 export interface NarrowMode {
   /** Gives the frame to a side, or to the centre with null. Does nothing while the page is wide. */
   show(side: NarrowSide): void;
-  /** Puts n under a strip's toggle, none at zero. It shows only on a closed strip while narrow. */
+  /** Puts n under a strip's toggle, none at zero. It shows on a closed strip while narrow, and on a closed right strip at wide widths. */
   setCount(side: 'left' | 'right', n: number): void;
   /** Lets go of the window, when the page goes. */
   stop(): void;
@@ -165,14 +163,14 @@ export function indexSection(o: IndexSectionOptions): HTMLElement;
 /** One message, as plain values; the caller may carry more on it for attachments. */
 export interface ThreadMessageValue {
   id: number | string;
-  from: 'court' | 'agent';
+  from: 'user' | 'agent';
   /** RFC 3339; anything else shows as it came. */
   at: string;
   /** What the caller says about it, in the head: "your note". */
   words?: string;
   /** A link after the words, opening through the caller. */
   link?: { text: string; href: string; open(): void } | null;
-  /** Where one of Court's stands: a msgstate state, drawn with messagePill. */
+  /** Where one of the user's stands: a msgstate state, drawn with messagePill. */
   state?: string;
   /** The line under the state's pill. */
   stateLine?: string;
@@ -232,7 +230,7 @@ export interface RailTabsOptions {
 }
 
 export interface RailTabs {
-  /** Goes in the frame's rightBody, so setRightEmpty folds the column around it. */
+  /** Goes in the frame's rightBody, so the toggle folds the column around it. */
   el: HTMLElement;
   /** Shows a tab for the tool, without remembering it: only a press is the reader's choice. An unknown id changes nothing. */
   setOpen(id: string): void;

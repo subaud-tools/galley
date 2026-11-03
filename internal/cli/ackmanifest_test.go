@@ -57,7 +57,7 @@ func TestBothCarriersLandTheSameManifest(t *testing.T) {
 
 			// The reviewer asks, and presses.
 			postJSON(t, base+"/_galley/instruct", map[string]any{
-				"op": "comment", "target": "budget", "text": "bound it", "author": "court",
+				"op": "comment", "target": "budget", "text": "bound it", "author": "user",
 			})
 			postJSON(t, base+"/_galley/revise", map[string]any{})
 			store := versions.Open(doc)

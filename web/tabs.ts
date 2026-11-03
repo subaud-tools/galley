@@ -21,7 +21,7 @@ import type { AppShell, Thread } from './appshell.ts';
 import type { MessageView, ReviewerChange, RoundView } from './wire';
 
 /** Who the reviewer is on the wire. The agent is always "agent". */
-export const AUTHOR = 'court';
+export const AUTHOR = 'user';
 
 export type PendingThreadEntry = {
   author?: string;
@@ -246,7 +246,9 @@ export function tabCounts(
 
 export interface ChatMessage {
   id: string;
-  from: 'court' | 'agent';
+  // The page kit's thread (tools-common) draws `from: 'user'` as the
+  // reviewer's message.
+  from: 'user' | 'agent';
   at: string;
   words: string;
   state?: string;
@@ -333,7 +335,7 @@ export function chatMessages(
     const answer = agentMessage(card, number, live, could);
     out.push({
       id: `sent-${card.n}`,
-      from: 'court',
+      from: 'user',
       at: (asking || card).at,
       words: `Revise · round ${number}`,
       state: live ? live.state : recordedState(card, could),

@@ -98,7 +98,7 @@ func delHTML(t string) string { return `<span class="gly-del">` + inline(t) + `<
 // was given when it was caught borrowing the agent's del-red: apart by colour
 // AND by shape.
 //
-// This is NOT a decision anyone has taken. Court has not ruled on whether a
+// This is NOT a decision anyone has taken. The user has not ruled on whether a
 // move earns a fourth mark, and the spike used a dashed muted rule for the same
 // reason: to avoid pre-empting it.
 func movedHTML(t, tag string) string {

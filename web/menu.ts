@@ -5,7 +5,7 @@
 // only, and a `+ add` button needs nothing and is beside nothing). It went two
 // places: a control in the bar, where every other document-level action already
 // lives, and here. `contextmenu` was UNCLAIMED — no handler existed anywhere in
-// web/ — so the gesture cost nothing to take, and Court asked for more items on
+// web/ — so the gesture cost nothing to take, and the user asked for more items on
 // it later. A one-item popup would have to be thrown away to grow; a list of
 // `MenuItem`s does not, so this is built as a real menu on the first item.
 //

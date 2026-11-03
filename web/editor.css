@@ -877,7 +877,7 @@
 
   /* --- where the rail begins, and it is ONE NUMBER IN BOTH MODES ---
 
-     Court, watching the build: switching to History moved everything in the
+     The user, watching the build: switching to History moved everything in the
      rail. The draft rail hung off the bar; History's hung off `--gly-sub-h`
      PLUS 24 — and `--gly-sub-h` was referenced in this file and DEFINED
      NOWHERE, so every use of it was the literal fallback. Measured at 1440:
@@ -1087,7 +1087,7 @@ body:not(.gly-page) .kit-card-body > main {
    the card and its mark 0px apart vertically, in the accent, which over prose
    reads as a strike. THE GUTTER IS TOO WIDE FOR A LINE. Anything crossing 376px
    of page is the loudest thing on it, and the question it answered is answered
-   better by the words changing. Court, after a mockup: *"1: light the text is
+   better by the words changing. The user, after a mockup: *"1: light the text is
    fine."*
 
    A WASH ON THE PAPER AND NOT A MARK ON THE LETTERS, which is the whole of how
@@ -1503,7 +1503,7 @@ body:not(.gly-page) .kit-card-body > main {
    It used to be `display: none` on ask. Turning live on therefore INSERTED a
    button into a flex row, and every neighbour slid: measured on a 2000px
    window, the mode switch moved 92.97px left and hold landed exactly under
-   the cursor that had just clicked it. Court's rule, and it is about the bar
+   the cursor that had just clicked it. The user's rule, and it is about the bar
    rather than about this one button: "we shouldn't have jumps like that on
    clicks. it leads to misclicks."
 
@@ -1695,7 +1695,7 @@ body:not(.gly-page) .kit-card-body > main {
 /* `.gly-census button[disabled]` used to live here, at (0,2,1) tying
    `.gly-bar button[disabled]` and winning the tie on source order — the
    census's own opacity (0.4) painted instead of the bar's (0.6), a mockup
-   correction Court made after 0.4 measured 1.8:1 against the page on an
+   correction the user made after 0.4 measured 1.8:1 against the page on an
    empty document's first strip. The census root is appended INTO `.gly-bar`
    (see bar.js's `makeCensus`), so every census button already matches
    `.gly-bar button[disabled]` above — its 0.6, its muted colour and its

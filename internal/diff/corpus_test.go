@@ -29,7 +29,7 @@ func TestTheSpikesMeasuredCases(t *testing.T) {
 		{"case-oneword", 1, 1, 1,
 			"Four became Seven inside a 56-word sentence — where paragraph granularity is uselessly blunt"},
 		{"case-deleted", 1, 1, 1,
-			"a four-sentence paragraph Court deleted in the editor — coalescing is what makes it one"},
+			"a four-sentence paragraph the user deleted in the editor — coalescing is what makes it one"},
 		{"case-move", 29, 17, 18,
 			"a sentence that left one paragraph and arrived in another, through a one-word change"},
 		{"worst", 26, 7, 9,

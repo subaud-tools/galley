@@ -563,7 +563,7 @@ func TestAnUnchangedAnsweredAckIsRefusedAfterTheGrace(t *testing.T) {
 // document instruction on the document, and the next press sends them both.
 func TestACancelFilesTheRoundsInstructionsAgain(t *testing.T) {
 	s, _ := messageDoc(t)
-	instructOK(t, s, map[string]any{"op": "comment", "target": "Prose.", "text": "say more", "author": "court"})
+	instructOK(t, s, map[string]any{"op": "comment", "target": "Prose.", "text": "say more", "author": "user"})
 	instructDocument(t, s, "Add a title.")
 	heard(t, pressAndHear(t, s), "Add a title.", "say more")
 	if got := pendingView(t, s).Instructions; len(got) != 0 {
@@ -592,7 +592,7 @@ func TestACancelFilesTheRoundsInstructionsAgain(t *testing.T) {
 // instruction, which comes back on the whole document instead.
 func TestACancelFilesAnInstructionWhoseQuoteIsGoneOnTheDocument(t *testing.T) {
 	s, md := messageDoc(t)
-	instructOK(t, s, map[string]any{"op": "comment", "target": "Prose.", "text": "say more", "author": "court"})
+	instructOK(t, s, map[string]any{"op": "comment", "target": "Prose.", "text": "say more", "author": "user"})
 	heard(t, pressAndHear(t, s), "say more")
 	if err := os.WriteFile(md, []byte("# T\n\nDifferent words.\n"), 0o644); err != nil {
 		t.Fatal(err)

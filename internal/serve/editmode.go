@@ -1646,12 +1646,12 @@ const (
 // change silent.
 //
 // The author is a distinction this server already carries and already trusts
-// for exactly this meaning: review.Read reads `Author == AuthorCourt` as "the
+// for exactly this meaning: review.Read reads `Author == AuthorUser` as "the
 // reviewer said this", and the editor bundle names itself on every mutating
 // request it sends (web/entry.js's AUTHOR). So anything that is NOT the
 // reviewer's own name is a write on the agent's behalf.
 func requesterFor(author string) requester {
-	if author == review.AuthorCourt {
+	if review.ReadAuthor(author) == review.AuthorUser {
 		return byReviewer
 	}
 	return byAgent
@@ -1763,7 +1763,7 @@ func (s *EditServer) mutateLocked(by requester, fn func(docmodel.Doc) (docmodel.
 		// Reviewer mutations made through an endpoint are server writes too, so
 		// OnUpdate deliberately ignores them. Name the reviewer here instead;
 		// otherwise an instruction-only round has no author even though the
-		// ledger correctly carries what Court asked for.
+		// ledger correctly carries what the user asked for.
 		s.movedByReviewer.Store(true)
 	}
 	return http.StatusOK, nil
@@ -1864,11 +1864,11 @@ func (s *EditServer) handleInstruction(w http.ResponseWriter, r *http.Request) {
 	if s.refuseHandoff(w) {
 		return
 	}
-	author := in.Author
+	author := review.ReadAuthor(in.Author)
 	if author == "" {
-		author = review.AuthorCourt
+		author = review.AuthorUser
 	}
-	if author != review.AuthorCourt {
+	if author != review.AuthorUser {
 		http.Error(w, "instructions belong to the reviewer", http.StatusForbidden)
 		return
 	}
@@ -1947,7 +1947,7 @@ func (s *EditServer) handleInstruction(w http.ResponseWriter, r *http.Request) {
 					continue
 				}
 				for _, entry := range thread.Entries {
-					if entry.Author == review.AuthorCourt && strings.TrimSpace(entry.Text) != "" {
+					if entry.Author == review.AuthorUser && strings.TrimSpace(entry.Text) != "" {
 						target = thread
 					}
 				}
@@ -2049,7 +2049,7 @@ func (s *EditServer) handleInstructionDelete(w http.ResponseWriter, r *http.Requ
 				continue
 			}
 			for _, entry := range thread.Entries {
-				if entry.Author == review.AuthorCourt && strings.TrimSpace(entry.Text) != "" {
+				if entry.Author == review.AuthorUser && strings.TrimSpace(entry.Text) != "" {
 					instruction = true
 					break
 				}
@@ -2316,7 +2316,7 @@ func resentInstruction(asks []versions.Ask) string {
 	return saidLine(said)
 }
 
-// reviseMessage is one opening of the response window as a message Court
+// reviseMessage is one opening of the response window as a message the user
 // sent: where it stands (msgstate), the line under its pill, whether the
 // harness is holding it while the agent is mid-turn, and the report token the
 // harness names it by.
@@ -2744,7 +2744,7 @@ func (s *EditServer) writeReviseState(w http.ResponseWriter) {
 // so a rename here could not have failed `just verify` — it could only have
 // failed in a browser, silently, as `undefined`.
 //
-// Court, on the general rule: "We should have everything typed and defined up
+// The user, on the general rule: "We should have everything typed and defined up
 // front. Especially when going between go and typescript. We should go further
 // if possible and make this a contract neither can break without the other."
 //

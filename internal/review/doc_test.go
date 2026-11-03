@@ -17,7 +17,7 @@ func at(s string) time.Time {
 
 func TestAppendCreatesTheThread(t *testing.T) {
 	doc := crdt.New()
-	Wrap(doc).Append("01-shape", "01 Shape", AuthorCourt, "the split is right", at("2026-08-02T10:00:00Z"))
+	Wrap(doc).Append("01-shape", "01 Shape", AuthorUser, "the split is right", at("2026-08-02T10:00:00Z"))
 
 	threads := Read(doc)
 	if len(threads) != 1 {
@@ -37,7 +37,7 @@ func TestAppendCreatesTheThread(t *testing.T) {
 // more, so the thread reads exactly as it would without it.
 func TestAnOlderResolvedKeyIsIgnored(t *testing.T) {
 	doc := crdt.New()
-	Wrap(doc).Append("01-shape", "01 Shape", AuthorCourt, "the split is right", at("2026-08-02T10:00:00Z"))
+	Wrap(doc).Append("01-shape", "01 Shape", AuthorUser, "the split is right", at("2026-08-02T10:00:00Z"))
 	thread, ok := mustGet[*crdt.YMap](doc.GetMap(threadsRoot), "01-shape")
 	if !ok {
 		t.Fatal("thread map missing")
@@ -52,9 +52,9 @@ func TestAnOlderResolvedKeyIsIgnored(t *testing.T) {
 
 func TestRepliesAppendInOrderAndDoNotBecomeTheComment(t *testing.T) {
 	doc := crdt.New()
-	Wrap(doc).Append("k", "H", AuthorCourt, "why two artifacts?", at("2026-08-02T10:00:00Z"))
+	Wrap(doc).Append("k", "H", AuthorUser, "why two artifacts?", at("2026-08-02T10:00:00Z"))
 	Wrap(doc).Append("k", "H", AuthorAgent, "because the binary must stand alone", at("2026-08-02T10:01:00Z"))
-	Wrap(doc).Append("k", "H", AuthorCourt, "fair", at("2026-08-02T10:02:00Z"))
+	Wrap(doc).Append("k", "H", AuthorUser, "fair", at("2026-08-02T10:02:00Z"))
 
 	got := Read(doc)[0]
 	if len(got.Entries) != 3 {
@@ -73,7 +73,7 @@ func TestRepliesAppendInOrderAndDoNotBecomeTheComment(t *testing.T) {
 func TestReadIsOrderedByKey(t *testing.T) {
 	doc := crdt.New()
 	for _, k := range []string{"c", "a", "b"} {
-		Wrap(doc).Append(k, k, AuthorCourt, "x", at("2026-08-02T10:00:00Z"))
+		Wrap(doc).Append(k, k, AuthorUser, "x", at("2026-08-02T10:00:00Z"))
 	}
 	got := Read(doc)
 	if got[0].Key != "a" || got[1].Key != "b" || got[2].Key != "c" {
@@ -210,13 +210,13 @@ func TestRegionRejectsFractionsOutsideTheBox(t *testing.T) {
 func TestARegionSurvivesTheRoundTrip(t *testing.T) {
 	doc := crdt.New()
 	s := Wrap(doc)
-	s.Append("cm-fig", "a figure", AuthorCourt, "this axis is unlabelled", at("2026-08-07T10:00:00Z"))
+	s.Append("cm-fig", "a figure", AuthorUser, "this axis is unlabelled", at("2026-08-07T10:00:00Z"))
 	s.SetAnchor("cm-fig", "block", "image")
 	s.SetRegion("cm-fig", &Region{X: 0.1, Y: 0.2, W: 0.3, H: 0.4})
 	// A thread with NO region must stay that way: a nil region is the ordinary
 	// block note, and inventing a zero rectangle for it would draw a pin at the
 	// figure's top-left corner on every figure ever commented on.
-	s.Append("cm-plain", "a paragraph", AuthorCourt, "reads oddly", at("2026-08-07T10:01:00Z"))
+	s.Append("cm-plain", "a paragraph", AuthorUser, "reads oddly", at("2026-08-07T10:01:00Z"))
 
 	got := Read(doc)
 	if len(got) != 2 {
