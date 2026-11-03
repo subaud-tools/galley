@@ -523,7 +523,7 @@ export const composerMethods = {
    * text already offers the instruction button beside it. So the one row is
    * the whole document.
    *
-   * A LIST, NOT A BRANCH THAT RETURNS A POPUP. Court wants more items here
+   * A LIST, NOT A BRANCH THAT RETURNS A POPUP. The user wants more items here
    * later (see the live-review findings, Q4), so this returns rows and
    * web/menu.ts renders however many there are. Adding the next one is a push.
    *

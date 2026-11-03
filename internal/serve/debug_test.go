@@ -102,7 +102,7 @@ func TestDebugRecordsTheRoundTheAckAndTheRefusal(t *testing.T) {
 	// belongs to the agent and refuseHandoff answers first, so a refusal
 	// attempted there never reaches the transform this is about.
 	bad := post(t, s.Handler(), "/_galley/instruct", map[string]any{
-		"op": "comment", "target": "a phrase that is not in this document", "text": "why?", "author": "court",
+		"op": "comment", "target": "a phrase that is not in this document", "text": "why?", "author": "user",
 	})
 	if bad.Code == http.StatusOK {
 		t.Fatal("the server placed an anchor on text that is not in the document")
@@ -251,7 +251,7 @@ func TestDebugOffLeaksNothingThroughARealReview(t *testing.T) {
 	commentAs(t, s, "retryBudget", "spell this out, it reads as code")
 	press(t, s, "{}")
 	post(t, s.Handler(), "/_galley/instruct", map[string]any{
-		"op": "comment", "target": "not in this document at all", "text": "why?", "author": "court",
+		"op": "comment", "target": "not in this document at all", "text": "why?", "author": "user",
 	})
 	agentEdits(t, s, "# Title\n\nThe retry budget controls retries.\n")
 	ackAs(t, s, "answered", "done")

@@ -10,7 +10,7 @@ import (
 
 // DELETE THE SENTENCE, DELETE THE INSTRUCTION ABOUT IT.
 //
-// Court: "if we highlight a sentence and add an instruction and then delete the
+// The user: "if we highlight a sentence and add an instruction and then delete the
 // sentence, we should delete the instruction as well."
 //
 // It is the idiom this codebase used one population over: deleting text under

@@ -167,7 +167,7 @@ func TestReviseHandsWaiterTheCapturedDocumentInstruction(t *testing.T) {
 	h := s.Handler()
 
 	if rec := post(t, h, "/_galley/instruct", map[string]any{
-		"op": "comment_document", "text": "Remove my name.", "author": "court",
+		"op": "comment_document", "text": "Remove my name.", "author": "user",
 	}); rec.Code != http.StatusOK {
 		t.Fatalf("document instruction: %d %s", rec.Code, rec.Body.String())
 	}
@@ -201,7 +201,7 @@ func TestLiveHandsWaiterTheSameCapturedDocumentInstruction(t *testing.T) {
 	h := s.Handler()
 
 	if rec := post(t, h, "/_galley/instruct", map[string]any{
-		"op": "comment_document", "text": "Remove my name.", "author": "court",
+		"op": "comment_document", "text": "Remove my name.", "author": "user",
 	}); rec.Code != http.StatusOK {
 		t.Fatalf("document instruction: %d %s", rec.Code, rec.Body.String())
 	}

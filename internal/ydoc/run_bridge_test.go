@@ -18,9 +18,9 @@ import (
 func TestRunsSurviveTheBridge(t *testing.T) {
 	want := suggest.MintRuns(docmodel.Doc{Blocks: []docmodel.Block{
 		para(
-			marked("age", mark(docmodel.Del, "author", "court", "at", "2026-08-07T00:00:00Z")),
+			marked("age", mark(docmodel.Del, "author", "user", "at", "2026-08-07T00:00:00Z")),
 			text(" and im"),
-			marked("age", mark(docmodel.Del, "author", "court", "at", "2026-08-07T00:00:00Z")),
+			marked("age", mark(docmodel.Del, "author", "user", "at", "2026-08-07T00:00:00Z")),
 		),
 	}})
 

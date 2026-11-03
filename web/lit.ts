@@ -19,7 +19,7 @@ import { markRuns } from './suggestions.ts';
 // over prose reads as a strike. The gutter is too wide for a line to cross
 // without becoming the loudest thing on the page, and the question the line
 // answered — *which words is this about* — is answered better by the words
-// changing. Court, after a mockup: *"1: light the text is fine."*
+// changing. The user, after a mockup: *"1: light the text is fine."*
 //
 // IT HAS TO BE A DECORATION, and that is the whole reason this file exists.
 // CLAUDE.md: a class on a ProseMirror-rendered element is not yours to keep.

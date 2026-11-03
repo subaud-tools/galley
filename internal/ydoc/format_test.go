@@ -29,7 +29,7 @@ func fmtPara(text string, marks ...docmodel.Mark) docmodel.Doc {
 
 func fmtBold() docmodel.Mark { return docmodel.Mark{Kind: docmodel.Bold} }
 func fmtLit() docmodel.Mark {
-	return docmodel.Mark{Kind: docmodel.Highlight, Attrs: map[string]string{"author": "court"}}
+	return docmodel.Mark{Kind: docmodel.Highlight, Attrs: map[string]string{"author": "user"}}
 }
 
 func fmtMarksOf(t *testing.T, doc *crdt.Doc) []docmodel.Mark {
@@ -477,7 +477,7 @@ func TestAnIDOnlyChangeIsATargetedMarkWrite(t *testing.T) {
 	doc := crdt.New()
 	withID := func(id string) docmodel.Mark {
 		return docmodel.Mark{Kind: docmodel.Highlight, Attrs: map[string]string{
-			"author": "court", docmodel.CommentIDAttr: id,
+			"author": "user", docmodel.CommentIDAttr: id,
 		}}
 	}
 	before, after := fmtPara("Revise", withID("cm-old")), fmtPara("Revise", withID("cm-new"))

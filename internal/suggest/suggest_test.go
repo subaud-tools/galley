@@ -10,7 +10,7 @@ import (
 )
 
 var (
-	tCourt = time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
+	tUser  = time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
 	tAlice = time.Date(2026, 8, 1, 11, 0, 0, 0, time.UTC)
 	tBob   = time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
 )
@@ -51,8 +51,8 @@ func TestList_OrderingAndIDs(t *testing.T) {
 	d := doc(
 		para(plain("See "), highlight("note", "alice", tAlice), plain(" here.")),
 		para(
-			del("old", "court", tCourt),
-			ins("new", "court", tCourt),
+			del("old", "user", tUser),
+			ins("new", "user", tUser),
 			plain(" and "),
 			ins("more", "bob", tBob),
 		),
@@ -88,7 +88,7 @@ func TestList_OrderingAndIDs(t *testing.T) {
 		}
 	}
 
-	if got[1].Author != "court" || got[2].Author != "bob" {
+	if got[1].Author != "user" || got[2].Author != "bob" {
 		t.Errorf("want distinct authors on s1/s2, got %q/%q", got[1].Author, got[2].Author)
 	}
 	if !got[0].At.Equal(tAlice) {
@@ -99,7 +99,7 @@ func TestList_OrderingAndIDs(t *testing.T) {
 func TestList_ContextIsSerializedNeighborhood(t *testing.T) {
 	d := doc(
 		para(plain("before")),
-		para(ins("mid", "court", tCourt)),
+		para(ins("mid", "user", tUser)),
 		para(plain("after")),
 	)
 	got := List(d)
@@ -113,7 +113,7 @@ func TestList_ContextIsSerializedNeighborhood(t *testing.T) {
 }
 
 func TestList_ContextAtDocumentEdges(t *testing.T) {
-	d := doc(para(ins("only", "court", tCourt)))
+	d := doc(para(ins("only", "user", tUser)))
 	got := List(d)
 	if len(got) != 1 {
 		t.Fatalf("want 1 pending, got %d", len(got))
@@ -132,17 +132,17 @@ func TestList_ContextAtDocumentEdges(t *testing.T) {
 // those semantics through one is what let this package believe for a while
 // that it could decide the halves apart.
 func substitutionDoc() docmodel.Doc {
-	return doc(para(del("old", "court", tCourt), ins("new", "court", tCourt)))
+	return doc(para(del("old", "user", tUser), ins("new", "user", tUser)))
 }
 
 // insertDoc and deleteDoc are the standalone shapes: an Ins with no Del
 // before it, and a Del with no Ins after it.
 func insertDoc() docmodel.Doc {
-	return doc(para(plain("keep "), ins("new", "court", tCourt)))
+	return doc(para(plain("keep "), ins("new", "user", tUser)))
 }
 
 func deleteDoc() docmodel.Doc {
-	return doc(para(del("old", "court", tCourt), plain(" keep")))
+	return doc(para(del("old", "user", tUser), plain(" keep")))
 }
 
 // A SUBSTITUTION IS NOT A PAIR OF DECISIONS, so there is no "either order"
@@ -174,7 +174,7 @@ func TestStandaloneInsertAndDeleteListAsTheirOwnKind(t *testing.T) {
 
 func TestCommentOn_ZeroMatches_ErrorsNamingCount(t *testing.T) {
 	d := doc(para(plain("The quick brown fox")))
-	_, err := CommentOn(d, "slowpoke", "cm-000000000000000a", "court", tCourt)
+	_, err := CommentOn(d, "slowpoke", "cm-000000000000000a", "user", tUser)
 	if err == nil {
 		t.Fatal("want error, got nil")
 	}
@@ -216,15 +216,15 @@ func TestCommentOn_TwoMatches_Errors(t *testing.T) {
 // --- purity: inputs are never mutated ---
 
 func TestOperationsDoNotMutateInput(t *testing.T) {
-	d := doc(para(del("old", "court", tCourt), ins("new", "court", tCourt), plain(" extra")))
-	original := doc(para(del("old", "court", tCourt), ins("new", "court", tCourt), plain(" extra")))
+	d := doc(para(del("old", "user", tUser), ins("new", "user", tUser), plain(" extra")))
+	original := doc(para(del("old", "user", tUser), ins("new", "user", tUser), plain(" extra")))
 
 	// List pairs the substitution's two marks into one span, the read path
 	// most likely to write through into the caller's slice.
 	_ = List(d)
 	// "extra" carries no suggestion mark yet, so this exercises CommentOn's
 	// mutation path rather than tripping conflictingComment.
-	if _, err := CommentOn(d, "extra", "cm-0000000000000020", "court", tCourt); err != nil {
+	if _, err := CommentOn(d, "extra", "cm-0000000000000020", "user", tUser); err != nil {
 		t.Fatalf("CommentOn: %v", err)
 	}
 

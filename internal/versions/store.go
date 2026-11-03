@@ -87,11 +87,16 @@ import (
 
 // Author names a party that moved the document in a round. A round may carry
 // BOTH: in live mode the CRDT merged two people's work before anything was cut,
-// and `v12 · court and agent` is information rather than an embarrassment.
+// and `v12 · user and agent` is information rather than an embarrassment.
 const (
-	AuthorReviewer = "court"
+	AuthorReviewer = "user"
 	AuthorAgent    = "agent"
 )
+
+// legacyReviewer is the value galley wrote for the reviewer before it was
+// AuthorReviewer. The manifest is committed and append-only, so rounds carrying
+// it stay on disk; Inspect maps it on read.
+const legacyReviewer = "court"
 
 // Reason says why a version was cut. COMMIT ON SEND is the one rule; these are
 // the sends.
@@ -322,6 +327,11 @@ func (s *Store) Inspect() ([]Round, []Problem, error) {
 			problems = append(problems, Problem{lineno, "unreadable: " + err.Error()})
 			continue
 		}
+		for i, a := range r.Authors {
+			if a == legacyReviewer {
+				r.Authors[i] = AuthorReviewer
+			}
+		}
 		if ondisk.Future(r.V, Version) {
 			// KEPT, NOT REFUSED — see Version. Reported so a reader knows the
 			// row may carry facts this build cannot show.
@@ -481,8 +491,8 @@ func writeFileAtomic(path string, b []byte) error {
 	return tools.WriteFileAtomic(path, b, 0o644)
 }
 
-// Authors renders a round's authors the way the history says them: `court`,
-// `agent`, or `court and agent`.
+// Authors renders a round's authors the way the history says them: `user`,
+// `agent`, or `user and agent`.
 func Authors(as []string) string {
 	switch len(as) {
 	case 0:

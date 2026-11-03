@@ -11,7 +11,7 @@ func delMarked(texts ...string) docmodel.Doc {
 	for _, t := range texts {
 		inlines = append(inlines, docmodel.Inline{
 			Text:  t,
-			Marks: []docmodel.Mark{{Kind: docmodel.Del, Attrs: map[string]string{"author": "court"}}},
+			Marks: []docmodel.Mark{{Kind: docmodel.Del, Attrs: map[string]string{"author": "user"}}},
 		})
 	}
 	return docmodel.Doc{Blocks: []docmodel.Block{{Kind: docmodel.Paragraph, Inlines: inlines}}}
@@ -107,7 +107,7 @@ func TestMintRunsReachesNestedBlocks(t *testing.T) {
 // Two marks over identical text get two runs: a run is what tells them apart
 // once an ordinal has renumbered.
 func TestMintRunsKeepsIdenticalMarksApart(t *testing.T) {
-	at := map[string]string{"author": "court", "at": "2026-08-07T00:00:00Z"}
+	at := map[string]string{"author": "user", "at": "2026-08-07T00:00:00Z"}
 	d := MintRuns(docmodel.Doc{Blocks: []docmodel.Block{{
 		Kind: docmodel.Paragraph,
 		Inlines: []docmodel.Inline{

@@ -193,7 +193,6 @@ function editRow(e: EditRowValue, revert: (key: string) => void): HTMLElement {
  * and what the editor paints them through. */
 function makeTabs(
   cols: Frame,
-  doc: string,
 ): Pick<
   GalleyChrome,
   | 'wireTabs'
@@ -350,15 +349,9 @@ function makeTabs(
     ],
   });
   cols.rightBody?.append(tabs.el);
+  // The thread column stays where the reader left it: showing a tab switches
+  // the tab and never unfolds a column they folded.
   const show = (id: string) => tabs.setOpen(id);
-  // A fold is held on a card until the card changes, and each ask is a new one:
-  // something the reader has to see opens the column even if they had folded it.
-  let asks = 0;
-  const unfold = () => {
-    asks += 1;
-    cols.setRightEmpty(false, `${doc}/${asks}`);
-  };
-  cols.setRightEmpty(false, doc);
 
   let drawnEdits = '';
   let drawnSaid = '';
@@ -395,7 +388,6 @@ function makeTabs(
     },
     showRow(key) {
       show(TAB_INSTRUCTIONS);
-      unfold();
       const row = [
         ...textList.el.querySelectorAll<HTMLElement>('[data-draft-id]'),
       ].find((r) => r.dataset.draftId === key);
@@ -403,7 +395,6 @@ function makeTabs(
     },
     openChat() {
       show(TAB_CHAT);
-      unfold();
       box.box.focus();
     },
     keepInChat(kept) {
@@ -412,7 +403,6 @@ function makeTabs(
         words.restore(TAB_CHAT, next);
       }
       show(TAB_CHAT);
-      unfold();
     },
     chatHolds: () => words.dirty(),
     fileWords,
@@ -492,7 +482,7 @@ export function mountShell(verdict: () => void): void {
   editorCard.classList.add('gly-editor-card');
   editorCard.querySelector('.kit-card-body')?.replaceChildren(main);
   cols.centre.append(stages, editorCard, makeSendBar());
-  const tabs = makeTabs(cols, id);
+  const tabs = makeTabs(cols);
   app.append(b.el, cols.left!, cols.centre, cols.right!);
   // The editor's one readout is the bar's status.
   const status = b.el.querySelector('.kit-status');

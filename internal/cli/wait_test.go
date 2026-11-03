@@ -140,7 +140,7 @@ func armed(t *testing.T, baseURL string) string {
 
 func instructAs(t *testing.T, baseURL, target, instruction string) {
 	t.Helper()
-	body := fmt.Sprintf(`{"op":"comment","target":%q,"text":%q,"author":"court"}`, target, instruction)
+	body := fmt.Sprintf(`{"op":"comment","target":%q,"text":%q,"author":"user"}`, target, instruction)
 	resp, err := serverClient.Post(baseURL+"/_galley/instruct", "application/json", strings.NewReader(body))
 	if err != nil {
 		t.Fatalf("instruct: %v", err)

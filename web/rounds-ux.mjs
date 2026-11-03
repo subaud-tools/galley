@@ -1518,7 +1518,7 @@ try {
   const barBefore = await barRects();
   // §5.4 — DELETE THE SENTENCE, DELETE THE INSTRUCTION ABOUT IT.
   //
-  // Court: "if we highlight a sentence and add an instruction and then delete
+  // The user: "if we highlight a sentence and add an instruction and then delete
   // the sentence, we should delete the instruction as well." It is the idiom
   // this codebase already uses one population over — deleting text under the
   // agent's pending mark has always been the verdict by hand — and until now
@@ -1593,7 +1593,7 @@ try {
   // change is outgoing markup exactly as an instruction is — verdict.ts's
   // verdictLabel reads `view.changes` now, so zero instructions no longer means
   // a clean document while an unsent edit stands. This gate asserted Approve
-  // here before that rule existed (Court: a hand edit must hold Revise so the
+  // here before that rule existed (the user: a hand edit must hold Revise so the
   // press is a choice, not a silent seal over unsent markup).
   await page.waitForFunction(() =>
     /Revise/.test(document.getElementById('gly-revise').innerText),

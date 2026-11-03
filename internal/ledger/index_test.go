@@ -539,7 +539,7 @@ func TestOpenIndexFailsSoft(t *testing.T) {
 	}
 }
 
-// TestUnionMergedDuplicateDoesNotDoubleCount is the gap Court found by asking
+// TestUnionMergedDuplicateDoesNotDoubleCount is the gap the user found by asking
 // how the .gitattributes behaves ACROSS repos.
 //
 // `merge=union` resolves an append-only file by keeping BOTH sides' lines,
@@ -783,7 +783,7 @@ func TestDigestIsInjectiveAcrossFieldBoundaries(t *testing.T) {
 }
 
 // TestCountingIsPerDecisionNotPerSource is the worktree case, and it is not
-// hypothetical: Court works in git worktrees constantly, so the SAME committed
+// hypothetical: the user works in git worktrees constantly, so the SAME committed
 // log sits at many source paths on one machine. A decision recorded once and
 // cloned into five checkouts is one decision, and the ledger must never report
 // five.

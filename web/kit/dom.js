@@ -34,7 +34,7 @@ const LIVE_TEXT = { live: 'live', polling: 'polling', down: 'offline', stale: 's
 
 // alsoOpen is the bar's "also open" area: other work a click away (diazo's
 // other plans). It is one button of fixed width, so the bar never moves as
-// the work changes: it counts the work and how much waits on Court, and opens
+// the work changes: it counts the work and how much waits on the user, and opens
 // a floating list with every item in full.
 function alsoOpen() {
   const dot = h('i');
@@ -390,7 +390,7 @@ export function noteField(o) {
 
 const stateLabel = new Map(MESSAGE_STATES.map(s => [s.state, s.label]));
 
-// messagePill is where one message Court sent stands: the state's pill, its
+// messagePill is where one message the user sent stands: the state's pill, its
 // label from tools-common/msgstate's list (msgstate.js), and the line under it
 // (who has it, or what the agent is doing). An unknown state shows as itself.
 export function messagePill(state, line) {

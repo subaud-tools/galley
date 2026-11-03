@@ -50,8 +50,8 @@ func saveUnsentRound(t *testing.T, md string, cs ...unsent.Comment) {
 	}
 }
 
-func courtSaid(key string, kind unsent.Kind, text string) unsent.Comment {
-	return unsent.Comment{Key: key, Kind: kind, Text: text, Author: review.AuthorCourt,
+func userSaid(key string, kind unsent.Kind, text string) unsent.Comment {
+	return unsent.Comment{Key: key, Kind: kind, Text: text, Author: review.AuthorUser,
 		At: time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)}
 }
 
@@ -140,7 +140,7 @@ func TestTheUnsentRoundSurvivesARestartForEveryKind(t *testing.T) {
 	if err := os.WriteFile(md, []byte(everyKindDoc), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	saveUnsentRound(t, md, courtSaid(cellKey, unsent.KindBlock, "this cell is wrong"))
+	saveUnsentRound(t, md, userSaid(cellKey, unsent.KindBlock, "this cell is wrong"))
 	s, err := NewEdit(md)
 	if err != nil {
 		t.Fatal(err)
@@ -236,7 +236,7 @@ func TestATableTakesABlockInstruction(t *testing.T) {
 	if err := os.WriteFile(md, []byte(doc), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	saveUnsentRound(t, md, courtSaid(cellKey, unsent.KindBlock, "this cell is wrong"))
+	saveUnsentRound(t, md, userSaid(cellKey, unsent.KindBlock, "this cell is wrong"))
 	s, err := NewEdit(md)
 	if err != nil {
 		t.Fatal(err)
@@ -322,8 +322,8 @@ func TestACommentWhoseMarkNeverReachedTheFileIsUnplacedNotLost(t *testing.T) {
 		t.Fatal(err)
 	}
 	saveUnsentRound(t, md,
-		courtSaid("cb-00000000000000b1", unsent.KindBlock, "about the paragraph"),
-		courtSaid("cm-00000000000000a1", unsent.KindText, "about the fox"))
+		userSaid("cb-00000000000000b1", unsent.KindBlock, "about the paragraph"),
+		userSaid("cm-00000000000000a1", unsent.KindText, "about the fox"))
 	s, err := NewEdit(md)
 	if err != nil {
 		t.Fatal(err)
@@ -361,7 +361,7 @@ func TestMovingTheMarkLineMovesTheComment(t *testing.T) {
 		}
 		return "# T\n\nFirst para.\n\nSecond para.\n\n" + mark
 	}
-	saveUnsentRound(t, md, courtSaid(key, unsent.KindBlock, "about one of them"))
+	saveUnsentRound(t, md, userSaid(key, unsent.KindBlock, "about one of them"))
 	for _, first := range []bool{true, false} {
 		if err := os.WriteFile(md, []byte(under(first)), 0o644); err != nil {
 			t.Fatal(err)

@@ -890,7 +890,7 @@ export function contextOf(doc: PMNode, from: number, to: number): TrailContext {
  *                  REST. Measured: a `.md` holding ``` on two adjacent lines
  *                  gives the browser one empty textblock before a key is
  *                  pressed, which was enough on its own to make a real
- *                  deletion's ghost refuse for ambiguity. That is Court's
+ *                  deletion's ghost refuse for ambiguity. That is the user's
  *                  original bug reproduced by an ordinary document.
  *   a table        literal for the same reason and refused by the same
  *                  filter. Its cells are excluded WITH it, because a cell's

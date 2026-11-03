@@ -49,7 +49,7 @@ func TestTargetsCrossCodeSpansAndRefuseBackticks(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Crossing the code span, with no backtick in the target.
-	out, err := suggest.CommentOn(doc, "The retryBudget value controls", "cm-0000000000000001", "court", time.Now())
+	out, err := suggest.CommentOn(doc, "The retryBudget value controls", "cm-0000000000000001", "user", time.Now())
 	if err != nil {
 		t.Fatalf("a target crossing a code span no longer matches: %v", err)
 	}
@@ -57,7 +57,7 @@ func TestTargetsCrossCodeSpansAndRefuseBackticks(t *testing.T) {
 		t.Fatalf("a target crossing a code span produced %d suggestions, want 1", len(got))
 	}
 	// And the failure the carriers must actually warn about.
-	if _, err := suggest.CommentOn(doc, "The `retryBudget` value", "cm-0000000000000002", "court", time.Now()); err == nil {
+	if _, err := suggest.CommentOn(doc, "The `retryBudget` value", "cm-0000000000000002", "user", time.Now()); err == nil {
 		t.Fatal("a target carrying backticks now matches — both carriers warn about a trap that is gone")
 	}
 }

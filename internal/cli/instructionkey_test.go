@@ -87,13 +87,13 @@ func TestTheOfflinePathCarriesTheKeyToo(t *testing.T) {
 	// pending.json is the only place the words are, and offline they are read
 	// from there.
 	if err := unsent.Save(unsent.Path(doc), unsent.File{Comments: []unsent.Comment{{
-		Key: textKey, Kind: unsent.KindText, Author: review.AuthorCourt, At: at,
+		Key: textKey, Kind: unsent.KindText, Author: review.AuthorUser, At: at,
 		Text: "say more", Quote: "Hello.",
 	}, {
-		Key: blockKey, Kind: unsent.KindBlock, Author: review.AuthorCourt, At: at,
+		Key: blockKey, Kind: unsent.KindBlock, Author: review.AuthorUser, At: at,
 		Text: "this paragraph is thin",
 	}, {
-		Key: docKey, Kind: unsent.KindDocument, Author: review.AuthorCourt, At: at,
+		Key: docKey, Kind: unsent.KindDocument, Author: review.AuthorUser, At: at,
 		Text: "in general this is good, but too many places where we're vague",
 	}}}); err != nil {
 		t.Fatal(err)

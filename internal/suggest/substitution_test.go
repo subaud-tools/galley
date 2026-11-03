@@ -113,10 +113,10 @@ func TestHighlightedDeletionDoesNotGroup(t *testing.T) {
 		Inlines: []docmodel.Inline{
 			{Text: "The quick "},
 			{Text: "brown", Marks: []docmodel.Mark{
-				authoredMark(docmodel.Highlight, "court", at, newRun()),
-				authoredMark(docmodel.Del, "court", at, newRun()),
+				authoredMark(docmodel.Highlight, "user", at, newRun()),
+				authoredMark(docmodel.Del, "user", at, newRun()),
 			}},
-			{Text: "red", Marks: []docmodel.Mark{authoredMark(docmodel.Ins, "court", at, newRun())}},
+			{Text: "red", Marks: []docmodel.Mark{authoredMark(docmodel.Ins, "user", at, newRun())}},
 			{Text: " fox"},
 		},
 	}}}

@@ -335,8 +335,8 @@ func TestNewlinesInAReasonStayOnOneLine(t *testing.T) {
 // it pulls the CRDT in behind it, which a decision log has no business
 // carrying — so this is what stops the two vocabularies drifting.
 func TestAuthorConstantsMatchReview(t *testing.T) {
-	if AuthorReviewer != review.AuthorCourt {
-		t.Errorf("ledger says %q, review says %q", AuthorReviewer, review.AuthorCourt)
+	if AuthorReviewer != review.AuthorUser {
+		t.Errorf("ledger says %q, review says %q", AuthorReviewer, review.AuthorUser)
 	}
 	if AuthorAgent != review.AuthorAgent {
 		t.Errorf("ledger says %q, review says %q", AuthorAgent, review.AuthorAgent)

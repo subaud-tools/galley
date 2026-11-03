@@ -25,7 +25,7 @@ func TestSchemaVersionIsTheMigrationCount(t *testing.T) {
 
 // TestOpenExistingV3IndexKeepsRows: a v3 index the way galley 0.10.1 left it
 // (built here with a raw handle and the old DSN, each step in its own
-// transaction) opens with every row intact and stays at v3.
+// transaction) opens with every row intact and moves to the current schema.
 func TestOpenExistingV3IndexKeepsRows(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "ledger.db")
 	raw, err := sql.Open("sqlite", "file:"+path+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)")
@@ -33,7 +33,7 @@ func TestOpenExistingV3IndexKeepsRows(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	for i, step := range migrations {
+	for i, step := range migrations[:3] {
 		tx, err := raw.Begin()
 		if err != nil {
 			t.Fatal(err)
@@ -64,8 +64,8 @@ func TestOpenExistingV3IndexKeepsRows(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = x.Close() }()
-	if v, err := x.SchemaVersion(); err != nil || v != 3 {
-		t.Fatalf("schema v%d (%v), want v3", v, err)
+	if v, err := x.SchemaVersion(); err != nil || v != schemaVersion {
+		t.Fatalf("schema v%d (%v), want v%d", v, err, schemaVersion)
 	}
 	rows, err := x.db.Query(`SELECT line, kind, author, quote, digest, round, text FROM decisions ORDER BY line`)
 	if err != nil {

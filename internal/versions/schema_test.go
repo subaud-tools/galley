@@ -172,7 +172,7 @@ func TestTheRoundKeysAreTheContract(t *testing.T) {
 		want string
 	}{
 		{"Round", Round{
-			V: 1, N: 1, At: time.Now(), Authors: []string{"court"}, Reason: ReasonRevise,
+			V: 1, N: 1, At: time.Now(), Authors: []string{"user"}, Reason: ReasonRevise,
 			Instruction: "x", Asks: []Ask{{Key: "k"}}, Changes: []Change{{Locator: "l"}},
 			Answers: 1, Digest: "d", File: "f",
 		}, "v,n,at,authors,reason,instruction,asks,changes,answers,digest,file"},
@@ -187,5 +187,18 @@ func TestTheRoundKeysAreTheContract(t *testing.T) {
 			t.Errorf("%s keys = %s\n            want %s\n"+
 				"a renamed key is read by nobody and written by everybody; a new key needs a Version decision", tc.name, got, tc.want)
 		}
+	}
+}
+
+// TestALegacyReviewerAuthorReadsAsTheUser: the manifest is committed and
+// append-only, so rounds cut before the reviewer's author value became "user"
+// stay on disk as they were written; they read back as the user's.
+func TestALegacyReviewerAuthorReadsAsTheUser(t *testing.T) {
+	rounds, _, err := writeManifest(t, oldManifest).Inspect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := Authors(rounds[1].Authors); got != AuthorReviewer+" and "+AuthorAgent {
+		t.Fatalf("round 2 authors = %q, want %q", got, AuthorReviewer+" and "+AuthorAgent)
 	}
 }

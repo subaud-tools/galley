@@ -304,7 +304,7 @@ func TestDetachRemovesANoteBlock(t *testing.T) {
 // "matched 2 times".
 func TestFindUnique_IgnoresNoteText(t *testing.T) {
 	d := parseDoc(t, "The widget works.\n\n{>>the widget is undefined<<}\n")
-	out, err := suggest.CommentOn(d, "widget", "cm-0000000000000022", "court", time.Now())
+	out, err := suggest.CommentOn(d, "widget", "cm-0000000000000022", "user", time.Now())
 	if err != nil {
 		t.Fatalf("CommentOn: %v", err)
 	}

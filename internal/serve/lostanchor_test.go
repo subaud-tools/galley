@@ -54,7 +54,7 @@ func reviewerDeletes(t *testing.T, s *EditServer, prefix string) {
 	}
 }
 
-// TestDeletingTheSentenceDeletesTheInstruction is Court's rule, and it is the
+// TestDeletingTheSentenceDeletesTheInstruction is the user's rule, and it is the
 // idiom this codebase already uses for the agent's marks: deleting text under a
 // mark is the decision, by hand.
 func TestDeletingTheSentenceDeletesTheInstruction(t *testing.T) {

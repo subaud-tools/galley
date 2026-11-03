@@ -22,7 +22,7 @@
 //
 // WHAT USED TO LIVE HERE, and why it is gone rather than hidden. The plugin
 // converted every reviewer keystroke into a tracked mark — ins for typing,
-// del-re-insertion for deleting — attributed 'court' and stamped with a
+// del-re-insertion for deleting — attributed to the reviewer and stamped with a
 // browser-minted run (`newRun`, the stamper that was twice claimed and absent;
 // web/typing.mjs exists because of it). The reviewer's-hand decision retired
 // that whole layer: a change the reviewer makes deliberately is a change the

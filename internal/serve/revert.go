@@ -20,7 +20,7 @@ import (
 // the two I made after it — which is what Word's Reject and Docs' suggestion
 // controls do, and what undo cannot do at any price.
 //
-// Court, on the card needing a press: "what if the edit card did have something
+// The user, on the card needing a press: "what if the edit card did have something
 // to press… isn't this how most editors work?" It is, and the one part that
 // does not transfer is accept/reject: in those tools a change is a PROPOSAL
 // awaiting somebody's decision, and here the edit is the reviewer's own and
@@ -243,7 +243,7 @@ func plural(n int) string {
 // hand it to `mutate` — so it inherits the projection, the version cut and the
 // notify discipline every other mutation has. It is a TEXT change, so
 // `ydoc.Write` correctly falls back to a full reload and the browser's undo
-// stack is orphaned. That is accepted rather than overlooked: Court, asked
+// stack is orphaned. That is accepted rather than overlooked: the user, asked
 // directly, said "we can lose the undo. that's ok." Targeted text mutation is
 // what removes the cost, and this becomes cheap the day it lands without
 // changing here.
