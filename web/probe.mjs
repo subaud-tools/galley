@@ -5203,7 +5203,7 @@ const unplacedEntry = (c) => {
   check(
     "a Revise sent carries its round, its asks and the server's state",
     sent.length === 1 &&
-      sent[0].from === 'court' &&
+      sent[0].from === 'user' &&
       sent[0].words === 'Revise · round 1' &&
       sent[0].state === 'with_agent' &&
       sent[0].stateLine === 'on it' &&
