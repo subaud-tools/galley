@@ -526,7 +526,9 @@ const rowOf = (key) =>
 // deleteRow presses a draft's Delete in the Instructions tab.
 const deleteRow = (key) =>
   page
-    .locator(`.gly-tab [data-draft-id="${key}"] button:not(.kit-draft-quote)`)
+    .locator(`.gly-tab [data-draft-id="${key}"] .kit-btn`, {
+      hasText: 'Delete',
+    })
     .click();
 const snap = () =>
   page.evaluate(() => {

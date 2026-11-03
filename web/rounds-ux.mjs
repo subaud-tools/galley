@@ -3830,7 +3830,25 @@ try {
     barSizes.length === 10 && new Set(barSizes.map(([, h]) => h)).size === 1,
     JSON.stringify(barHeights),
   );
+  const sealedSeats = await topBarSeats(page);
+  const sealedPrimary = await primarySeen(page);
+  check(
+    'on an approved review the top button says nothing and keeps its box',
+    !sealedPrimary.visible &&
+      Math.abs(sealedPrimary.width - idlePrimary.width) <= 0.5,
+    JSON.stringify({ sealedPrimary, idlePrimary }),
+  );
   await page.click('.gly-versions-open');
+  await page.waitForFunction(
+    () =>
+      document.querySelector('.kit-primary')?.innerText.trim() ===
+      '← back to draft',
+  );
+  check(
+    'and History on an approved review moves nothing in the top bar',
+    sameSeats(sealedSeats, await topBarSeats(page)),
+    JSON.stringify({ sealedSeats, now: await topBarSeats(page) }),
+  );
   const sealedHistory = await page.evaluate(() => ({
     open: document.querySelector('.gly-versions')?.hidden === false,
     rounds: document.querySelectorAll(
@@ -3841,6 +3859,15 @@ try {
     'and pressing it opens the record of the review that just ended',
     sealedHistory.open,
     JSON.stringify(sealedHistory),
+  );
+  await page.click('.kit-primary');
+  await page.waitForFunction(
+    () => document.querySelector('.gly-versions')?.hidden === true,
+  );
+  check(
+    'and leaving it moves nothing either',
+    sameSeats(sealedSeats, await topBarSeats(page)),
+    JSON.stringify({ sealedSeats, now: await topBarSeats(page) }),
   );
 } finally {
   // The browser closes first (launchOrSkip added it at launch), then the port
