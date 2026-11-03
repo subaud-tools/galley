@@ -276,27 +276,68 @@ async function reviseReady(page) {
   );
 }
 
-// With work pending Approve doesn't seal: it offers Revise & Approve.
-async function openApproveMenu(page) {
+// With work pending the top bar offers no Approve: Revise's ▾ holds Revise &
+// approve, in the kit's menu.
+const REVISE_MORE = '#gly-revise-more';
+const MORE_MENU = '.kit-share-menu:not([hidden])';
+async function openReviseMore(page) {
   await reviseReady(page);
-  await page.click('.kit-primary');
-  await page.waitForSelector('.gly-verdict-menu', {
-    state: 'visible',
-    timeout: 5000,
+  await page.waitForSelector(REVISE_MORE, { state: 'visible', timeout: 5000 });
+  await page.click(REVISE_MORE);
+  await page.waitForSelector(MORE_MENU, { state: 'visible', timeout: 5000 });
+}
+
+// Every child of the top bar, where it sits and how wide it is.
+function topBarSeats(page) {
+  return page.evaluate(() =>
+    [...document.querySelector('.kit-bar').children].map((el) => {
+      const r = el.getBoundingClientRect();
+      return { el: el.className, left: r.left, width: r.width };
+    }),
+  );
+}
+
+// Whether two readings of the top bar put everything in the same place. The
+// status is the readout, so its words (and its width) change with the state; the
+// spacer after it is empty and takes up the difference.
+function sameSeats(a, b) {
+  return (
+    a.length === b.length &&
+    a.every(
+      (x, i) =>
+        x.el === b[i].el &&
+        (x.el === 'kit-sp' ||
+          (Math.abs(x.left - b[i].left) <= 0.5 &&
+            (x.el === 'kit-status' || Math.abs(x.width - b[i].width) <= 0.5))),
+    )
+  );
+}
+
+// The top button as a reader sees it: shown, its words, and its box.
+function primarySeen(page) {
+  return page.evaluate(() => {
+    const b = document.querySelector('.kit-primary');
+    const r = b.getBoundingClientRect();
+    return {
+      visible: getComputedStyle(b).visibility !== 'hidden' && r.width > 0,
+      label: b.innerText.trim(),
+      width: r.width,
+    };
   });
 }
 
 // The two tabs of the right column.
 const tabPress = (page, name) =>
   page.locator('.kit-rail-tabrow .kit-ctl', { hasText: name }).click();
-const INSTRUCTION_ROW = '.gly-tab [data-draft-id]';
-const CHAT_ROW = '.gly-chat-drafts [data-draft-id]';
-const ROW_DELETE = 'button:not(.kit-draft-quote)';
+const INSTRUCTION_ROW = '.gly-text-drafts [data-draft-id]';
+const CHAT_ROW = '.gly-doc-drafts [data-draft-id]';
+// Delete is the row's last button, after Edit.
+const ROW_DELETE = '.kit-btns .kit-btn:last-child';
 
 async function addOverallInstruction(page, text, want) {
-  await tabPress(page, 'Chat');
-  await page.fill('#gly-chat-box', text);
-  await page.locator('#gly-chat-box').press('Enter');
+  await tabPress(page, 'Instructions');
+  await page.fill('#gly-doc-box', text);
+  await page.click('.gly-tab .kit-note-line .kit-btn');
   await waitForWire(
     page,
     async (n) =>
@@ -307,7 +348,7 @@ async function addOverallInstruction(page, text, want) {
   // the page's own refresh.
   await page.waitForFunction(
     (t) =>
-      [...document.querySelectorAll('.gly-chat-drafts textarea')].some(
+      [...document.querySelectorAll('.gly-doc-drafts textarea')].some(
         (b) => b.value === t,
       ),
     text,
@@ -498,10 +539,134 @@ try {
     door,
   );
 
+  // --- THE TOP BAR HOLDS STILL ---
+  //
+  // The top button changes its words on its own press (Approve, ← back to
+  // draft) and has nothing to say while drafts are pending; none of it may
+  // slide its neighbours. History in and out, at both window sizes.
+  for (const [width, height] of WINDOW_SIZES) {
+    await page.setViewportSize({ width, height });
+    await page.waitForTimeout(200);
+    const before = await topBarSeats(page);
+    await page.click('.gly-versions-open');
+    await page.waitForFunction(
+      () =>
+        document.querySelector('.kit-primary')?.innerText.trim() ===
+        '← back to draft',
+    );
+    const inHistory = await topBarSeats(page);
+    await page.click('.kit-primary');
+    await page.waitForFunction(
+      () => document.querySelector('.gly-versions')?.hidden === true,
+    );
+    await page.waitForFunction(
+      () =>
+        document.querySelector('.kit-primary')?.innerText.trim() === 'Approve',
+    );
+    const after = await topBarSeats(page);
+    check(
+      `${width}×${height}: entering and leaving History moves nothing in the top bar`,
+      sameSeats(before, inHistory) && sameSeats(before, after),
+      JSON.stringify({ before, inHistory, after }),
+    );
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.waitForTimeout(200);
+  const idleSeats = await topBarSeats(page);
+  const idlePrimary = await primarySeen(page);
+  check(
+    'with nothing pending the top button reads Approve, and Revise has no ▾',
+    idlePrimary.visible &&
+      idlePrimary.label === 'Approve' &&
+      (await page.locator(REVISE_MORE).isHidden()),
+    JSON.stringify(idlePrimary),
+  );
+  await addRangeInstruction(page, 'A draft for the split button.');
+  await page.waitForSelector(REVISE_MORE, { state: 'visible', timeout: 10000 });
+  await page.waitForFunction(() => {
+    const b = document.querySelector('.kit-primary');
+    return getComputedStyle(b).visibility === 'hidden' || !b.innerText.trim();
+  });
+  const draftPrimary = await primarySeen(page);
+  check(
+    'with a draft pending the top button says nothing and keeps its box',
+    !draftPrimary.visible &&
+      Math.abs(draftPrimary.width - idlePrimary.width) <= 0.5,
+    JSON.stringify({ draftPrimary, idlePrimary }),
+  );
+  check(
+    'and the top bar has not moved',
+    sameSeats(idleSeats, await topBarSeats(page)),
+    JSON.stringify({ idleSeats, now: await topBarSeats(page) }),
+  );
+  check(
+    'the ▾ sits on Revise as one control',
+    await page.evaluate(() => {
+      const a = document.querySelector('#gly-revise').getBoundingClientRect();
+      const b = document
+        .querySelector('#gly-revise-more')
+        .getBoundingClientRect();
+      return (
+        Math.abs(b.left - a.right) <= 1 &&
+        Math.abs(a.top - b.top) <= 0.5 &&
+        Math.abs(a.height - b.height) <= 0.5
+      );
+    }),
+  );
+  for (const [width, height] of WINDOW_SIZES) {
+    await page.setViewportSize({ width, height });
+    await page.waitForTimeout(200);
+    await openReviseMore(page);
+    const menu = await page.evaluate((sel) => {
+      const el = document.querySelector(sel);
+      const r = el.getBoundingClientRect();
+      return {
+        items: [...el.querySelectorAll('button')].map((b) =>
+          b.innerText.trim(),
+        ),
+        top: r.top,
+        left: r.left,
+        right: r.right,
+        bottom: r.bottom,
+      };
+    }, MORE_MENU);
+    check(
+      `${width}×${height}: the ▾ opens one item, Revise & approve, wholly inside the window`,
+      JSON.stringify(menu.items) === JSON.stringify(['Revise & approve']) &&
+        menu.top >= 0 &&
+        menu.left >= 0 &&
+        menu.right <= width &&
+        menu.bottom <= height,
+      JSON.stringify(menu),
+    );
+    await page.keyboard.press('Escape');
+    await page
+      .waitForSelector(MORE_MENU, { state: 'detached', timeout: 5000 })
+      .catch(() => {});
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await tabPress(page, 'Instructions');
+  await page.click(`${INSTRUCTION_ROW} ${ROW_DELETE}`);
+  await page.waitForFunction(
+    async () =>
+      (await (await fetch('_galley/pending')).json()).instructions.length === 0,
+  );
+  await page.waitForFunction(
+    () =>
+      document.querySelector('.kit-primary')?.innerText.trim() === 'Approve',
+    null,
+    { timeout: 10000 },
+  );
+  check(
+    'with the draft gone the top button reads Approve again, and the ▾ goes',
+    (await primarySeen(page)).visible &&
+      (await page.locator(REVISE_MORE).isHidden()),
+  );
+
   // THE EMPTY TAB SAYS HOW. A first-time reviewer doesn't know how to ask for
   // anything, and nothing else on a cold-open page tells them.
   const teach = await page.evaluate(() => ({
-    empty: document.querySelector('.gly-tab .kit-empty')?.innerText,
+    empty: document.querySelector('.gly-text-drafts .kit-empty')?.innerText,
     hint: document.querySelector('.gly-tab-hint')?.innerText,
   }));
   check(
@@ -918,8 +1083,8 @@ try {
   const beforeDocumentComment = await waitForDisk(
     /\{>>@comment cm-[0-9a-f]{16}<<\}/,
   );
-  await tabPress(page, 'Chat');
-  await page.locator('#gly-chat-box').click();
+  await tabPress(page, 'Instructions');
+  await page.locator('#gly-doc-box').click();
   await page.keyboard.type('Open with the decision,');
   await page.keyboard.press('Shift+Enter');
   await page.keyboard.type('not the background.');
@@ -993,21 +1158,171 @@ try {
     .first()
     .innerText();
   check(
-    'it is a row in the Chat tab, and its head names the anchor',
+    'it is a row under On the whole document, and its head names the anchor',
     firstRow === 'Whole document',
     firstRow,
   );
 
-  // THE CHAT BOX IS IN REACH AT ANY SCROLL POSITION: the right column stays in
+  // --- EVERY INSTRUCTION IN THE INSTRUCTIONS TAB ---
+  //
+  // Its first section is the whole document: a box and Add instruction, with
+  // its rows under it; then the text's. The Chat tab has no box.
+  const layout = await page.evaluate(() => {
+    const tab = document.querySelector('.gly-tab');
+    const labels = [
+      ...tab.querySelectorAll(
+        ':scope > .kit-label, :scope > section > .kit-label',
+      ),
+    ].map((l) => l.textContent.trim());
+    const box = document.querySelector('#gly-doc-box');
+    const add = [...tab.querySelectorAll('.kit-note-line .kit-btn')].map((b) =>
+      b.textContent.trim(),
+    );
+    const chat = document.querySelector('.kit-rail [data-thread="chat"]');
+    return {
+      labels,
+      placeholder: box?.placeholder,
+      inTab: !!box && tab.contains(box),
+      add,
+      docRowHere: !!tab.querySelector('.gly-doc-drafts [data-draft-id]'),
+      textRowsHoldIt: [
+        ...tab.querySelectorAll(
+          '.gly-text-drafts [data-draft-id] .kit-draft-quote',
+        ),
+      ].some((q) => q.textContent === 'Whole document'),
+      chatBoxes: chat ? chat.querySelectorAll('textarea').length : -1,
+    };
+  });
+  check(
+    'the Instructions tab opens with On the whole document, then This round · on the text',
+    JSON.stringify(layout.labels) ===
+      JSON.stringify(['On the whole document', 'This round · on the text']),
+    JSON.stringify(layout),
+  );
+  check(
+    'its box asks for an instruction on the whole document, with Add instruction beside it',
+    layout.inTab &&
+      layout.placeholder === 'Add an instruction on the whole document…' &&
+      JSON.stringify(layout.add) === JSON.stringify(['Add instruction']),
+    JSON.stringify(layout),
+  );
+  check(
+    'the filed whole-document instruction is a row under it, not under the text',
+    layout.docRowHere && !layout.textRowsHoldIt,
+    JSON.stringify(layout),
+  );
+  check(
+    'the Chat tab has no box',
+    layout.chatBoxes === 0,
+    JSON.stringify(layout),
+  );
+  check(
+    'every instruction row has Edit, then Delete',
+    await page.evaluate(() =>
+      [...document.querySelectorAll('.gly-tab [data-draft-id]')].every(
+        (row) =>
+          JSON.stringify(
+            [...row.querySelectorAll('.kit-btns .kit-btn')].map((b) =>
+              b.textContent.trim(),
+            ),
+          ) === JSON.stringify(['Edit', 'Delete']),
+      ),
+    ),
+  );
+  // EDIT EDITS: the caret at the end of the words, Escape puts them back, and
+  // Enter keeps the change on the server.
+  const docRow = `${CHAT_ROW}`;
+  const docKey = await page
+    .locator(docRow)
+    .first()
+    .getAttribute('data-draft-id');
+  const serverWords = () =>
+    page.evaluate(
+      async (key) =>
+        (await (await fetch('_galley/pending')).json()).instructions.find(
+          (i) => i.key === key,
+        )?.text,
+      docKey,
+    );
+  await page
+    .locator(`${docRow} .kit-btns .kit-btn`, { hasText: 'Edit' })
+    .first()
+    .click();
+  const editing = await page.evaluate((row) => {
+    const box = document.querySelector(`${row} textarea`);
+    return {
+      focused: document.activeElement === box,
+      caret:
+        box.selectionStart === box.value.length &&
+        box.selectionEnd === box.value.length,
+    };
+  }, docRow);
+  check(
+    'Edit puts the caret at the end of the words',
+    editing.focused && editing.caret,
+    JSON.stringify(editing),
+  );
+  await page.keyboard.type(' Escape me.');
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(500);
+  check(
+    'Escape puts the saved words back and saves nothing',
+    (await page.locator(`${docRow} textarea`).first().inputValue()) ===
+      'Open with the decision,\nnot the background.' &&
+      (await serverWords()) === 'Open with the decision,\nnot the background.',
+    JSON.stringify(await serverWords()),
+  );
+  await page
+    .locator(`${docRow} .kit-btns .kit-btn`, { hasText: 'Edit' })
+    .first()
+    .click();
+  await page.keyboard.type(' Now.');
+  await page.keyboard.press('Enter');
+  check(
+    'Enter after Edit keeps the change on the server',
+    await page
+      .waitForFunction(
+        async (key) =>
+          (await (await fetch('_galley/pending')).json()).instructions.find(
+            (i) => i.key === key,
+          )?.text === 'Open with the decision,\nnot the background. Now.',
+        docKey,
+        { timeout: 5000 },
+      )
+      .then(() => true)
+      .catch(() => false),
+    JSON.stringify(await serverWords()),
+  );
+  await page
+    .locator(`${docRow} .kit-btns .kit-btn`, { hasText: 'Edit' })
+    .first()
+    .click();
+  await page.keyboard.press('End');
+  await page.keyboard.press('Backspace');
+  await page.keyboard.press('Backspace');
+  await page.keyboard.press('Backspace');
+  await page.keyboard.press('Backspace');
+  await page.keyboard.press('Backspace');
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(
+    async (key) =>
+      (await (await fetch('_galley/pending')).json()).instructions.find(
+        (i) => i.key === key,
+      )?.text === 'Open with the decision,\nnot the background.',
+    docKey,
+    { timeout: 5000 },
+  );
+
+  // THE WHOLE-DOCUMENT BOX IS IN REACH AT ANY SCROLL POSITION: the right column stays in
   // the window, so the foot of a long document can still ask about the whole of it.
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
   await page.waitForTimeout(200);
   const deepBox = await page.evaluate(() => {
-    const r = document.querySelector('#gly-chat-box').getBoundingClientRect();
+    const r = document.querySelector('#gly-doc-box').getBoundingClientRect();
     return { top: r.top, bottom: r.bottom, view: window.innerHeight };
   });
   check(
-    'the Chat box is on screen at the foot of the document',
+    'the whole-document box is on screen at the foot of the document',
     deepBox.top >= 0 && deepBox.bottom <= deepBox.view,
     JSON.stringify(deepBox),
   );
@@ -1073,6 +1388,23 @@ try {
       rowShape.roles[0] === 'menuitem',
     JSON.stringify(rowShape),
   );
+  // ITS ONE ITEM OPENS THE WHOLE-DOCUMENT BOX, in the Instructions tab.
+  await page.locator('.gly-menu-item').first().click();
+  await page.waitForTimeout(200);
+  const opened = await page.evaluate(() => ({
+    focused: document.activeElement?.id || '',
+    tab: document
+      .querySelector(
+        '.kit-rail-tabrow .kit-ctl.on, .kit-rail-tabrow [aria-selected="true"]',
+      )
+      ?.textContent.trim(),
+  }));
+  check(
+    'Instruction on the whole document focuses the box in the Instructions tab',
+    opened.focused === 'gly-doc-box' && /^Instructions/.test(opened.tab || ''),
+    JSON.stringify(opened),
+  );
+  await page.locator('#gly-doc-box').blur();
   await page.keyboard.press('Escape');
   // A RIGHT-CLICK ON A SELECTION IS THE BROWSER'S. Selecting text already
   // offers the instruction button beside it, and what a reviewer wants from a
@@ -1140,8 +1472,8 @@ try {
   await page.keyboard.press('Escape');
   await page.waitForTimeout(100);
   // A TEXT FIELD KEEPS THE BROWSER'S MENU — paste and spelling live there.
-  await tabPress(page, 'Chat');
-  await page.locator('#gly-chat-box').click({ button: 'right' });
+  await tabPress(page, 'Instructions');
+  await page.locator('#gly-doc-box').click({ button: 'right' });
   await page.waitForTimeout(200);
   check(
     'a right-click inside the instruction box opens nothing of ours',
@@ -1352,10 +1684,10 @@ try {
   // instruction is deleted over the wire while its box holds unsaved words (an
   // agent's send clears it the same way). Two ways the row can go: the save
   // answers that the key is not pending, or the next poll repaints without the
-  // row. Either way the words move to the Chat box with the reason, rather than
+  // row. Either way the words move to the whole-document box with the reason, rather than
   // vanishing with the row.
   const strandedReason =
-    'that instruction was sent or deleted, so your edit went to the Chat box';
+    'that instruction was sent or deleted, so your edit went to the whole-document box';
   const fileDocComment = (text) =>
     page.evaluate(async (said) => {
       const res = await fetch('_galley/instruct', {
@@ -1368,14 +1700,14 @@ try {
     }, text);
   const openEditOn = async (key, words) => {
     const box = `[data-draft-id="${key}"] textarea`;
-    await tabPress(page, 'Chat');
+    await tabPress(page, 'Instructions');
     await page.waitForSelector(box, { timeout: 10000 });
     await page.fill(box, words);
   };
   const stranded = () =>
     page.evaluate(() => ({
-      words: document.querySelector('#gly-chat-box')?.value || '',
-      shown: !!document.querySelector('#gly-chat-box')?.offsetParent,
+      words: document.querySelector('#gly-doc-box')?.value || '',
+      shown: !!document.querySelector('#gly-doc-box')?.offsetParent,
       note: document.querySelector('#gly-status')?.textContent || '',
     }));
   const savedKey = await fileDocComment('stranded by a save');
@@ -1398,7 +1730,7 @@ try {
       afterSave.note.includes(strandedReason),
     JSON.stringify(afterSave),
   );
-  await page.fill('#gly-chat-box', '');
+  await page.fill('#gly-doc-box', '');
   const polledKey = await fileDocComment('stranded by a poll');
   const polledWords = 'words still being typed when the row went';
   await openEditOn(polledKey, polledWords);
@@ -1423,7 +1755,7 @@ try {
       afterPoll.note.includes(strandedReason),
     JSON.stringify(afterPoll),
   );
-  await page.fill('#gly-chat-box', '');
+  await page.fill('#gly-doc-box', '');
   // AND A ROW THE READER DELETES TAKES ITS WORDS WITH IT: that one was meant.
   const deletedKey = await fileDocComment('deleted on purpose');
   await openEditOn(deletedKey, 'words the reader chose to throw away');
@@ -1435,13 +1767,13 @@ try {
   );
   await page.waitForTimeout(200);
   check(
-    'a row the reader deletes sends nothing to the Chat box',
+    'a row the reader deletes sends nothing to the whole-document box',
     (await stranded()).words === '',
     JSON.stringify(await stranded()),
   );
   await page.locator('.ProseMirror p').first().click();
 
-  // THE THREE BOXES HOLD A LOT OF WORDS. The Chat box, the selected-text composer
+  // THE THREE BOXES HOLD A LOT OF WORDS. The whole-document box, the selected-text composer
   // and a row's box grow with what is typed and stop short of the window.
   const boxNow = (sel) =>
     page.evaluate((s) => {
@@ -1467,9 +1799,9 @@ try {
     await page.waitForTimeout(100);
     boxes[name] = { opened, full: await boxNow(sel) };
   };
-  await tabPress(page, 'Chat');
-  await measureBox('document', '#gly-chat-box');
-  await page.fill('#gly-chat-box', '');
+  await tabPress(page, 'Instructions');
+  await measureBox('document', '#gly-doc-box');
+  await page.fill('#gly-doc-box', '');
   await selectPhrase(page, 'Nothing else in the pipeline');
   await page.click('.gly-comment-button');
   await page.waitForSelector('.gly-composer-form:not([hidden])');
@@ -1494,7 +1826,7 @@ try {
 
   // Back to one, so the count checks below read the state they were written
   // against.
-  await tabPress(page, 'Chat');
+  await tabPress(page, 'Instructions');
   await page.click(`${CHAT_ROW} ${ROW_DELETE}`);
   await page.waitForFunction(
     async () =>
@@ -1669,17 +2001,18 @@ try {
       .catch(() => false),
   );
 
-  // THE CHAT BOX LEFT HOLDING UNFILED WORDS: only FILED instructions travel, so the
+  // THE WHOLE-DOCUMENT BOX LEFT HOLDING UNFILED WORDS: only FILED instructions travel, so the
   // check after the send is that those words were not sent and are still there.
-  await tabPress(page, 'Chat');
-  await page.fill('#gly-chat-box', 'an unsent draft');
-  // WITH WORK PENDING APPROVE WON'T SEAL OVER IT: it offers Revise & Approve, and
-  // plain Revise is on the send bar.
-  await openApproveMenu(page);
-  const exits = await page.locator('.gly-verdict-menu button').allInnerTexts();
+  await tabPress(page, 'Instructions');
+  await page.fill('#gly-doc-box', 'an unsent draft');
+  // WITH WORK PENDING NOTHING SEALS OVER IT: the top bar offers no Approve, and
+  // Revise's ▾ holds Revise & approve beside plain Revise.
+  await openReviseMore(page);
+  const exits = await page.locator(`${MORE_MENU} button`).allInnerTexts();
   check(
-    'Approve with work pending offers Revise & Approve, and no plain Revise',
-    JSON.stringify(exits) === JSON.stringify(['Revise & Approve']),
+    'with work pending the ▾ offers Revise & approve, and the top bar no Approve',
+    JSON.stringify(exits) === JSON.stringify(['Revise & approve']) &&
+      !(await primarySeen(page)).visible,
     JSON.stringify(exits),
   );
   await page.keyboard.press('Escape');
@@ -1723,11 +2056,11 @@ try {
     `${leftPending} instruction(s) still pending`,
   );
   check(
-    'and words left unfiled in the Chat box were not sent, and are still there',
-    (await page.inputValue('#gly-chat-box')) === 'an unsent draft',
-    await page.inputValue('#gly-chat-box'),
+    'and words left unfiled in the whole-document box were not sent, and are still there',
+    (await page.inputValue('#gly-doc-box')) === 'an unsent draft',
+    await page.inputValue('#gly-doc-box'),
   );
-  await page.fill('#gly-chat-box', '');
+  await page.fill('#gly-doc-box', '');
   const settled = await page
     .waitForFunction(
       () =>
@@ -2960,15 +3293,15 @@ try {
   );
 
   await addOverallInstruction(page, 'Final trusted pass.', 1);
-  await openApproveMenu(page);
+  await openReviseMore(page);
   const beforeTrust = await windowMark(page);
-  await page.click('.gly-verdict-trust');
+  await page.click(`${MORE_MENU} button`);
   // The window this press opened, before the ack. See responseWindowOpen.
   await responseWindowOpen(page, beforeTrust);
   await ack(page, 'failed', 'cannot complete the trusted pass');
   await page.waitForTimeout(1700);
   check(
-    'Revise & Approve leaves a failed result open for another round',
+    'Revise & approve leaves a failed result open for another round',
     !(await page.isVisible('#gly-seal:not(.gly-seal-off)')),
   );
 
@@ -3497,7 +3830,25 @@ try {
     barSizes.length === 10 && new Set(barSizes.map(([, h]) => h)).size === 1,
     JSON.stringify(barHeights),
   );
+  const sealedSeats = await topBarSeats(page);
+  const sealedPrimary = await primarySeen(page);
+  check(
+    'on an approved review the top button says nothing and keeps its box',
+    !sealedPrimary.visible &&
+      Math.abs(sealedPrimary.width - idlePrimary.width) <= 0.5,
+    JSON.stringify({ sealedPrimary, idlePrimary }),
+  );
   await page.click('.gly-versions-open');
+  await page.waitForFunction(
+    () =>
+      document.querySelector('.kit-primary')?.innerText.trim() ===
+      '← back to draft',
+  );
+  check(
+    'and History on an approved review moves nothing in the top bar',
+    sameSeats(sealedSeats, await topBarSeats(page)),
+    JSON.stringify({ sealedSeats, now: await topBarSeats(page) }),
+  );
   const sealedHistory = await page.evaluate(() => ({
     open: document.querySelector('.gly-versions')?.hidden === false,
     rounds: document.querySelectorAll(
@@ -3508,6 +3859,15 @@ try {
     'and pressing it opens the record of the review that just ended',
     sealedHistory.open,
     JSON.stringify(sealedHistory),
+  );
+  await page.click('.kit-primary');
+  await page.waitForFunction(
+    () => document.querySelector('.gly-versions')?.hidden === true,
+  );
+  check(
+    'and leaving it moves nothing either',
+    sameSeats(sealedSeats, await topBarSeats(page)),
+    JSON.stringify({ sealedSeats, now: await topBarSeats(page) }),
   );
 } finally {
   // The browser closes first (launchOrSkip added it at launch), then the port

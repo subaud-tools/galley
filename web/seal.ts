@@ -9,8 +9,7 @@
 // THE BOTTOM HALF, `sealMethods`, IS A MIXIN — an object of methods
 // `Object.assign`ed onto `App.prototype` in entry.ts, not a class of its own
 // — and it is the seal and the handoff together: reading each state off the
-// poll, the edge that flips the editor's editability and closes the verdict
-// menu, the terminal bar it paints, and the two constants' owners
+// poll, the edge that flips the editor's editability, the terminal bar it paints, and the two constants' owners
 // (applySealedVerbs kills, releaseSealOnlyVerbs revives). The handoff rides
 // alongside the seal because readHandoff is readSeal's shape for the agent's
 // window and applySeal's unseal branch asks it before handing editing back.
@@ -446,15 +445,14 @@ export const sealMethods = {
 
   // applySeal is the edge. A sealed review takes NO INPUT: the editor stops
   // being editable (ProseMirror's own flag, so a keystroke never reaches the
-  // document and therefore never reaches the trail), the verdict menu closes,
-  // and the rail's verbs go dead. Coming back is the exact inverse, plus the
+  // document and therefore never reaches the trail), and the rail's verbs go
+  // dead. Coming back is the exact inverse, plus the
   // one thing that only exists on this edge — the agent's reason.
   applySeal(this: AppShell, was: boolean, d: ReviseWatchView) {
     // The block grips are hidden and disabled while sealed, and paintGrips
     // is their owner in both directions.
     this.paintGrips();
     if (this.sealed) {
-      this.closeVerdictMenu();
       this.editor.setEditable(false);
       // Whatever the shell status was mid-flight, the verdict is now the
       // whole story; the terminal readout says it and this line stops

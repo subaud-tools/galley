@@ -46,13 +46,6 @@ export const keyMethods = {
       if (opener && opener.isConnected) {
         opener.focus();
       }
-      // The verdict menu closes on Esc like every other surface here — a
-      // disclosure the press opened, put away by the one key that means "put
-      // that away". Reopening is a fresh press.
-      if (this.verdictOpen) {
-        this.closeVerdictMenu();
-        return;
-      }
       // THE ROUNDS, and the position in this chain is the ordering rule this
       // chain is built on: TOPMOST FIRST. The record floats at z-index 44, over
       // the whole-document panel below it, so Esc has to reach it before the

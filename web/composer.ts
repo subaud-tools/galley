@@ -539,7 +539,7 @@ export const composerMethods = {
     if (!this.sealed) {
       items.push({
         label: 'Instruction on the whole document',
-        run: () => window.galleyChrome?.openChat(),
+        run: () => window.galleyChrome?.openDocInstruction(),
       });
     }
     return items;
@@ -565,7 +565,7 @@ export const composerMethods = {
       return true;
     }
     return !el.closest(
-      '.kit-bar, .kit-stages, .kit-sendbar, .gly-menu, .gly-verdict-menu, ' +
+      '.kit-bar, .kit-stages, .kit-sendbar, .gly-menu, ' +
         '.kit-share-menu, .gly-composer, .gly-bubble, .gly-versions, ' +
         'input, textarea, select, [contenteditable]',
     );

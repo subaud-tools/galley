@@ -21,6 +21,7 @@ import {
   railTabs,
   sendBar,
   stageTrack,
+  submitOnEnter,
   thread,
   threadMessage,
   type BarHandle,
@@ -149,6 +150,21 @@ function makeSendBar(): HTMLElement {
   const [discard, send] = el.querySelectorAll('.kit-btn');
   discard.id = 'gly-discard';
   send.id = 'gly-revise';
+  // Revise's ▾, one control with it: Revise & approve, shown while work is
+  // pending. verdict.ts paints it and opens its menu.
+  send.after(
+    h(
+      'button',
+      {
+        class: 'kit-btn fill gly-revise-more',
+        id: 'gly-revise-more',
+        type: 'button',
+        'aria-label': 'More ways to send',
+        hidden: true,
+      },
+      '▾',
+    ),
+  );
   el.querySelector('.kit-sendbar-count')!.id = 'gly-drafts';
   el.querySelector('.kit-sendbar-hint')?.remove();
   return el;
@@ -158,8 +174,9 @@ function makeSendBar(): HTMLElement {
 const INDEX_FITS_WIDTH = 1240;
 
 const TAB_INSTRUCTIONS = 'instructions';
+const TAB_INSTRUCTIONS_DOC = 'instructions-doc';
 const TAB_CHAT = 'chat';
-const CHAT_HINT = 'Ask about the whole document, sent with the next Revise';
+const DOC_HINT = 'Add an instruction on the whole document…';
 const REVERT_NOTE =
   'this puts the words back and drops your undo history — press again';
 
@@ -190,7 +207,9 @@ function editRow(e: EditRowValue, revert: (key: string) => void): HTMLElement {
 }
 
 /** The right column: the kit's two tabs, each built once so a box keeps its words,
- * and what the editor paints them through. */
+ * and what the editor paints them through. Instructions holds every instruction
+ * the next Revise sends: on the whole document (a box and its rows), then on the
+ * text. Chat shows the rounds and the agent's answers. */
 function makeTabs(
   cols: Frame,
 ): Pick<
@@ -199,7 +218,7 @@ function makeTabs(
   | 'paintDrafts'
   | 'paintChat'
   | 'showRow'
-  | 'openChat'
+  | 'openDocInstruction'
   | 'keepInChat'
   | 'chatHolds'
   | 'fileWords'
@@ -275,11 +294,58 @@ function makeTabs(
     empty: 'No instructions yet.',
     ...callbacks,
   });
-  const chatList = draftList({ drafts: [], empty: '', ...callbacks });
+  textList.el.classList.add('gly-text-drafts');
+  const docList = draftList({ drafts: [], empty: '', ...callbacks });
+  docList.el.classList.add('gly-doc-drafts');
   const edits = h('ul', { class: 'kit-draft-rows gly-edit-rows' });
+
+  const words = createDrafts();
+  const box = words.box(TAB_INSTRUCTIONS_DOC, DOC_HINT, 3);
+  box.box.id = 'gly-doc-box';
+  // The words stay in the box until the server has them: a failure has nothing
+  // to put back, and what's typed meanwhile stays with them. A press while one
+  // is on its way waits for it, then files whatever that left.
+  let filing: Promise<boolean> | null = null;
+  const fileWords = (): Promise<boolean> => {
+    if (filing) {
+      return filing.then((ok) => ok && fileWords());
+    }
+    const text = words.get(TAB_INSTRUCTIONS_DOC).trim();
+    if (!text || !act) {
+      return Promise.resolve(true);
+    }
+    filing = act.file(text).then((ok) => {
+      filing = null;
+      if (ok) {
+        words.restore(
+          TAB_INSTRUCTIONS_DOC,
+          afterFiled(words.get(TAB_INSTRUCTIONS_DOC), text),
+        );
+      }
+      return ok;
+    });
+    return filing;
+  };
+  const send = () => {
+    void fileWords();
+  };
+  submitOnEnter(box.box, send);
+  window.addEventListener('beforeunload', (e) => {
+    if (words.dirty() || held.size > 0) {
+      e.preventDefault();
+    }
+  });
   const instructions = h(
     'div',
     { class: 'gly-tab' },
+    h('div', { class: 'kit-label' }, 'On the whole document'),
+    h(
+      'div',
+      { class: 'kit-note-line gly-doc-line' },
+      box.el,
+      buttons([{ label: 'Add instruction', run: send }]),
+    ),
+    docList.el,
     h('div', { class: 'kit-label' }, 'This round · on the text'),
     textList.el,
     edits,
@@ -290,55 +356,12 @@ function makeTabs(
     ),
   );
 
-  const words = createDrafts();
-  const box = words.box(TAB_CHAT, CHAT_HINT, 3);
-  box.box.id = 'gly-chat-box';
-  box.box.setAttribute('aria-label', CHAT_HINT);
-  // The words stay in the box until the server has them: a failure has nothing
-  // to put back, and what's typed meanwhile stays with them. A press while one
-  // is on its way waits for it, then files whatever that left.
-  let filing: Promise<boolean> | null = null;
-  const fileWords = (): Promise<boolean> => {
-    if (filing) {
-      return filing.then((ok) => ok && fileWords());
-    }
-    const text = words.get(TAB_CHAT).trim();
-    if (!text || !act) {
-      return Promise.resolve(true);
-    }
-    filing = act.file(text).then((ok) => {
-      filing = null;
-      if (ok) {
-        words.restore(TAB_CHAT, afterFiled(words.get(TAB_CHAT), text));
-      }
-      return ok;
-    });
-    return filing;
-  };
-  const send = () => {
-    void fileWords();
-  };
-  window.addEventListener('beforeunload', (e) => {
-    if (words.dirty() || held.size > 0) {
-      e.preventDefault();
-    }
-  });
-  const chat = thread<ThreadMessageValue>({
-    id: TAB_CHAT,
-    name: 'Chat about the whole document',
-    note: { el: box.el, box: box.box, send },
-  });
-  // The kit draws the thread whole, and drawing it again would take the box out
-  // of the page, so its messages are kept in a list of their own in its place.
+  const chat = thread<ThreadMessageValue>({ id: TAB_CHAT, name: 'Chat' });
+  // The kit draws the thread whole, so the rounds are kept in a list of their
+  // own in its empty line's place, redrawn as they change.
   const said = h('ul', { class: 'kit-thread-msgs' });
   const none = chat.querySelector('.kit-empty')!;
-  const told = h(
-    'div',
-    { class: 'gly-chat-said' },
-    none.cloneNode(true),
-    said,
-    h('div', { class: 'gly-chat-drafts' }, chatList.el),
-  );
+  const told = h('div', { class: 'gly-chat-said' }, none.cloneNode(true), said);
   none.replaceWith(told);
 
   const tabs = railTabs({
@@ -361,9 +384,9 @@ function makeTabs(
     },
     paintDrafts(v) {
       keepLeaving(textList.el, v.text);
-      keepLeaving(chatList.el, v.chat);
+      keepLeaving(docList.el, v.chat);
       textList.redraw({ drafts: showing(v.text), selected: v.selected });
-      chatList.redraw({ drafts: showing(v.chat), selected: v.selected });
+      docList.redraw({ drafts: showing(v.chat), selected: v.selected });
       for (const d of [...v.text, ...v.chat]) {
         painted.set(d.id, d.text);
       }
@@ -376,7 +399,6 @@ function makeTabs(
           ...v.edits.map((e) => editRow(e, (k) => act?.revert(k))),
         );
       }
-      told.classList.toggle('gly-chat-holds', v.chat.length > 0);
     },
     paintChat(messages) {
       const key = JSON.stringify(messages);
@@ -389,20 +411,20 @@ function makeTabs(
     showRow(key) {
       show(TAB_INSTRUCTIONS);
       const row = [
-        ...textList.el.querySelectorAll<HTMLElement>('[data-draft-id]'),
+        ...instructions.querySelectorAll<HTMLElement>('[data-draft-id]'),
       ].find((r) => r.dataset.draftId === key);
       row?.scrollIntoView({ block: 'nearest' });
     },
-    openChat() {
-      show(TAB_CHAT);
+    openDocInstruction() {
+      show(TAB_INSTRUCTIONS);
       box.box.focus();
     },
     keepInChat(kept) {
-      const next = strandedValue(words.get(TAB_CHAT), kept);
+      const next = strandedValue(words.get(TAB_INSTRUCTIONS_DOC), kept);
       if (next !== null) {
-        words.restore(TAB_CHAT, next);
+        words.restore(TAB_INSTRUCTIONS_DOC, next);
       }
-      show(TAB_CHAT);
+      show(TAB_INSTRUCTIONS);
     },
     chatHolds: () => words.dirty(),
     fileWords,
@@ -427,8 +449,8 @@ function makeTabs(
 }
 
 /** Builds the page around the editor's <main>: the rounds, the centre card and
- * the send bar. Approve asks the editor's own verdict, so a press can't seal over
- * unsent work: with drafts it offers Revise & Approve. */
+ * the send bar. The top button asks the editor's own verdict: Approve on a clean
+ * document, the way back in History. */
 export function mountShell(verdict: () => void): void {
   const app = document.getElementById('app');
   const main = document.querySelector('main');

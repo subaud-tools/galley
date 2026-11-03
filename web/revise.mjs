@@ -20,7 +20,7 @@
 //   agent answers (answered) → a second Revise, landed, and the turn ends with
 //   no reply → Revise again sends the same instruction again → answered → a
 //   third Revise is cancelled from the page, and its instruction is back on
-//   the page → Revise & Approve sends it again, and the answer closes the
+//   the page → Revise & approve sends it again, and the answer closes the
 //   review.
 //
 // HOW THE AGENT IS PLAYED. This file re-invoked with --agent, as page.mjs and
@@ -448,12 +448,16 @@ async function pressRevise() {
   await page.click('#gly-revise');
 }
 
-// pressTrust is Approve on the bar with work pending: it discloses Revise &
-// Approve, and the reviewer takes it.
+// pressTrust is Revise's ▾ with work pending: it opens Revise & approve, and
+// the reviewer takes it.
 async function pressTrust() {
   await until('the agent to be blocked on the wait', 20000, readerAttached);
-  await page.click('.kit-primary');
-  const sel = '.gly-verdict-menu .gly-verdict-trust';
+  await page.waitForSelector('#gly-revise-more', {
+    state: 'visible',
+    timeout: 10000,
+  });
+  await page.click('#gly-revise-more');
+  const sel = '.kit-share-menu:not([hidden]) button';
   await page.waitForSelector(sel, { timeout: 10000 });
   await page.click(sel);
 }
@@ -735,12 +739,12 @@ try {
 
   // --- the review closes ----------------------------------------------------
   //
-  // Revise & Approve: the instruction the cancel filed again is what it sends,
+  // Revise & approve: the instruction the cancel filed again is what it sends,
   // and the agent's answer approves the review.
   await pressTrust();
-  const wake5 = await revised(5, 'Revise & Approve to wake the agent');
+  const wake5 = await revised(5, 'Revise & approve to wake the agent');
   check(
-    'Revise & Approve sent the instruction the cancel filed again',
+    'Revise & approve sent the instruction the cancel filed again',
     wake5.instructions.length === 1 && wake5.instructions[0] === ASK_3,
     wake5,
   );

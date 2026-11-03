@@ -252,8 +252,7 @@ export interface AppState {
   seenCannot: string;
   arrival: Arrival | null;
 
-  // --- the verdict menu, and polling ---
-  verdictOpen: boolean;
+  // --- polling ---
   rev: number | null;
   savedMs: number;
 
@@ -274,10 +273,6 @@ export interface AppState {
   // none when the server has none).
   reviseMsg?: HTMLElement;
   reviseMessage?: MessageView | null;
-  // The verdict menu — built on the first press that needs it
-  // (`this.verdictMenu = null;` is the constructor's own direct,
-  // unconditional line; `openVerdictMenu` fills it in later).
-  verdictMenu: HTMLElement | null;
   // R10's window: direct, unconditional constructor assignments
   // (`this.reviseWaiting = false; this.reviseRunning = false;
   // this.approveNotBefore = 0; this.reviseStartedAt = 0;`).
@@ -371,7 +366,6 @@ export interface AppState {
 // 'paintCensus' is missing in type 'App'" for each one. Splitting them out is
 // what lets the half that CAN be verified actually be verified.
 export interface AppMethods {
-  closeVerdictMenu(): void;
   hideComposer(): void;
   clearScope(): void;
   openComposerForm(): void;
@@ -418,7 +412,7 @@ export interface AppMethods {
   toggleVersions(): void;
   showArrival(): void;
 
-  // --- Revise, the verdict menu, and hold/release (web/verdict.ts) ---
+  // --- Revise, its ▾, and hold/release (web/verdict.ts) ---
   askRevise(): void;
   pressSend(): void;
   makeDiscard(): HTMLButtonElement | null;
@@ -430,8 +424,6 @@ export interface AppMethods {
     body: { verdict?: string; approveOnAnswer?: boolean; trust?: boolean },
     approving: boolean,
   ): void;
-  makeVerdictMenu(): HTMLElement;
-  openVerdictMenu(): void;
 
   // --- the seal and the handoff (web/seal.ts) ---
   // readArrival is history.ts's own — declared here because verdict.ts's

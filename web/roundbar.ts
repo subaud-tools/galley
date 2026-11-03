@@ -24,9 +24,9 @@ declare global {
 }
 
 /** What the shell gives the editor, on window.galleyChrome. */
-/** What the kit's rows and the Chat box ask of the editor. */
+/** What the kit's rows and the whole-document box ask of the editor. */
 export interface TabActions {
-  /** Whether the words are safe: the server took them, or its row is gone and they went to Chat. */
+  /** Whether the words are safe: the server took them, or its row is gone and they went to the whole-document box. */
   edit(key: string, text: string): Promise<boolean>;
   remove(key: string): void;
   select(key: string): void;
@@ -48,13 +48,13 @@ export interface GalleyChrome {
   paintChat(messages: ChatMessage[]): void;
   /** Opens the Instructions tab on a draft's row. */
   showRow(key: string): void;
-  /** Opens the Chat tab with its box in hand. */
-  openChat(): void;
-  /** Words with nowhere else to go, added to the Chat box. */
+  /** Opens the Instructions tab with the whole-document box in hand. */
+  openDocInstruction(): void;
+  /** Words with nowhere else to go, added to the whole-document box. */
   keepInChat(words: string): void;
-  /** The Chat box holds words not filed. */
+  /** The whole-document box holds words not filed. */
   chatHolds(): boolean;
-  /** Files what the Chat box holds. False when the server didn't take it. */
+  /** Files what the whole-document box holds. False when the server didn't take it. */
   fileWords(): Promise<boolean>;
   /** Waits out every save and filing on its way, trying a failed save again.
    * False when something is still not with the server. */
@@ -160,19 +160,38 @@ export function agentHolds(o: {
   return o.handoff || o.waiting || agentHasIt(o.message);
 }
 
-/** The bar's one primary: Approve while the review is with the reader, the way
- * back while History is open, otherwise none. */
+/** The bar's one primary: Approve while the review is with the reader and
+ * nothing is pending, the way back while History is open, otherwise none. With
+ * drafts or hand edits pending, Revise's ▾ holds Revise & approve instead. */
 export function primaryWords(o: {
   history: boolean;
   sealed: boolean;
   handoff: boolean;
   waiting: boolean;
   message: MessageLike;
+  drafts: number;
+  edits: number;
 }): string | null {
   if (o.history) {
     return '← back to draft';
   }
+  if (o.drafts + o.edits > 0) {
+    return null;
+  }
   return o.sealed || o.handoff || agentHolds(o) ? null : 'Approve';
+}
+
+/** Whether Revise shows its ▾ (Revise & approve): while drafts or hand edits
+ * are pending and the round is the reader's. */
+export function reviseMoreShown(o: {
+  sealed: boolean;
+  handoff: boolean;
+  waiting: boolean;
+  message: MessageLike;
+  drafts: number;
+  edits: number;
+}): boolean {
+  return o.drafts + o.edits > 0 && !o.sealed && !agentHolds(o);
 }
 
 // The cards of the track: the verdict's own cut is the end of the line, not a round.

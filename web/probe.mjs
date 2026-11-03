@@ -47,6 +47,7 @@ import {
   agentHolds,
   draftCountWords,
   primaryWords,
+  reviseMoreShown,
   roundStages,
   sendFace,
   MESSAGE_HELD_LINE,
@@ -355,9 +356,6 @@ function pressedRevise({ pendingCount = 0, waitedMs = null, message = null }) {
       chatHolds: () => false,
       postVerdict(body) {
         did = { post: body };
-      },
-      openVerdictMenu() {
-        did = { menu: true };
       },
     },
     (shell) => {
@@ -5163,8 +5161,8 @@ const unplacedEntry = (c) => {
   );
   const counts = tabCounts(threads, changes);
   check(
-    'Instructions counts its drafts and the hand edits; Chat counts its drafts',
-    counts.instructions === 6 && counts.chat === 1,
+    'Instructions counts every draft and the hand edits; Chat counts none',
+    counts.instructions === 7 && counts.chat === 0,
     counts,
   );
   check(
@@ -6568,8 +6566,8 @@ function bindsContentField(src) {
       );
       const more = pressedRevise({ pendingCount: 1, message: noReply });
       check(
-        'Approve with an instruction pending opens the menu',
-        more.did && more.did.menu === true,
+        'the top button with an instruction pending posts nothing',
+        more.did === null,
         more,
       );
     }
@@ -6635,8 +6633,8 @@ function bindsContentField(src) {
       // Both menu items are still there and still verbatim — the fix is the label
       // above them, not a rewrite of the exits.
       check(
-        'the menu still names both endings the page can reach',
-        MENU_TRUST === 'Revise & Approve',
+        "Revise's ▾ names the ending it reaches",
+        MENU_TRUST === 'Revise & approve',
       );
     }
 
@@ -6977,8 +6975,8 @@ function bindsContentField(src) {
     // exit's body is pinned too: `trust:true` riding on an approve is what
     // makes it the trusted handoff rather than a second plain approve.
     check(
-      'the built bundle carries the verdict menu and both its exits',
-      src.includes('gly-verdict-menu') && src.includes('Revise & Approve'),
+      "the built bundle carries Revise's ▾ and its one exit",
+      src.includes('gly-revise-more') && src.includes('Revise & approve'),
     );
     check(
       'and Revise & Approve waits for the successful answer',
@@ -7881,9 +7879,35 @@ function bindsContentField(src) {
       handoff: false,
       waiting: false,
       message: null,
+      drafts: 0,
+      edits: 0,
       ...o,
     });
   check('a review with the reader offers Approve', words({}) === 'Approve');
+  check(
+    'drafts or hand edits pending offer no Approve, and History still the way back',
+    words({ drafts: 1 }) === null &&
+      words({ edits: 1 }) === null &&
+      words({ drafts: 1, history: true }) === '← back to draft',
+  );
+  const more = (o) =>
+    reviseMoreShown({
+      sealed: false,
+      handoff: false,
+      waiting: false,
+      message: null,
+      drafts: 0,
+      edits: 0,
+      ...o,
+    });
+  check(
+    "Revise's ▾ shows with drafts or hand edits, and not while the agent has the round or sealed",
+    more({ drafts: 1 }) &&
+      more({ edits: 1 }) &&
+      !more({}) &&
+      !more({ drafts: 1, sealed: true }) &&
+      !more({ drafts: 1, waiting: true, message: { state: 'working' } }),
+  );
   check(
     'History offers the way back, sealed or not',
     words({ history: true, sealed: true }) === '← back to draft',
