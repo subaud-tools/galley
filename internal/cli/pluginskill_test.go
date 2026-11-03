@@ -16,7 +16,7 @@ import (
 // other for as long as nothing drives it.
 //
 // `skills/reviewing-a-document/SKILL.md` is a third, and it was
-// bound by nothing. That is not a symmetry argument. Court: *"we never
+// bound by nothing. That is not a symmetry argument. The user: *"we never
 // actually use the cli. we want to use this through claude code."* The two Go
 // carriers are strings in this binary and are exercised by every test in this
 // package; the skill is a file in another directory that no Go test opened,

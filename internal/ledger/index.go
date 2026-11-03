@@ -568,7 +568,7 @@ func (x *Index) forget(abs string) error {
 // STORAGE IS PER SOURCE, COUNTING IS PER DECISION.
 //
 // A decision recorded once and cloned into five worktrees is ONE decision, and
-// the ledger must never report five. This is not a corner case: Court works in
+// the ledger must never report five. This is not a corner case: the user works in
 // git worktrees constantly — this repository had eight live while the ledger
 // was being built — and each checkout carries its own copy of the same
 // committed `.galley/decisions.jsonl` at its own path. Add an ordinary second

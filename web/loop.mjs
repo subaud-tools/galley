@@ -985,7 +985,7 @@ const spansIn = (text) =>
   check(
     "the reviewer's press cut a round that carries the ask",
     !!asked &&
-      (asked.authors || []).includes('court') &&
+      (asked.authors || []).includes('user') &&
       (asked.asks || []).some((a) => a.text === REVIEWER_ASKED),
     { roundsFile, reasons: cut.map((r) => r.reason), asked },
   );

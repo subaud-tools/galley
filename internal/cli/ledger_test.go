@@ -314,7 +314,7 @@ func TestLedgerRejectsAnUnknownSubcommand(t *testing.T) {
 	}
 }
 
-// TestLedgerReportsDecisionsNotRows is the worktree case at the CLI. Court
+// TestLedgerReportsDecisionsNotRows is the worktree case at the CLI. The user
 // works in worktrees constantly, so the same committed log sits at many source
 // paths on one machine — and the number the command prints has to be
 // decisions, with the storage-level row count still available in --json for

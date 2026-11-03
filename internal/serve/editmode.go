@@ -1763,7 +1763,7 @@ func (s *EditServer) mutateLocked(by requester, fn func(docmodel.Doc) (docmodel.
 		// Reviewer mutations made through an endpoint are server writes too, so
 		// OnUpdate deliberately ignores them. Name the reviewer here instead;
 		// otherwise an instruction-only round has no author even though the
-		// ledger correctly carries what Court asked for.
+		// ledger correctly carries what the user asked for.
 		s.movedByReviewer.Store(true)
 	}
 	return http.StatusOK, nil
@@ -2316,7 +2316,7 @@ func resentInstruction(asks []versions.Ask) string {
 	return saidLine(said)
 }
 
-// reviseMessage is one opening of the response window as a message Court
+// reviseMessage is one opening of the response window as a message the user
 // sent: where it stands (msgstate), the line under its pill, whether the
 // harness is holding it while the agent is mid-turn, and the report token the
 // harness names it by.
@@ -2744,7 +2744,7 @@ func (s *EditServer) writeReviseState(w http.ResponseWriter) {
 // so a rename here could not have failed `just verify` — it could only have
 // failed in a browser, silently, as `undefined`.
 //
-// Court, on the general rule: "We should have everything typed and defined up
+// The user, on the general rule: "We should have everything typed and defined up
 // front. Especially when going between go and typescript. We should go further
 // if possible and make this a contract neither can break without the other."
 //

@@ -2100,7 +2100,7 @@ const delMark = (author, at) => schema.marks.del.create({ author, at });
 {
   // Two ins runs from the same author at the same instant, separated by plain
   // text, are TWO suggestions — adjacency, not similarity.
-  const m = insMark('court', '2026-01-01T00:00:00Z');
+  const m = insMark('user', '2026-01-01T00:00:00Z');
   const doc = docOf(
     schema.node('paragraph', null, [
       schema.text('one', [m]),
@@ -2120,7 +2120,7 @@ const delMark = (author, at) => schema.marks.del.create({ author, at });
   // Adjacent inlines sharing a mark are ONE run even when other formatting
   // splits them into two nodes — half an insertion in bold is one suggestion,
   // and the server matches on the whole run's text.
-  const m = insMark('court', '2026-01-01T00:00:00Z');
+  const m = insMark('user', '2026-01-01T00:00:00Z');
   const bold = schema.marks.bold.create();
   const doc = docOf(
     schema.node('paragraph', null, [
@@ -2142,7 +2142,7 @@ const delMark = (author, at) => schema.marks.del.create({ author, at });
   // whichever came first.
   const doc = docOf(
     schema.node('paragraph', null, [
-      schema.text('mine', [insMark('court', '2026-01-01T00:00:00Z')]),
+      schema.text('mine', [insMark('user', '2026-01-01T00:00:00Z')]),
       schema.text('mine', [insMark('agent', '2026-01-01T00:00:01Z')]),
     ]),
   );
@@ -2187,8 +2187,8 @@ const delMark = (author, at) => schema.marks.del.create({ author, at });
   const doc = docOf(
     schema.node('paragraph', null, [
       schema.text('The quick '),
-      schema.text('brown', [delMark('court', '2026-01-01T00:00:00Z')]),
-      schema.text('red', [insMark('court', '2026-01-01T00:00:00Z')]),
+      schema.text('brown', [delMark('user', '2026-01-01T00:00:00Z')]),
+      schema.text('red', [insMark('user', '2026-01-01T00:00:00Z')]),
       schema.text(' fox'),
     ]),
   );
@@ -2197,7 +2197,7 @@ const delMark = (author, at) => schema.marks.del.create({ author, at });
     text: 'brown → red',
     old: 'brown',
     new: 'red',
-    author: 'court',
+    author: 'user',
   };
   const runs = markRuns(doc);
   check(
@@ -2338,7 +2338,7 @@ const delMark = (author, at) => schema.marks.del.create({ author, at });
   const doc = docOf(
     schema.node('paragraph', null, [
       schema.text('both', [
-        insMark('court', '2026-01-01T00:00:00Z'),
+        insMark('user', '2026-01-01T00:00:00Z'),
         schema.marks.highlight.create({
           author: 'agent',
           at: '2026-01-01T00:00:02Z',
@@ -3140,7 +3140,7 @@ const unplacedEntry = (c) => {
   );
 
   // NO CONTEXT AT ALL IS NOT "NOTHING KNOWN" — it is a deletion that emptied
-  // its own block, and this rung is Court's second finding. Every rung above
+  // its own block, and this rung is the user's second finding. Every rung above
   // searches for TEXT, and such an entry has none: `new` is empty by
   // definition and contextOf clamps to the block the deletion just emptied,
   // so the needle was '' and the entry went adrift the first time its live
@@ -3427,7 +3427,7 @@ const unplacedEntry = (c) => {
   // WHAT THE REVIEWER'S HAND CANNOT HAVE EMPTIED IS NOT A CANDIDATE. An empty
   // fence is a shape a plain .md produces AT REST (``` on two adjacent lines),
   // and counting it was enough on its own to make a real deletion's ghost
-  // refuse for ambiguity — Court's original bug, reproduced by an ordinary
+  // refuse for ambiguity — the user's original bug, reproduced by an ordinary
   // document. The same goes for a table's cells and for a note, both of them
   // read-only to the keyboard by construction.
   const emptyCell = schema.node('table', null, [
@@ -3436,7 +3436,7 @@ const unplacedEntry = (c) => {
   //
   // EACH EXCLUSION IS HELD BY TWO CHECKS AND THEY PULL IN OPPOSITE DIRECTIONS,
   // because the exclusion is wrong in two directions. The AMBIGUITY row is the
-  // false-refusal side — Court's original bug, where counting a literal block
+  // false-refusal side — the user's original bug, where counting a literal block
   // gave a real deletion a second candidate with the same neighbours and the
   // ghost refused. The ALONE row is the wrong-anchor side: with the literal
   // counted, an entry that emptied the document's last block would be handed
@@ -5086,7 +5086,7 @@ const unplacedEntry = (c) => {
     key,
     heading: '',
     entries: [
-      { author: 'court', at: `2026-10-31T0${filedAt++}`, text: `words ${key}` },
+      { author: 'user', at: `2026-10-31T0${filedAt++}`, text: `words ${key}` },
     ],
     run: '',
     anchor: '',
@@ -5123,7 +5123,7 @@ const unplacedEntry = (c) => {
   );
   const dated = (key, at) => ({
     ...draft(key),
-    entries: [{ author: 'court', at, text: key }],
+    entries: [{ author: 'user', at, text: key }],
   });
   check(
     'rows keep the order they were filed in, whatever order the server lists them',
@@ -6331,13 +6331,13 @@ function bindsContentField(src) {
 
       // The reviewer's OWN typing must not announce itself.
       //
-      // The plan spelled this as `mine.arrived.filter(a => a.author !== 'court')
+      // The plan spelled this as `mine.arrived.filter(a => a.author !== 'user')
       // .length === 0`, which passes whether or not the filtering happens: with no
-      // filtering, arrived is court's own row and the predicate excludes it
+      // filtering, arrived is the user's own row and the predicate excludes it
       // anyway. The claim is that arrived is EMPTY, so that is what is asserted.
       const mine = diffPending(prev, [
         ...prev,
-        { run: 'c', kind: 'insert', text: 'x', author: 'court' },
+        { run: 'c', kind: 'insert', text: 'x', author: 'user' },
       ]);
       check(
         'the reviewer is not told about their own edit',
@@ -7187,7 +7187,7 @@ function bindsContentField(src) {
       roundPhrase(0, PHASE_DRAFT),
     );
     // AND IT IS A BUTTON THAT LOOKS LIKE ONE. The whole-document handle that
-    // once sat beside it was found only after Court failed to find it, and the diagnosis was that
+    // once sat beside it was found only after the user failed to find it, and the diagnosis was that
     // it read as a noun in a row of verbs. A count that opens the review's
     // whole list has to be dressed as a control, so it takes the strip's own
     // button chrome and adds the hover every other control there has.
