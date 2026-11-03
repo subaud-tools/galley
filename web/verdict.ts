@@ -10,9 +10,9 @@
 //
 // THE BOTTOM HALF, `verdictMethods`, IS A MIXIN — an object of methods
 // `Object.assign`ed onto `App.prototype` in entry.ts, not a class of its own
-// — and it is Revise on the kit's send bar (`#gly-revise`), Discard drafts, the
-// bar's primary, the menu Approve discloses when work is pending
-// (Revise & Approve), the poll response that drives all three
+// — and it is Revise on the kit's send bar (`#gly-revise`) with its ▾
+// (Revise & approve, while work is pending), Discard drafts, the bar's
+// primary, the poll response that drives all three
 // (readRevise — which also drives History's and the seal's own readers, see
 // its own comment), and hold/release, the browser-side queue over what the
 // rail shows while the mode is live. One file owns one subject — the
@@ -31,6 +31,7 @@ import {
   draftCountWords,
   messageLine,
   primaryWords,
+  reviseMoreShown,
   roundStages,
   sendFace,
 } from './roundbar.ts';
@@ -38,6 +39,7 @@ import { STAGE_READING } from './versions.ts';
 import type { AppShell, ArrivalItem } from './appshell.ts';
 import type { ReviseStateView } from './wire';
 import { messagePill } from './kit/dom.js';
+import { shareMenu } from './kit/share.js';
 import type { SuggestionLike } from './suggestions.ts';
 
 // The full shape of what GET /_galley/revise answers.
@@ -67,8 +69,8 @@ export interface ReviseWatchView extends ReviseStateView {
   reopenNote?: string;
 }
 
-/** What the verdict is while markup is pending. `verdict` holds it, and a press
- * of Approve then offers Revise & Approve rather than sealing over the work. */
+/** What the verdict is while markup is pending. `verdict` holds it; the top
+ * bar then offers no Approve, and Revise's ▾ holds Revise & approve. */
 export const REVISE_IDLE = 'Revise';
 
 /** The line under a held Revise's pill: the harness is holding the wake
@@ -91,8 +93,12 @@ export const APPROVE_IDLE = 'Approve';
 // How long Discard stays armed after its first press, as delete and revert do.
 const DISCARD_ARM_MS = 4000;
 
-/** What Approve offers over a document with work still pending. */
-export const MENU_TRUST = 'Revise & Approve';
+/** What Revise's ▾ offers over a document with work still pending. */
+export const MENU_TRUST = 'Revise & approve';
+
+/** What Approve says when it filed the whole-document box's words instead. */
+const FILED_NOT_APPROVED =
+  'filed your words as an instruction — Revise or Revise & approve sends them';
 
 /** The verdicts the server can seal a review with that the seal paints apart.
  * The third, `approved`, is sealLine's default branch and needs no name. */
@@ -195,6 +201,19 @@ export const verdictMethods = {
     document.getElementById('gly-drafts')?.after(msg);
     this.reviseMsg = msg;
     el.addEventListener('click', () => this.pressSend());
+    // Revise's ▾: the kit's menu, with its one item. This round closes the
+    // review, so the whole-document box's words go with it.
+    const more = document.getElementById('gly-revise-more');
+    if (more) {
+      shareMenu(more, [{ label: MENU_TRUST, act: 'trust' }], () => {
+        const filed = window.galleyChrome?.fileWords() ?? Promise.resolve(true);
+        void filed.then((ok) => {
+          if (ok) {
+            this.postVerdict({ approveOnAnswer: true }, false);
+          }
+        });
+      });
+    }
     return el;
   },
 
@@ -202,7 +221,6 @@ export const verdictMethods = {
     if (!this.revise || this.revise.disabled) {
       return;
     }
-    this.closeVerdictMenu();
     this.postVerdict({}, false);
   },
 
@@ -295,7 +313,13 @@ export const verdictMethods = {
     };
     const sealed = !!this.sealed || this.approved;
     chrome.paintPrimary(
-      primaryWords({ ...state, history: panel.open, sealed }),
+      primaryWords({
+        ...state,
+        history: panel.open,
+        sealed,
+        drafts: this.pendingCount,
+        edits: this.editCount,
+      }),
     );
     chrome.paintStages(
       roundStages({
@@ -315,11 +339,11 @@ export const verdictMethods = {
   },
 
   // askRevise is the PRIMARY's press, and it only decides. In History it is the
-  // way out. On a clean document it approves. With work pending, or words left
-  // in the Chat box, it DISCLOSES Revise & Approve instead, so a press can never
-  // seal over unsent work; plain
-  // Revise is the send bar's. The posting, with its status lines and its 409
-  // grammar, lives in postVerdict below.
+  // way out. On a clean document it approves. With work pending the primary
+  // has no words (Revise's ▾ holds Revise & approve), so a press can never seal
+  // over unsent work. Words left in the whole-document box are work too: a
+  // press files them as an instruction rather than approving over them. The
+  // posting, with its status lines and its 409 grammar, lives in postVerdict.
   askRevise(this: AppShell) {
     if (this.versionsPanel && this.versionsPanel.open) {
       this.toggleVersions();
@@ -328,17 +352,19 @@ export const verdictMethods = {
     if (this.approved || this.approving) {
       return;
     }
-    if (this.verdict === APPROVE_IDLE && !this.chatHolds()) {
+    if (this.chatHolds()) {
+      void window.galleyChrome?.fileWords().then((ok) => {
+        if (ok) {
+          this.say(FILED_NOT_APPROVED);
+        }
+      });
+      return;
+    }
+    if (this.verdict === APPROVE_IDLE) {
       if (Date.now() < this.approveNotBefore) {
         return;
       }
       this.postVerdict({ verdict: 'approve' }, true);
-      return;
-    }
-    if (this.verdictOpen) {
-      this.closeVerdictMenu();
-    } else {
-      this.openVerdictMenu();
     }
   },
 
@@ -470,115 +496,6 @@ export const verdictMethods = {
       });
   },
 
-  // --- the verdict menu ---
-  //
-  // A DISCLOSURE, and every rule that travels with one is load-bearing here.
-  // It appends to document.body — NEVER inside .ProseMirror, where anything
-  // appended becomes CONTENT and the next projection writes it into the .md
-  // (measured: a fixture went from 1 pending to 81) — and it is positioned
-  // absolutely off the button's rect MEASURED at open time, because the bar
-  // folds and its height is not a constant. It COVERS whatever is under it
-  // and displaces nothing; the button itself does not move or change on the
-  // opening press — the menu is the thing the press created. Esc closes it
-  // the way Esc closes every other surface (see onKey), outside-click closes
-  // it, and so does a scroll or a resize, the bubble's reasons: the bar is
-  // sticky, so the page moving under an absolutely-positioned menu leaves it
-  // anchored to nothing.
-  makeVerdictMenu(this: AppShell): HTMLElement {
-    const el = document.createElement('div');
-    el.className = 'gly-verdict-menu';
-    el.hidden = true;
-    el.setAttribute('role', 'menu');
-    const trust = document.createElement('button');
-    trust.type = 'button';
-    trust.className = 'gly-verdict-trust';
-    trust.textContent = MENU_TRUST;
-    trust.title =
-      'send these instructions and approve only after the agent successfully applies them';
-    trust.addEventListener('click', () => {
-      this.closeVerdictMenu();
-      // This round closes the review, so the Chat box's words go with it.
-      const filed = window.galleyChrome?.fileWords() ?? Promise.resolve(true);
-      void filed.then((ok) => {
-        if (ok) {
-          this.postVerdict({ approveOnAnswer: true }, false);
-        }
-      });
-    });
-    el.append(trust);
-    document.body.appendChild(el);
-    // Outside-click closes, in capture so it runs whatever the click lands
-    // on. The button is NOT "outside": askRevise owns the toggle, and closing
-    // here too would reopen on the same press (see the note there).
-    document.addEventListener(
-      'click',
-      (event) => {
-        if (
-          !this.verdictOpen ||
-          (event.target instanceof Node && el.contains(event.target))
-        ) {
-          return;
-        }
-        if (
-          event.target instanceof Element &&
-          event.target.closest('.kit-primary')
-        ) {
-          return;
-        }
-        this.closeVerdictMenu();
-      },
-      true,
-    );
-    // Same shape as the bubble's scroll listener, same reason to read the
-    // event: scroll does not bubble, capture on window hears everything, and
-    // only the page moving under the menu makes its position stale.
-    window.addEventListener(
-      'scroll',
-      (event) => {
-        if (!this.verdictOpen) {
-          return;
-        }
-        if (event.target instanceof Node && el.contains(event.target)) {
-          return;
-        }
-        this.closeVerdictMenu();
-      },
-      true,
-    );
-    window.addEventListener('resize', () => this.closeVerdictMenu());
-    return el;
-  },
-
-  openVerdictMenu(this: AppShell) {
-    // Off the bar's primary, which is what was pressed.
-    const anchor = document.querySelector('.kit-primary');
-    if (!anchor) {
-      return;
-    }
-    if (!this.verdictMenu) {
-      this.verdictMenu = this.makeVerdictMenu();
-    }
-    const menu = this.verdictMenu;
-    // Position FIRST, from the button's own rect read at open time — the
-    // refusal note's discipline: an element unhidden with a stale inline
-    // position appears somewhere the button is not. Unhide before measuring
-    // the menu's own width, because a hidden box measures zero.
-    const rect = anchor.getBoundingClientRect();
-    menu.hidden = false;
-    menu.style.top = `${rect.bottom + window.scrollY + 4}px`;
-    // Right-aligned under the button: the primary is the rightmost control in
-    // the bar, so the menu grows leftward over the page rather than off its edge.
-    menu.style.left = `${Math.max(4, rect.right + window.scrollX - menu.offsetWidth)}px`;
-    this.verdictOpen = true;
-  },
-
-  closeVerdictMenu(this: AppShell) {
-    if (this.verdictMenu) {
-      this.verdictMenu.hidden = true;
-    }
-    this.verdictOpen = false;
-  },
-
   readRevise(this: AppShell) {
     return getJSON<ReviseWatchView>(routes.revise)
       .then((d) => {
@@ -653,6 +570,20 @@ export const verdictMethods = {
     revise.textContent = face.label;
     revise.disabled = face.disabled || this.approved || this.settling;
     revise.title = face.title;
+    const more = document.getElementById('gly-revise-more');
+    if (more instanceof HTMLButtonElement) {
+      more.hidden =
+        this.approved ||
+        !reviseMoreShown({
+          sealed: !!this.sealed,
+          handoff: !!this.handoff,
+          waiting: this.reviseWaiting,
+          message: this.reviseMessage,
+          drafts: this.pendingCount,
+          edits: this.editCount,
+        });
+      more.disabled = revise.disabled;
+    }
     this.paintDiscard();
     this.paintMessage();
     this.paintChrome();

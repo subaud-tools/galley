@@ -609,9 +609,9 @@ check(
 // growing a conversation back.
 //
 // ONE SIDE IS THE CLAIM. A reviewer's own words must be revisable, so a row holds
-// them in its one box with Delete beside it; what would mean the conversation had
-// grown back is a second box or a second speaker, both asserted exactly. The verb
-// is pinned so that another one arriving is a decision somebody has to come here
+// them in its one box with Edit and Delete beside it; what would mean the conversation had
+// grown back is a second box or a second speaker, both asserted exactly. The verbs
+// are pinned so that another one arriving is a decision somebody has to come here
 // and make.
 const railCard = await page.evaluate(() => {
   const el = document.querySelector('.gly-tab [data-draft-id]');
@@ -628,7 +628,7 @@ check(
   !!railCard &&
     railCard.said.length === 1 &&
     railCard.said[0] === REVIEWER_ASKED &&
-    JSON.stringify(railCard.verbs) === JSON.stringify(['Delete']),
+    JSON.stringify(railCard.verbs) === JSON.stringify(['Edit', 'Delete']),
   railCard,
 );
 

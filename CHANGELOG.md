@@ -2,6 +2,13 @@
 
 Newest first. Notes for releases up to 0.10.2 are on the GitHub releases page: https://github.com/subaud-tools/galley/releases
 
+## 0.29.0
+
+- The top bar holds still. Its button has one width, so entering and leaving History moves nothing, and while drafts are pending, the agent revises or the review is approved its place stays, empty. With nothing pending it reads Approve.
+- Revise has a `▾` while drafts or hand edits are pending, holding Revise & approve (send the round, approve when the agent's revision lands). It replaces the menu the top button used to open; the top bar offers no Approve while work is pending.
+- Every instruction is in the Instructions tab: its first section, On the whole document, has a box and Add instruction, with those instructions as rows under it; then This round · on the text. The Chat tab has no box for now. Right-click → Instruction on the whole document opens the new box.
+- Each instruction row has an Edit button beside Delete: it puts the cursor at the end of the words; Enter or clicking away keeps the change, Escape undoes it (tools-common 0.62.0).
+
 ## 0.28.0
 
 - galley stores the reviewer as `"user"` instead of a personal name. A review in progress keeps your comments as yours across the update: the unsent round and the ledger index are rewritten, and the committed ledger and rounds manifest read an old value as the user's. An editor tab left open from before the update keeps working.

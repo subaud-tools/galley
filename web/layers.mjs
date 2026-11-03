@@ -1557,10 +1557,10 @@ console.log('\n--- §8a · a live page owns its own disabled flags ---');
     { sealed },
   );
 
-  // THE ELEMENTS READ ARE THE ONES WITH NO PAINTER: the Chat box is built once, and
+  // THE ELEMENTS READ ARE THE ONES WITH NO PAINTER: the whole-document box is built once, and
   // the composer's box is placed by gestures.
   const marked = await page.evaluate(() => {
-    const sels = ['#gly-chat-box', '.gly-composer-text'];
+    const sels = ['#gly-doc-box', '.gly-composer-text'];
     const out = [];
     for (const sel of sels) {
       const el = document.querySelector(sel);
@@ -1586,7 +1586,7 @@ console.log('\n--- §8a · a live page owns its own disabled flags ---');
   await page.waitForTimeout(800);
 
   const after = await page.evaluate(() => {
-    const sels = ['#gly-chat-box', '.gly-composer-text'];
+    const sels = ['#gly-doc-box', '.gly-composer-text'];
     return sels.map((sel) => {
       const el = document.querySelector(sel);
       return { sel, present: !!el, disabled: !!(el && el.disabled) };

@@ -1,6 +1,6 @@
-// tabs.ts — the right column's two tabs, as values: Instructions (the round's
-// drafts on the text and the reviewer's hand edits) and Chat (the whole document:
-// its drafts, each Revise sent and the agent's answer). shell.ts draws them with
+// tabs.ts — the right column's two tabs, as values: Instructions (every draft
+// the next Revise sends: on the whole document, then on the text, and the
+// reviewer's hand edits) and Chat (each Revise sent and the agent's answer). shell.ts draws them with
 // the kit's parts; everything here runs in node, so probe.mjs drives it.
 //
 // The kit holds what is being typed, so nothing here rebuilds a box. A draft saves
@@ -142,7 +142,7 @@ export function threadPlacement(
   return { where: 'anchorless', run: '', index: -1 };
 }
 
-/** The drafts about the whole document, which the Chat tab holds. */
+/** The drafts about the whole document, the Instructions tab's first section. */
 export function overallThreads<T extends PendingThread>(
   threads: T[] | null | undefined,
 ): T[] {
@@ -201,7 +201,7 @@ export function textDrafts(
   );
 }
 
-/** The Chat tab's draft rows. */
+/** The whole-document section's draft rows. */
 export function chatDrafts(
   threads: Thread[] | null | undefined,
 ): DraftRowValue[] {
@@ -231,14 +231,17 @@ export function editRows(
   }));
 }
 
-/** What each tab counts: its drafts, and in Instructions the hand edits too. */
+/** What each tab counts: Instructions every draft and hand edit; Chat has no drafts. */
 export function tabCounts(
   threads: Thread[] | null | undefined,
   changes: ReviewerChange[] | null | undefined,
 ): { instructions: number; chat: number } {
   return {
-    instructions: textThreads(threads).length + (changes || []).length,
-    chat: overallThreads(threads).length,
+    instructions:
+      textThreads(threads).length +
+      overallThreads(threads).length +
+      (changes || []).length,
+    chat: 0,
   };
 }
 
@@ -352,7 +355,7 @@ export function chatMessages(
 
 // --- what a stranded edit keeps ---
 
-/** An edit whose instruction left goes to the Chat box: its words, after any already there. */
+/** An edit whose instruction left goes to the whole-document box: its words, after any already there. */
 export function strandedValue(had: string, words: string): string | null {
   const keep = words.trim();
   const before = had.trimEnd();
@@ -362,7 +365,7 @@ export function strandedValue(had: string, words: string): string | null {
   return before ? `${before}\n\n${keep}` : keep;
 }
 
-/** What the Chat box holds once `filed` is with the server: what was typed after
+/** What the whole-document box holds once `filed` is with the server: what was typed after
  * it. Words the reader changed meanwhile aren't the ones filed, so they stay. */
 export function afterFiled(now: string, filed: string): string {
   const had = now.trimStart();
@@ -370,7 +373,7 @@ export function afterFiled(now: string, filed: string): string {
 }
 
 const STRANDED_EDIT =
-  'that instruction was sent or deleted, so your edit went to the Chat box';
+  'that instruction was sent or deleted, so your edit went to the whole-document box';
 const REVERT_ARM_MS = 4000;
 
 export const tabMethods = {

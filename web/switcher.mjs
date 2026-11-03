@@ -284,15 +284,17 @@ await front.waitForTimeout(2500);
 
 // --- the reader's words -------------------------------------------------------
 const INSTRUCT = '**/_galley/instruct';
-const BOX = '#gly-chat-box';
-const ROW_BOX = '.gly-chat-drafts .kit-draft-words';
+const BOX = '#gly-doc-box';
+const ROW_BOX = '.gly-doc-drafts .kit-draft-words';
 const review = async (name) => {
   const doc = await open(place('words', name));
   const tab = await context.newPage();
   tab.on('pageerror', (e) => errors.push(e.message));
   await tab.goto(doc.url);
   await tab.waitForSelector('.ProseMirror');
-  await tab.locator('.kit-rail-tabrow .kit-ctl', { hasText: 'Chat' }).click();
+  await tab
+    .locator('.kit-rail-tabrow .kit-ctl', { hasText: 'Instructions' })
+    .click();
   return { doc, tab };
 };
 const asks = async (doc) =>
@@ -325,7 +327,7 @@ const rounds = async (doc) =>
   await tab.locator(BOX).press('Enter');
   await tab.waitForTimeout(500);
   check(
-    'a filing the network dropped leaves its words in the Chat box',
+    'a filing the network dropped leaves its words in the whole-document box',
     (await tab.inputValue(BOX)) === 'the first words',
     await tab.inputValue(BOX),
   );
@@ -365,23 +367,40 @@ const rounds = async (doc) =>
   const { doc, tab } = await review('leaving.md');
   check('a page holding nothing leaves freely', !(await guarded(tab)));
   await tab.fill(BOX, 'words nobody has');
-  check('a page with unfiled Chat words asks first', await guarded(tab));
+  check(
+    'a page with unfiled whole-document words asks first',
+    await guarded(tab),
+  );
   await tab.locator('.kit-primary').click();
   await tab.waitForTimeout(500);
   check(
-    'Approve does not seal over unfiled Chat words',
+    'Approve does not seal over unfiled whole-document words',
     !(await sealed(doc)),
     await sealed(doc),
   );
+  // The press filed them instead: an instruction now, so Revise's ▾ offers
+  // Revise & approve, as for any unsent instruction.
+  const more = tab.locator('#gly-revise-more');
   check(
-    'it offers Revise & Approve, as for unsent instructions',
-    await tab.locator('.gly-verdict-menu button').isVisible(),
+    "it files them, and Revise's ▾ offers Revise & approve",
+    await until(() => more.isVisible(), 5000),
   );
-  if (await tab.locator('.gly-verdict-menu button').isVisible()) {
-    await tab.locator('.gly-verdict-menu button').click();
+  check(
+    'and the status line says the words were filed, not approved',
+    await until(
+      async () =>
+        ((await tab.locator('#gly-status').textContent()) || '').includes(
+          'filed your words as an instruction',
+        ),
+      5000,
+    ),
+  );
+  if (await more.isVisible()) {
+    await more.click();
+    await tab.locator('.kit-share-menu:not([hidden]) button').click();
   }
   check(
-    'Revise & Approve carries those words',
+    'Revise & approve carries those words',
     await until(
       async () => (await rounds(doc)).includes('words nobody has'),
       3000,
@@ -407,7 +426,10 @@ const rounds = async (doc) =>
   await until(async () =>
     (await rescue.tab.inputValue(BOX)).includes('being rewritten'),
   );
-  check('words rescued into Chat ask first too', await guarded(rescue.tab));
+  check(
+    'words rescued into the whole-document box ask first too',
+    await guarded(rescue.tab),
+  );
   await rescue.tab.close();
 }
 

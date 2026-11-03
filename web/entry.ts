@@ -794,8 +794,7 @@ class App implements AppState {
   seenCannot: string;
   arrival: Arrival | null;
 
-  // --- the verdict menu, and polling ---
-  verdictOpen: boolean;
+  // --- polling ---
   rev: number | null;
   savedMs: number;
 
@@ -806,7 +805,6 @@ class App implements AppState {
   discarding: boolean;
   approving: boolean;
   editCount: number;
-  verdictMenu: HTMLElement | null;
   reviseRunning: boolean;
   approveNotBefore: number;
   reviseStartedAt: number;
@@ -1080,10 +1078,6 @@ class App implements AppState {
     // lost-markup failure the label exists to prevent.
     this.verdict = REVISE_IDLE;
     this.approved = false;
-    // The verdict menu — built on the first press that needs it, because a
-    // shell without the Revise button has nothing to hang it off.
-    this.verdictMenu = null;
-    this.verdictOpen = false;
     this.approving = false;
     this.revise = this.makeRevise();
     this.discardArmedAt = 0;
