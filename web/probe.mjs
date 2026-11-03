@@ -5161,8 +5161,8 @@ const unplacedEntry = (c) => {
   );
   const counts = tabCounts(threads, changes);
   check(
-    'Instructions counts its drafts and the hand edits; Chat counts its drafts',
-    counts.instructions === 6 && counts.chat === 1,
+    'Instructions counts every draft and the hand edits; Chat counts none',
+    counts.instructions === 7 && counts.chat === 0,
     counts,
   );
   check(

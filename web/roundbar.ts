@@ -24,9 +24,9 @@ declare global {
 }
 
 /** What the shell gives the editor, on window.galleyChrome. */
-/** What the kit's rows and the Chat box ask of the editor. */
+/** What the kit's rows and the whole-document box ask of the editor. */
 export interface TabActions {
-  /** Whether the words are safe: the server took them, or its row is gone and they went to Chat. */
+  /** Whether the words are safe: the server took them, or its row is gone and they went to the whole-document box. */
   edit(key: string, text: string): Promise<boolean>;
   remove(key: string): void;
   select(key: string): void;
@@ -48,13 +48,13 @@ export interface GalleyChrome {
   paintChat(messages: ChatMessage[]): void;
   /** Opens the Instructions tab on a draft's row. */
   showRow(key: string): void;
-  /** Opens the Chat tab with its box in hand. */
-  openChat(): void;
-  /** Words with nowhere else to go, added to the Chat box. */
+  /** Opens the Instructions tab with the whole-document box in hand. */
+  openDocInstruction(): void;
+  /** Words with nowhere else to go, added to the whole-document box. */
   keepInChat(words: string): void;
-  /** The Chat box holds words not filed. */
+  /** The whole-document box holds words not filed. */
   chatHolds(): boolean;
-  /** Files what the Chat box holds. False when the server didn't take it. */
+  /** Files what the whole-document box holds. False when the server didn't take it. */
   fileWords(): Promise<boolean>;
   /** Waits out every save and filing on its way, trying a failed save again.
    * False when something is still not with the server. */

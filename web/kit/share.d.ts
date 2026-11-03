@@ -180,7 +180,14 @@ export interface ThreadMessageValue {
 /** Draws what a message carries, under its text. */
 export type ThreadAttachments<M> = (m: M) => Node | null;
 
-export function threadMessage<M extends ThreadMessageValue>(m: M, attachments?: ThreadAttachments<M>): HTMLElement;
+/** Draws a message's text in place of the plain paragraph, in a div.kit-thread-msg-md; a message with no text draws no body. */
+export type ThreadRender<M> = (m: M) => Node;
+
+export function threadMessage<M extends ThreadMessageValue>(
+  m: M,
+  attachments?: ThreadAttachments<M> | null,
+  render?: ThreadRender<M> | null,
+): HTMLElement;
 
 /** The note box: el goes in the column; Enter in box, or Send note, calls send. */
 export interface ThreadNote {
@@ -203,6 +210,8 @@ export interface ThreadOptions<M extends ThreadMessageValue> {
   note?: ThreadNote | null;
   readOnly?: boolean;
   attachments?: ThreadAttachments<M>;
+  /** Draws each message's text; none, it is plain. */
+  render?: ThreadRender<M>;
 }
 
 /** The thread column's content. */
@@ -382,7 +391,7 @@ export interface DraftCallbacks {
   onSelect?(id: string): void;
 }
 
-/** One draft's row, an <li>. */
+/** One draft's row, an <li>: its quote, its words in a box, Edit and Delete. Edit focuses the box with the caret at the end and marks the row `editing` while it has the focus; Escape in the box puts back the words last saved and saves nothing. */
 export function draftRow(o: DraftCallbacks & { draft: DraftListItem; on?: boolean }): HTMLElement;
 
 export interface DraftList {

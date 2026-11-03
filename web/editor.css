@@ -2636,11 +2636,13 @@ body.gly-sealed .gly-tab-hint { display: none; }
 .kit-draft-row.gly-lit { border-color: var(--kit-signal); }
 /* The thread's messages, then this round's drafts, then the box. */
 .gly-chat-said > .kit-empty { margin: 0 0 12px; }
-.gly-chat-said.gly-chat-told > .kit-empty, .gly-chat-said.gly-chat-holds > .kit-empty { display: none; }
+.gly-chat-said.gly-chat-told > .kit-empty { display: none; }
 .gly-chat-said:not(.gly-chat-told) > .kit-thread-msgs { display: none; }
-.gly-chat-said:not(.gly-chat-holds) > .gly-chat-drafts { display: none; }
-.gly-chat-drafts { margin-bottom: 12px; }
-.gly-chat-drafts .kit-draft-row { border-left: 3px solid var(--kit-signal); }
+/* The whole-document section: its box and Add instruction, then its rows, then
+   the text's label with the gap a new section takes. */
+.gly-doc-line { margin-bottom: 8px; }
+.gly-doc-drafts:has(.kit-draft-row) { margin-bottom: 8px; }
+.gly-tab > .kit-label:not(:first-child) { margin-top: 16px; }
 
 /* THE TOP BUTTON KEEPS ITS PLACE. Its words change on its own press (Approve,
    ← back to draft) and it has none while drafts are pending, the agent revises

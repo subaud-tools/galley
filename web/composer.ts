@@ -539,7 +539,7 @@ export const composerMethods = {
     if (!this.sealed) {
       items.push({
         label: 'Instruction on the whole document',
-        run: () => window.galleyChrome?.openChat(),
+        run: () => window.galleyChrome?.openDocInstruction(),
       });
     }
     return items;
