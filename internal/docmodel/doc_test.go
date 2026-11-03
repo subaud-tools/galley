@@ -84,7 +84,7 @@ func TestInlineAttr(t *testing.T) {
 		t.Fatalf("want href https://example.com, got %q", got)
 	}
 	if got := in.Attr(Ins, "author"); got != "user" {
-		t.Fatalf("want author court, got %q", got)
+		t.Fatalf("want author user, got %q", got)
 	}
 	if got := in.Attr(Ins, "at"); got != "2026-08-02T10:00:00Z" {
 		t.Fatalf("want at 2026-08-02T10:00:00Z, got %q", got)

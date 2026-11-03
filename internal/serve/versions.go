@@ -400,7 +400,7 @@ func (s *EditServer) cutOutside(out []byte) {
 //
 // ALTERNATION IS A PROPERTY OF BATCHING, NOT A LAW. In live mode the CRDT
 // merged both parties' work before anything was cut, so a round genuinely can
-// carry both — and `v12 · court and agent` is information, not an evasion.
+// carry both — and `v12 · user and agent` is information, not an evasion.
 //
 // Both halves are observed at the source rather than inferred from the bytes.
 // The agent's: every server-side mutation on its behalf goes through mutate,
