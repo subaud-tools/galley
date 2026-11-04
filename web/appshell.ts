@@ -126,6 +126,7 @@ import type { GripTarget } from './grips.ts';
 import type { DocMenu, MenuItem } from './menu.ts';
 import type { ReviseWatchView } from './verdict.ts';
 import type { ShareMenu } from './share.ts';
+import type { KeyLayer } from './roundbar.ts';
 
 // --- shapes AppShell's members are built from ---
 
@@ -493,7 +494,7 @@ export interface AppMethods {
   // constructor called — never another mixin — so nothing before this task
   // ever needed it typed. Converting entry.ts means typing its constructor,
   // and its constructor calls every one of these by name
-  // (`this.makeCensus()`, `this.onKey(event)`, and so on), so they join the
+  // (`this.makeCensus()`, `this.keyLayer()`, and so on), so they join the
   // shared surface now for the same reason every earlier member did: a
   // member silently missing from AppShell that a real caller still needs is
   // exactly the wrong assumption this file exists to make loud. ---
@@ -505,7 +506,7 @@ export interface AppMethods {
   didRestore(version: number, error: string): void;
 
   // --- the keyboard (web/keys.ts) ---
-  onKey(event: KeyboardEvent): void;
+  keyLayer(): KeyLayer;
 
   // --- the poll-and-refresh loop's own beat (web/pending.ts) ---
   tick(): void;

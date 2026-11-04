@@ -380,7 +380,7 @@ export const composerMethods = {
     mark.hidden = true;
 
     // THE WAY OUT WAS A KEY NOBODY WAS TOLD ABOUT. Esc has always reached
-    // hideComposer through onKey's topmost-first chain, and a reviewer who had
+    // hideComposer through the topmost-first Esc chain, and a reviewer who had
     // opened the form had exactly two ways to shut it: guess the key, or click
     // somewhere else and hope. A surface that can only be dismissed by a
     // gesture nobody is shown is a surface with no way out, so the verb is

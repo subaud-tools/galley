@@ -10,6 +10,7 @@ import {
   buttons,
   card,
   createApi,
+  createKeys,
   createDrafts,
   draftList,
   filterRow,
@@ -43,7 +44,12 @@ import {
   stateGroups,
   switcherItems,
 } from './pagelist.ts';
-import { TOP_REVISE, type GalleyChrome, type TabActions } from './roundbar.ts';
+import {
+  TOP_REVISE,
+  type GalleyChrome,
+  type KeyLayer,
+  type TabActions,
+} from './roundbar.ts';
 import { tip, tipBox, tipText } from './tip.ts';
 import {
   afterFiled,
@@ -726,8 +732,27 @@ export function mountShell(verdict: () => void): void {
     status.setAttribute('aria-live', 'polite');
   }
   let drawn = '';
+  // / is Find a review: the left panel comes out first when it is a strip.
+  const findReview = (): void => {
+    const find = cols.leftBody?.querySelector<HTMLInputElement>('.gly-find');
+    if (!find) {
+      return;
+    }
+    if (app.classList.contains('kit-narrow')) {
+      narrow.show('left');
+    } else if (cols.left?.classList.contains('kit-collapsed')) {
+      cols.left.querySelector<HTMLElement>('.kit-col-toggle')?.click();
+    }
+    find.focus();
+  };
   const chrome: GalleyChrome = {
     ...tabs,
+    mountKeys(layer: KeyLayer) {
+      const keys = createKeys({ esc: layer.esc, search: findReview });
+      for (const key of layer.keys) {
+        keys.register(key);
+      }
+    },
     paintPrimary(label) {
       const revise = label === TOP_REVISE;
       b.setPrimary(label && !revise ? { label, run: verdict } : null);

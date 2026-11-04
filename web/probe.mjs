@@ -207,7 +207,6 @@ import {
 } from './trail.ts';
 import {
   stepPending,
-  keyTargetIsEditable,
   threadLabel,
   growOnInput,
   HEAD_QUOTE_CHARS,
@@ -4444,20 +4443,6 @@ const unplacedEntry = (c) => {
   check(
     'stepping an empty document reports nothing',
     stepPending([], null, 1) === null,
-  );
-}
-
-{
-  check(
-    'keys are ignored inside the document and inside inputs',
-    keyTargetIsEditable({ isContentEditable: true }) === true &&
-      keyTargetIsEditable({ tagName: 'TEXTAREA' }) === true &&
-      keyTargetIsEditable({ tagName: 'INPUT' }) === true,
-  );
-  check(
-    'keys are not ignored on ordinary chrome',
-    keyTargetIsEditable({ tagName: 'BUTTON' }) === false &&
-      keyTargetIsEditable(null) === false,
   );
 }
 

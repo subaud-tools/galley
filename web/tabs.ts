@@ -65,21 +65,6 @@ export function stepPending(
   return runs[(at + direction + runs.length) % runs.length];
 }
 
-/** Whether a key press belongs to a field rather than to the page. */
-export function keyTargetIsEditable(el: unknown): boolean {
-  if (!el || typeof el !== 'object') {
-    return false;
-  }
-  if ('isContentEditable' in el && el.isContentEditable) {
-    return true;
-  }
-  const tag =
-    'tagName' in el && typeof el.tagName === 'string'
-      ? el.tagName.toLowerCase()
-      : '';
-  return tag === 'input' || tag === 'textarea' || tag === 'select';
-}
-
 /** Makes a box as tall as its words, up to whatever cap the stylesheet sets. */
 export function growOnInput(field: HTMLTextAreaElement): HTMLTextAreaElement {
   const fit = () => {

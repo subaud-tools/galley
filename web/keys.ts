@@ -1,5 +1,5 @@
 // web/keys.ts owns the page's keyboard: the Esc chain, and the j/k stepper
-// that walks the drafts on the text. It is a MIXIN — an object
+// that walks the drafts on the text, given to the kit's keyboard layer. It is a MIXIN — an object
 // of methods `Object.assign`ed onto `App.prototype` in entry.ts — not a
 // class of its own, so every method here still reads and writes `this` on
 // the live App instance exactly as it did before the move (`this.stepped`,
@@ -10,136 +10,117 @@
 // mixin's `this` shares from here on — see that file's own header for the
 // three options weighed and why this one was chosen.
 
-import { stepPending, keyTargetIsEditable, textThreads } from './tabs.ts';
+import { stepPending, textThreads } from './tabs.ts';
 import { closeMenu, menuOpen, moveMenuFocus } from './menu.ts';
 import type { AppShell } from './appshell.ts';
+import type { EscStep, KeyLayer } from './roundbar.ts';
 
 export const keyMethods = {
-  // onKey is the rail's keyboard, and it is deliberately quiet while anything
-  // is being typed into. The document is contenteditable, so j and k are
-  // ordinary letters most of the time; Esc is the way out of the field and into
-  // the stepper, which is why it is listed as blurring rather than only
-  // dismissing.
-  onKey(this: AppShell, event: KeyboardEvent) {
-    if (event.metaKey || event.ctrlKey || event.altKey) {
-      return;
-    }
-    if (event.key === 'Escape') {
-      // Esc is the one key that acts INSIDE a field: it dismisses what is open,
-      // and failing that hands focus back to the page so the rest of these keys
-      // become available.
-      // THE MENU IS TOPMOST, so it is first — the ordering rule this chain is
-      // built on. It is drawn over everything the pointer was on and it is the
-      // most recent thing the reviewer opened, so a press that closed anything
-      // else while it was up would be closing something they cannot see.
-      if (menuOpen(this.menu)) {
-        closeMenu(this.menu);
-        return;
+  // keyLayer is what the page's keyboard answers, handed to the kit's
+  // createKeys by the shell (web/shell.ts mountKeys): the Esc chain as the
+  // kit's Esc closers, and the page's own keys. The kit keeps every key but Esc
+  // out of a text field, so j and k are ordinary letters in the document, a
+  // draft box or Chat; Esc is the one key that acts inside a field, and with
+  // nothing of galley's open the kit's own Esc leaves the field, which is the
+  // way out of the field and into the stepper.
+  //
+  // THE CHAIN IS TOPMOST FIRST, and the kit tries the closers in this order and
+  // stops at the first that closed something. One key may not do two things in
+  // one press.
+  keyLayer(this: AppShell): KeyLayer {
+    const esc: EscStep[] = [
+      // THE MENU IS TOPMOST. It is drawn over everything the pointer was on and
+      // it is the most recent thing the reviewer opened, so a press that closed
+      // anything else while it was up would be closing something they cannot
+      // see.
+      {
+        label: 'close the menu',
+        close: () => {
+          if (!menuOpen(this.menu)) {
+            return false;
+          }
+          closeMenu(this.menu);
+          return true;
+        },
+      },
+      // The refusal note and the selection bubble go with any Esc and take no
+      // press of their own: the key goes on to History or out of the field, as
+      // it always has. The composer's form takes the press.
+      {
+        label: 'close the instruction box',
+        close: () => {
+          const formOpen =
+            !this.composer.root.hidden && !this.composer.form.hidden;
+          this.hideRefusal();
+          this.bubble.hide();
+          // A BLOCK GRIP'S COMPOSER HANDS FOCUS BACK TO THE GRIP. The keyboard
+          // reached the composer through that button, and closing it into
+          // nowhere would leave the reviewer to Tab back from the top of the page.
+          const opener = this.composer.root.hidden
+            ? null
+            : this.composer.opener;
+          this.hideComposer();
+          if (opener && opener.isConnected) {
+            opener.focus();
+          }
+          return formOpen;
+        },
+      },
+      // THE ROUNDS. The record floats over the whole-document panel below it.
+      // Inside History Esc has two meanings stacked: release the change a
+      // reviewer pinned, and leave the reading mode. The pin is the innermost,
+      // so it goes first; `unpin` reports whether it had anything to release.
+      {
+        label: 'unpin a change in History',
+        close: () => this.versionsPanel.open && this.versionsPanel.unpin(),
+      },
+      {
+        label: 'close History',
+        close: () => {
+          if (!this.versionsPanel.open) {
+            return false;
+          }
+          this.versionsPanel.hide();
+          this.paintVersionsButton();
+          return true;
+        },
+      },
+    ];
+    // THE MENU'S OWN ARROWS, in a field too: a menu the mouse can reach and the
+    // keyboard cannot is half a menu. With no menu up they are the page's
+    // scroll again (false leaves the key to the browser).
+    const menuArrow = (d: 1 | -1) => () =>
+      menuOpen(this.menu) && moveMenuFocus(this.menu, d);
+    // j/k WALK THE DRAFTS ON THE TEXT, but not under the menu (two surfaces
+    // answering one press) and not in History, which is a READING mode: its
+    // premise is that it computes nothing and decides nothing, and stepping
+    // moves `this.stepped`, state a reading mode may not write.
+    const stepper = (d: 1 | -1) => () => {
+      if (menuOpen(this.menu) || this.versionsPanel.open) {
+        return false;
       }
-      this.hideRefusal();
-      this.bubble.hide();
-      // A BLOCK GRIP'S COMPOSER HANDS FOCUS BACK TO THE GRIP. The keyboard
-      // reached the composer through that button, and closing it into nowhere
-      // would leave the reviewer to Tab back from the top of the page.
-      const opener = this.composer.root.hidden ? null : this.composer.opener;
-      this.hideComposer();
-      if (opener && opener.isConnected) {
-        opener.focus();
-      }
-      // THE ROUNDS, and the position in this chain is the ordering rule this
-      // chain is built on: TOPMOST FIRST. The record floats at z-index 44, over
-      // the whole-document panel below it, so Esc has to reach it before the
-      // panel — otherwise a reviewer with both open presses Esc, watches
-      // something they cannot see close, and presses it again.
-      if (this.versionsPanel.open) {
-        // ONE KEY MAY NOT DO TWO THINGS IN ONE PRESS, and inside History Esc
-        // has two meanings stacked: release the change a reviewer pinned, and
-        // leave the reading mode. The pin is the innermost, so it goes first —
-        // the same TOPMOST-FIRST rule this whole chain is built on, one level
-        // further in. `unpin` reports whether it had anything to release, so
-        // the outer meaning is not swallowed on a press with nothing pinned.
-        if (this.versionsPanel.unpin()) {
-          return;
-        }
-        this.versionsPanel.hide();
-        this.paintVersionsButton();
-        return;
-      }
-      // The capture card closes on Esc like every other surface here — it is
-      // something on screen that is in the way, and the one key that means
-      // "put that away" has to reach it. Its `cancel` button says the same
-      // thing for the mouse; the two are one exit spelled for two reviewers.
-      const active = document.activeElement;
-      // `document.activeElement` is `Element | null` to the DOM's own types,
-      // and `blur()` is only on the HTML/SVG element mixin, not on `Element`
-      // itself — a real `instanceof` narrowing where this used to read the
-      // method's presence off `active.blur`. Every element `keyTargetIsEditable`
-      // answers true for (an input, a textarea, a select, or a
-      // contenteditable node) is an HTMLElement in this document, so nothing
-      // reachable here changes which branch runs.
-      if (keyTargetIsEditable(active) && active instanceof HTMLElement) {
-        active.blur();
-      }
-      return;
-    }
-    // THE MENU'S OWN ARROWS, BEFORE THE EDITABLE GUARD AND BEFORE THE STEPPER.
-    // A menu the mouse can reach and the keyboard cannot is half a menu, and
-    // `j`/`k` walking the document underneath an open menu would be two
-    // surfaces answering one press.
-    if (menuOpen(this.menu)) {
-      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-        if (moveMenuFocus(this.menu, event.key === 'ArrowDown' ? 1 : -1)) {
-          event.preventDefault();
-        }
-      }
-      return;
-    }
-    if (
-      keyTargetIsEditable(event.target) ||
-      keyTargetIsEditable(document.activeElement)
-    ) {
-      return;
-    }
-    // `a` AND `r` ARE DELETED, AND THE GUARD BELOW OUTLIVES THEM. They ran
-    // `decideStepped`, which POSTed /_galley/accept and /_galley/reject — two
-    // of the twelve endpoints internal/serve/rounds_surface_test.go asserts
-    // are 404. Nothing could reach them: `stepped` is armed only by `step`, and
-    // `step` walks `this.suggestions`, which is empty by construction on the
-    // rounds-only wire), so nothing is lost: there is no verdict on an
-    // instruction. The rail's card verbs are edit and delete, and they are on
-    // the card.
-    //
-    // NOT WHILE HISTORY IS UP. History is a READING mode: `body.gly-history-mode`
-    // takes `main` to `display: none` and puts a version's paper in its place,
-    // and the whole premise of the surface is that it computes nothing and
-    // decides nothing. `j`/`k` are inert there — `markElement` finds nothing
-    // inside a hidden `main` — but they still moved `this.stepped`, which is
-    // state a reading mode may not write. Every neighbour already knew:
-    // `paintReadout`, `paintSurfaces` and the Esc chain all branch on the panel
-    // being open. This switch was the one reader that did not ask, which is this
-    // codebase's most-repeated shape — the rule spelled in every place but one,
-    // and the silent place is the one that costs you.
-    //
-    // j/k AND `↓ next` WALK THE INSTRUCTION CARDS — see stepOrder, which used
-    // to walk `this.suggestions.filter(decidable)` over a wire that carries no
-    // suggestions, and so reached nothing at all. The note that stood here
-    // named both exits ("point the stepper at the instruction cards or take
-    // that check with it") and this is the first of them.
-    if (this.versionsPanel.open) {
-      return;
-    }
-    switch (event.key) {
-      case 'j':
-        event.preventDefault();
-        this.step(1);
-        break;
-      case 'k':
-        event.preventDefault();
-        this.step(-1);
-        break;
-      default:
-        break;
-    }
+      this.step(d);
+      return true;
+    };
+    return {
+      esc,
+      keys: [
+        { keys: 'j', label: 'next draft on the text', run: stepper(1) },
+        { keys: 'k', label: 'previous draft on the text', run: stepper(-1) },
+        {
+          keys: '↓',
+          label: 'next menu item',
+          inField: true,
+          run: menuArrow(1),
+        },
+        {
+          keys: '↑',
+          label: 'previous menu item',
+          inField: true,
+          run: menuArrow(-1),
+        },
+      ],
+    };
   },
 
   // j and k walk the drafts on the text, in the order the server lists them.

@@ -17,6 +17,26 @@ export interface RoundStage {
   opens?: string | null;
 }
 
+// What this file needs of the kit's EscCloser and KeyBinding, spelled here for
+// the same reason: the page's keys, which the shell gives to createKeys.
+export interface EscStep {
+  label: string;
+  /** Closes it if it is open and says so. */
+  close(): boolean;
+}
+export interface PageKey {
+  keys: string;
+  label: string;
+  /** false leaves the key to the browser. */
+  run(): boolean;
+  inField?: boolean;
+}
+/** The page's keyboard: the Esc chain, in the order tried, and its keys. */
+export interface KeyLayer {
+  esc: EscStep[];
+  keys: PageKey[];
+}
+
 declare global {
   interface Window {
     galleyChrome?: GalleyChrome;
@@ -62,6 +82,8 @@ export interface GalleyChrome {
   /** Waits out every save and filing on its way, trying a failed save again.
    * False when something is still not with the server. */
   settled(): Promise<boolean>;
+  /** Gives the page's keys to the kit's keyboard layer, with / for Find a review. */
+  mountKeys(layer: KeyLayer): void;
   paintPrimary(label: string | null): void;
   paintStages(
     stages: RoundStage[],

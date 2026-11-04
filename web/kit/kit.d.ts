@@ -53,8 +53,28 @@ export interface Keys {
   destroy(): void;
 }
 
-/** Family defaults: j/↓ k/↑ move, o/↵ open, x select, ⇧x range (when list is given), / search (when the list has one); ? keys; Esc closes or leaves a field. */
-export function createKeys(opts?: { list?: ListNav; target?: EventTarget; now?: () => number }): Keys;
+/** One thing the page's Esc closes (a menu, a composer, a panel). */
+export interface EscCloser {
+  /** Shown in the ? overlay as an Esc row, in the order tried. */
+  label: string;
+  /** Close it if it is open and return true; return false when there is nothing to close. */
+  close(): boolean;
+}
+
+/**
+ * Family defaults: j/↓ k/↑ move, o/↵ open, x select, ⇧x range (when list is given), / search (when the list has one,
+ * or search is given; not both); ? keys; Esc closes or leaves a field.
+ * esc: on Esc, in a text field too, each closer is tried in order and the first that returns true takes the key;
+ * with none closing, Esc leaves the field as before. While a sheet or the ? overlay is open, Esc is the sheet's.
+ * search: binds / alone, without the list keys.
+ */
+export function createKeys(opts?: {
+  list?: ListNav;
+  esc?: EscCloser[];
+  search?: () => void;
+  target?: EventTarget;
+  now?: () => number;
+}): Keys;
 
 // ---- api.js
 

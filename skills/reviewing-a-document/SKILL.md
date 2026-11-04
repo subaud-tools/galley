@@ -31,6 +31,8 @@ Between rounds, galley loads your edits to an open document. If you and the revi
 
 **Sending.** The top-right button is the round's: `Approve` on a clean document, and `Revise` while drafts or hand edits are waiting (and while you have the round, where it counts the seconds). `Revise` sends the round to you. Its `▾` holds `Revise & approve`, which sends the round (with any words left in the whole-document box) and approves when your revision lands, for the last few nits they trust you to land without another look. `Approve` alone ends the review with the document as it stands. The bar at the foot of the document holds the draft count and `Discard drafts`, which clears the round's unsent instructions in two presses; when a round comes back it says so, with `read changes` to open it. `HTML preview ↗` is beside `History`, above the document.
 
+**Keys.** `?` lists them. Outside a text field, `j` and `k` step through the drafts on the text and `/` goes to `Find a review`; in the document they are letters. Esc closes the topmost thing open (the menu, the instruction box, a pinned change in History, then History) and otherwise leaves the field.
+
 **Approving in the conversation.** If the reviewer tells you here that they approve the document, call the `galley_approve` tool with its path. It ends the review exactly as their `Approve` button would, and the page locks itself. Call it only on their word; never approve on their behalf because the revision looks done.
 
 **Then it arrives here.** They do not have to tell you they pressed it — a round reaches this session on its own.

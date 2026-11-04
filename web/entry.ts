@@ -88,7 +88,7 @@
 //     THIS constructor, the same shape as `cardSizes` beside it. Moved to
 //     AppState; see appshell.ts's note at that field for the full argument.
 //   - AppMethods was missing every constructor-only builder this file calls
-//     by name (`makeCensus`, `makeSheet`, `makeRevise`, `onKey`, `refuse`,
+//     by name (`makeCensus`, `makeSheet`, `makeRevise`, `keyLayer`, `refuse`,
 //     `enterHistory`, and sixteen more) — real mixin methods from Tasks 5-7,
 //     each already carrying `this: AppShell`, that nothing before this task
 //     needed typed because nothing before this task's own constructor CALLED
@@ -675,6 +675,21 @@ function init(opts?: { room?: string; wsURL?: string }): void {
       ...(pageMode ? [headingAlign()] : []),
     ],
     autofocus: false,
+    editorProps: {
+      handleDOMEvents: {
+        // ESC IS THE PAGE'S, NOT THE EDITOR'S. ProseMirror's own keydown
+        // calls preventDefault on every Esc, and the kit's keyboard layer
+        // leaves a prevented key alone, so Esc in the document would close
+        // nothing and never leave it. Answering it here keeps ProseMirror's
+        // handler off it (no keymap here binds Esc) and lets it bubble.
+        keydown: (_view, event) =>
+          event.key === 'Escape' &&
+          !event.metaKey &&
+          !event.ctrlKey &&
+          !event.altKey &&
+          !event.shiftKey,
+      },
+    },
   });
 
   app = new App({ editor, provider, room });
@@ -701,9 +716,8 @@ function init(opts?: { room?: string; wsURL?: string }): void {
 // hands back always comes straight from `this.comments` (threadFor filters
 // the very array `threads()` returns, see suggestions.ts's threadFor), which
 // this App always populates as `Thread[]`. So the richer shape is real, not
-// assumed — narrowed here with a real runtime check rather than trusted,
-// the same discipline tabs.ts's `keyTargetIsEditable` uses for the same
-// reason: a boundary's declared type is narrower than what it actually
+// assumed — narrowed here with a real runtime check rather than trusted:
+// a boundary's declared type is narrower than what it actually
 // carries, and `in` says so honestly instead of asserting it away.
 function isThread(t: ThreadLike): t is Thread {
   return 'key' in t;
@@ -1227,7 +1241,8 @@ class App implements AppState {
     // CLAUDE.md), and a note that arrives in that rebuild needs its words
     // before the next poll. Same shape as the figure NodeView's rebuild above.
     editor.on('update', () => this.paintNoteWords());
-    document.addEventListener('keydown', (event) => this.onKey(event));
+    // The page's keys are the kit's keyboard layer, which the shell holds.
+    window.galleyChrome?.mountKeys(this.keyLayer());
 
     // --- the right-click, and what it offers ---
     //
@@ -2098,8 +2113,8 @@ Object.assign(App.prototype, shareMethods);
 // arrives through one of the eleven `Object.assign` calls immediately above,
 // so no class body declares them and `implements` cannot verify them; this
 // merges their names and signatures onto `App`'s type so the calls this
-// file itself makes to them (`this.makeCensus()` in the constructor,
-// `this.onKey(event)` in the keydown listener, and so on) type-check
+// file itself makes to them (`this.makeCensus()`,
+// `this.keyLayer()` in the constructor, and so on) type-check
 // against a real claim rather than an implicit `any`.
 interface App extends AppMethods {}
 
