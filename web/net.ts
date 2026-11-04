@@ -8,6 +8,7 @@
 
 // Every route the page calls, as whole literals: the one place a URL is spelled.
 const routes = {
+  chat: '/_galley/chat',
   downloadMd: '/_galley/download/md',
   handoffCancel: '/_galley/handoff/cancel',
   instruct: '/_galley/instruct',

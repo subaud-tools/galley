@@ -74,6 +74,7 @@ export const pendingMethods = {
     // tab that has since been closed, so the counter is read on every poll
     // rather than only after this page's own button was pressed.
     this.readRevise();
+    void this.readChat();
     getJSON<SavedView>(routes.saved)
       .then((d) => {
         if (d && d.saved && d.saved !== this.savedMs) {

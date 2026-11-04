@@ -177,6 +177,9 @@ const TAB_INSTRUCTIONS = 'instructions';
 const TAB_INSTRUCTIONS_DOC = 'instructions-doc';
 const TAB_CHAT = 'chat';
 const DOC_HINT = 'Add an instruction on the whole document…';
+const CHAT_HINT = 'Message the agent…';
+const CHAT_SAYS =
+  "The agent reads it now and answers here. It doesn't change the document; instructions and Revise do.";
 const REVERT_NOTE =
   'this puts the words back and drops your undo history — press again';
 
@@ -206,10 +209,17 @@ function editRow(e: EditRowValue, revert: (key: string) => void): HTMLElement {
   );
 }
 
+/** The agent's chat reply, as the server rendered it from its markdown. */
+function renderedReply(m: ThreadMessageValue & { html?: string }): Node {
+  const body = h('div');
+  body.innerHTML = m.html ?? '';
+  return body;
+}
+
 /** The right column: the kit's two tabs, each built once so a box keeps its words,
  * and what the editor paints them through. Instructions holds every instruction
  * the next Revise sends: on the whole document (a box and its rows), then on the
- * text. Chat shows the rounds and the agent's answers. */
+ * text. Chat is a conversation with the agent, with the rounds in it. */
 function makeTabs(
   cols: Frame,
 ): Pick<
@@ -356,9 +366,33 @@ function makeTabs(
     ),
   );
 
-  const chat = thread<ThreadMessageValue>({ id: TAB_CHAT, name: 'Chat' });
-  // The kit draws the thread whole, so the rounds are kept in a list of their
-  // own in its empty line's place, redrawn as they change.
+  // Chat's box: Enter or Send posts the words, which stay until the server has
+  // them, and what was typed meanwhile stays after them.
+  const chatBox = words.box(TAB_CHAT, CHAT_HINT, 3);
+  chatBox.box.id = 'gly-chat-box';
+  let sending: Promise<boolean> | null = null;
+  const sendChat = (): void => {
+    const text = words.get(TAB_CHAT).trim();
+    if (sending || !text || !act) {
+      return;
+    }
+    sending = act.chat(text).then((ok) => {
+      sending = null;
+      if (ok) {
+        words.restore(TAB_CHAT, afterFiled(words.get(TAB_CHAT), text));
+      }
+      return ok;
+    });
+  };
+  const chat = thread<ThreadMessageValue>({
+    id: TAB_CHAT,
+    name: 'Chat',
+    note: { el: chatBox.el, box: chatBox.box, send: sendChat, label: 'Send' },
+  });
+  chat.querySelector('.kit-note-line')?.classList.add('gly-chat-note');
+  chat.append(h('p', { class: 'kit-meta gly-chat-hint' }, CHAT_SAYS));
+  // The kit draws the thread whole, so the messages are kept in a list of their
+  // own in its empty line's place, redrawn as they change: the box keeps its words.
   const said = h('ul', { class: 'kit-thread-msgs' });
   const none = chat.querySelector('.kit-empty')!;
   const told = h('div', { class: 'gly-chat-said' }, none.cloneNode(true), said);
@@ -400,11 +434,18 @@ function makeTabs(
         );
       }
     },
-    paintChat(messages) {
+    paintChat(messages, waiting) {
+      tabs.setCount(TAB_CHAT, waiting);
       const key = JSON.stringify(messages);
       if (key !== drawnSaid) {
         drawnSaid = key;
-        said.replaceChildren(...messages.map((m) => threadMessage(m)));
+        // The reviewer's words stay plain, as diazo's threads draw them; only
+        // the agent's reply is rendered.
+        said.replaceChildren(
+          ...messages.map((m) =>
+            threadMessage(m, undefined, m.html ? renderedReply : undefined),
+          ),
+        );
         told.classList.toggle('gly-chat-told', messages.length > 0);
       }
     },

@@ -2637,6 +2637,10 @@ body.gly-sealed .gly-tab-hint { display: none; }
 .gly-chat-said > .kit-empty { margin: 0 0 12px; }
 .gly-chat-said.gly-chat-told > .kit-empty { display: none; }
 .gly-chat-said:not(.gly-chat-told) > .kit-thread-msgs { display: none; }
+/* Chat's box and the sentence under it; an approved review's thread reads with neither. */
+.gly-chat-hint { margin: 8px 0 0; font: 11.5px var(--kit-mono); color: var(--kit-muted); }
+body.gly-sealed .gly-chat-note,
+body.gly-sealed .gly-chat-hint { display: none; }
 /* The whole-document section: its box and Add instruction, then its rows, then
    the text's label with the gap a new section takes. */
 .gly-doc-line { margin-bottom: 8px; }

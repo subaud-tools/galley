@@ -118,6 +118,7 @@ import type {
   ReviseStateView,
   ReviewerChange,
   MessageView,
+  ChatMessageView,
 } from './wire';
 import type { Composer } from './composer.ts';
 import type { MessageState } from './kit/dom.js';
@@ -273,6 +274,9 @@ export interface AppState {
   // none when the server has none).
   reviseMsg?: HTMLElement;
   reviseMessage?: MessageView | null;
+  // The Chat tab's conversation with the agent, as GET /_galley/chat last read
+  // it (none before the first poll).
+  chatThread?: ChatMessageView[];
   // R10's window: direct, unconditional constructor assignments
   // (`this.reviseWaiting = false; this.reviseRunning = false;
   // this.approveNotBefore = 0; this.reviseStartedAt = 0;`).
@@ -451,6 +455,8 @@ export interface AppMethods {
   selectDraft(key: string): void;
   openDraft(key: string): void;
   fileChat(text: string): Promise<boolean>;
+  readChat(): Promise<void>;
+  sendChat(text: string): Promise<boolean>;
   chatHolds(): boolean;
   revertEdit(key: string): void;
   reveal(run: string): void;
