@@ -184,6 +184,79 @@ const reopen = async () => {
     }, 5000),
     await visible(),
   );
+  {
+    // Find a review has its own line under the fold arrow, across the panel,
+    // its top level with the right panel's tab row: wide, and on a narrow
+    // window with each panel open in turn.
+    const firstRows = () =>
+      page.evaluate(() => {
+        const at = (s) => {
+          const e = document.querySelector(s);
+          return e?.getClientRects().length
+            ? e.getBoundingClientRect().toJSON()
+            : null;
+        };
+        return {
+          find: at('.gly-find'),
+          arrow: at('.kit-left-col > .kit-col-toggle'),
+          body: at('.kit-left-col > .kit-col-body'),
+          tabs: at('.kit-rail-tabrow'),
+        };
+      });
+    const wide = await firstRows();
+    const { find, arrow, body, tabs } = wide;
+    check(
+      'Find a review sits on its own line under the fold arrow, across the panel',
+      !!find &&
+        !!arrow &&
+        !!body &&
+        find.top >= arrow.bottom &&
+        Math.abs(find.left - (body.left + 12)) <= 1 &&
+        Math.abs(find.right - (body.right - 12)) <= 1,
+      JSON.stringify(wide),
+    );
+    check(
+      "Find a review's top is level with the right panel's tab row",
+      !!find && !!tabs && Math.abs(find.top - tabs.top) <= 0.5,
+      JSON.stringify(wide),
+    );
+    await page.setViewportSize({ width: 864, height: 900 });
+    await page.waitForTimeout(300);
+    const toggle = (side) =>
+      page
+        .click(`.kit-${side}-col > .kit-col-toggle`)
+        .then(() => page.waitForTimeout(300));
+    await toggle('left');
+    const left = await firstRows();
+    await toggle('left');
+    await toggle('right');
+    const right = await firstRows();
+    await toggle('right');
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.waitForTimeout(300);
+    check(
+      "at 864 wide, the left panel's Find a review opens level with the right panel's tab row",
+      !!left.find &&
+        !!right.tabs &&
+        Math.abs(left.find.top - right.tabs.top) <= 0.5,
+      JSON.stringify({ left, right }),
+    );
+    const box = await page.locator('#gly-doc-box').boundingBox();
+    const add = await page
+      .locator('.gly-doc-line .kit-btn', { hasText: 'Add instruction' })
+      .boundingBox();
+    const panel = await page.locator('.gly-doc-line').boundingBox();
+    check(
+      'the whole-document box takes the panel width, Add instruction under it at its right edge',
+      !!box &&
+        !!add &&
+        !!panel &&
+        Math.abs(box.width - panel.width) <= 2 &&
+        add.y >= box.y + box.height &&
+        Math.abs(add.x + add.width - (box.x + box.width)) <= 2,
+      { box, add, panel },
+    );
+  }
   check(
     'the search box says Find a review',
     (await page.locator('.gly-find').getAttribute('placeholder')) ===
@@ -235,8 +308,9 @@ const sealedPage = async (page, when) => {
 {
   const page = await reopen();
   check(
-    'the left panel still lists the approved review',
-    (await keptRow(page).innerText()).includes('approved'),
+    'the left panel still lists the approved review, by when and its rounds and without the word its heading says',
+    /\d+ rounds?/.test(await keptRow(page).innerText()) &&
+      !(await keptRow(page).innerText()).includes('approved'),
     await keptRow(page).innerText(),
   );
   await keptRow(page).locator('.kit-index-main').click();

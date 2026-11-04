@@ -41,11 +41,13 @@ import {
   folderGroups,
   pageFilters,
   pageIdOf,
+  rowFace,
   stateGroups,
   statePills,
   stateWords,
   switcherItems,
 } from './pagelist.ts';
+import { tipText } from './tip.ts';
 import {
   agentHolds,
   draftCountWords,
@@ -205,7 +207,6 @@ import {
 } from './trail.ts';
 import {
   stepPending,
-  keyTargetIsEditable,
   threadLabel,
   growOnInput,
   HEAD_QUOTE_CHARS,
@@ -488,7 +489,8 @@ function paintedMessage({ message, sealed = false, history = false }) {
       const pill = msg && msg.nodes[0];
       const line = msg && msg.nodes[1];
       return {
-        title: cell.title,
+        // The cell's tip, as web/tip.ts holds it for an element with no page.
+        title: tipText(cell),
         empty: cell.nodes.length === 0,
         msg: msg ? msg.className : '',
         pill: pill ? pill.className : '',
@@ -4445,20 +4447,6 @@ const unplacedEntry = (c) => {
 }
 
 {
-  check(
-    'keys are ignored inside the document and inside inputs',
-    keyTargetIsEditable({ isContentEditable: true }) === true &&
-      keyTargetIsEditable({ tagName: 'TEXTAREA' }) === true &&
-      keyTargetIsEditable({ tagName: 'INPUT' }) === true,
-  );
-  check(
-    'keys are not ignored on ordinary chrome',
-    keyTargetIsEditable({ tagName: 'BUTTON' }) === false &&
-      keyTargetIsEditable(null) === false,
-  );
-}
-
-{
   // ONE KEYDOWN CONTRACT FOR EVERY PLACE GALLEY TAKES PROSE. It was three
   // handlers, of which only two existed: the reply boxes filed on Enter and
   // the composer that CREATES a comment had no handler at all, so a reviewer
@@ -5953,6 +5941,44 @@ function bindsContentField(src) {
       'approved 14:02 · 3 rounds|approved yesterday · 1 round|approved Oct 30 · 2 rounds',
     metas,
   );
+  const face = (p, on, underHeading) => {
+    const f = rowFace(p, on, underHeading, now);
+    return `${f.meta}/${f.attention}/${f.waits}`;
+  };
+  const kept = {
+    state: 'approved',
+    approvedAt: at(2, 9, 0),
+    rounds: 2,
+  };
+  check(
+    'under its heading a row says nothing the heading says: no dot or words waiting on you, no with the agent, no word approved',
+    [
+      face({ state: 'you' }, false, true),
+      face({ state: 'agent' }, false, true),
+      face(kept, false, true),
+    ].join('|') === '/false/false|/false/true|yesterday · 2 rounds/false/false',
+    [
+      face({ state: 'you' }, false, true),
+      face({ state: 'agent' }, false, true),
+      face(kept, false, true),
+    ],
+  );
+  check(
+    'on the front page, grouped by folder, a row keeps its state words and dot',
+    [
+      face({ state: 'you' }, false, false),
+      face({ state: 'you' }, true, false),
+      face({ state: 'agent' }, false, false),
+      face(kept, false, false),
+    ].join('|') ===
+      'waiting on you/true/false|waiting on you/false/false|with the agent/false/true|approved yesterday · 2 rounds/false/false',
+    [
+      face({ state: 'you' }, false, false),
+      face({ state: 'you' }, true, false),
+      face({ state: 'agent' }, false, false),
+      face(kept, false, false),
+    ],
+  );
   items[0].onClick();
   check('a switcher row goes to its review', went.join() === 'b', went);
   check(
@@ -7189,8 +7215,8 @@ function bindsContentField(src) {
         !/\.gly-versions-open\.is-new\{[^}]*(padding|margin|width)/.test(css),
     );
     check(
-      'Revise and Discard keep their box as their labels change',
-      /#gly-revise\{[^}]*min-width/.test(css) &&
+      'Revise (in the top bar) and Discard keep their box as their labels change',
+      /\.gly-top-revise\{[^}]*width:calc\(16ch/.test(css) &&
         /#gly-discard\{[^}]*min-width/.test(css),
     );
   }
@@ -7804,9 +7830,9 @@ function bindsContentField(src) {
     });
   check('a review with the reader offers Approve', words({}) === 'Approve');
   check(
-    'drafts or hand edits pending offer no Approve, and History still the way back',
-    words({ drafts: 1 }) === null &&
-      words({ edits: 1 }) === null &&
+    'drafts or hand edits pending turn the top button to Revise, and History still the way back',
+    words({ drafts: 1 }) === 'Revise' &&
+      words({ edits: 1 }) === 'Revise' &&
       words({ drafts: 1, history: true }) === '← back to draft',
   );
   const more = (o) =>
@@ -7833,9 +7859,13 @@ function bindsContentField(src) {
   );
   check('an approved review offers nothing', words({ sealed: true }) === null);
   check(
-    'with the agent offers nothing',
-    words({ waiting: true, message: { state: 'working' } }) === null &&
-      words({ handoff: true }) === null,
+    'with the agent the top button is Revise, with its own face (the counter, send again)',
+    words({ waiting: true, message: { state: 'working' } }) === 'Revise' &&
+      words({ handoff: true }) === 'Revise',
+  );
+  check(
+    'an approved review offers nothing, drafts or not',
+    words({ sealed: true, drafts: 1 }) === null,
   );
   check(
     'after no reply Approve is back',
@@ -7843,8 +7873,8 @@ function bindsContentField(src) {
   );
 
   check(
-    'an open handoff keeps Approve off even after no reply',
-    words({ handoff: true, message: { state: 'no_reply' } }) === null,
+    'an open handoff keeps Approve off even after no reply: the top is Revise, to send again',
+    words({ handoff: true, message: { state: 'no_reply' } }) === 'Revise',
   );
   check(
     'and nobody is working on it: not live',

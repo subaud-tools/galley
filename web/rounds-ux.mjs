@@ -112,6 +112,47 @@ const WINDOW_SIZES = [
   [1440, 900],
   [1100, 700],
 ];
+// The narrow widths the top button is checked at, down to the smallest window
+// the page is laid out for.
+const NARROW_WIDTHS = [864, 700, 545, 500];
+// Every width Revise's ▾ menu is held to Revise's own box at.
+const MENU_SIZES = [
+  [1400, 900],
+  [1080, 700],
+  [864, 800],
+  [700, 800],
+  [545, 800],
+  [500, 800],
+];
+
+// The top-right button's box (`box`, a selector) inside the window, and
+// whether each part (the box, and `part` if given) is the element under a
+// pointer at its centre. `more` is that part's centre, to press it there.
+function topButtonSeat(page, box, part) {
+  return page.evaluate(
+    ([box, part]) => {
+      const b = document.querySelector(box).getBoundingClientRect();
+      const hit = (el) => {
+        const r = el.getBoundingClientRect();
+        const x = r.left + r.width / 2;
+        const y = r.top + r.height / 2;
+        const at = document.elementFromPoint(x, y);
+        return { ok: !!at && el.contains(at), x, y };
+      };
+      const main = hit(document.querySelector(box));
+      const p = part ? hit(document.querySelector(part)) : null;
+      return {
+        left: b.left,
+        right: b.right,
+        window: innerWidth,
+        inside: b.left >= 0 && b.right <= innerWidth && b.width > 0,
+        pressable: main.ok && (!p || p.ok),
+        more: p,
+      };
+    },
+    [box, part],
+  );
+}
 
 // Where the selection's words, the button and the box are, in the window.
 function selectionSeat(page) {
@@ -276,8 +317,8 @@ async function reviseReady(page) {
   );
 }
 
-// With work pending the top bar offers no Approve: Revise's ▾ holds Revise &
-// approve, in the kit's menu.
+// With work pending the top button is Revise, and its ▾ holds Revise & approve,
+// in the kit's menu.
 const REVISE_MORE = '#gly-revise-more';
 const MORE_MENU = '.kit-share-menu:not([hidden])';
 async function openReviseMore(page) {
@@ -287,13 +328,24 @@ async function openReviseMore(page) {
   await page.waitForSelector(MORE_MENU, { state: 'visible', timeout: 5000 });
 }
 
-// Every child of the top bar, where it sits and how wide it is.
+// Every child of the top bar that takes room, where it sits and how wide it is.
+// The top-right slot is one seat, `top`: the kit primary (Approve, ← back to
+// draft), or Revise with its ▾ in its place.
 function topBarSeats(page) {
   return page.evaluate(() =>
-    [...document.querySelector('.kit-bar').children].map((el) => {
-      const r = el.getBoundingClientRect();
-      return { el: el.className, left: r.left, width: r.width };
-    }),
+    [...document.querySelector('.kit-bar').children]
+      .filter((el) => getComputedStyle(el).display !== 'none')
+      .map((el) => {
+        // A control in its tip box (web/tip.ts) is read as the control.
+        const at = el.classList.contains('gly-tip-at')
+          ? el.firstElementChild
+          : el;
+        const r = at.getBoundingClientRect();
+        const top =
+          at.classList.contains('kit-primary') ||
+          at.classList.contains('gly-top-revise');
+        return { el: top ? 'top' : at.className, left: r.left, width: r.width };
+      }),
   );
 }
 
@@ -313,14 +365,21 @@ function sameSeats(a, b) {
   );
 }
 
-// The top button as a reader sees it: shown, its words, and its box.
+// The top button as a reader sees it: shown, its words, its ▾, and its box.
+// It is the kit primary, or Revise in its place.
 function primarySeen(page) {
   return page.evaluate(() => {
-    const b = document.querySelector('.kit-primary');
+    const top = document.querySelector('#gly-top-revise');
+    const revise = !!top && getComputedStyle(top).display !== 'none';
+    const b = revise ? top : document.querySelector('.kit-primary');
     const r = b.getBoundingClientRect();
+    const more = document.querySelector('#gly-revise-more');
     return {
       visible: getComputedStyle(b).visibility !== 'hidden' && r.width > 0,
-      label: b.innerText.trim(),
+      label: revise
+        ? document.querySelector('#gly-revise').innerText.trim()
+        : b.innerText.trim(),
+      more: revise && !!more && !more.hidden,
       width: r.width,
     };
   });
@@ -542,8 +601,8 @@ try {
   // --- THE TOP BAR HOLDS STILL ---
   //
   // The top button changes its words on its own press (Approve, ← back to
-  // draft) and has nothing to say while drafts are pending; none of it may
-  // slide its neighbours. History in and out, at both window sizes.
+  // draft) and is Revise while drafts are pending; none of it may slide its
+  // neighbours. History in and out, at both window sizes.
   for (const [width, height] of WINDOW_SIZES) {
     await page.setViewportSize({ width, height });
     await page.waitForTimeout(200);
@@ -583,16 +642,33 @@ try {
   );
   await addRangeInstruction(page, 'A draft for the split button.');
   await page.waitForSelector(REVISE_MORE, { state: 'visible', timeout: 10000 });
-  await page.waitForFunction(() => {
-    const b = document.querySelector('.kit-primary');
-    return getComputedStyle(b).visibility === 'hidden' || !b.innerText.trim();
-  });
+  await page
+    .waitForFunction(
+      () => document.querySelector('.kit-bar #gly-revise')?.offsetWidth > 0,
+      null,
+      { timeout: 10000 },
+    )
+    .catch(() => {});
   const draftPrimary = await primarySeen(page);
   check(
-    'with a draft pending the top button says nothing and keeps its box',
-    !draftPrimary.visible &&
+    'with a draft pending the top button turns from Approve to Revise with its ▾, in the same box',
+    draftPrimary.visible &&
+      draftPrimary.label.startsWith('Revise') &&
+      draftPrimary.more &&
       Math.abs(draftPrimary.width - idlePrimary.width) <= 0.5,
     JSON.stringify({ draftPrimary, idlePrimary }),
+  );
+  check(
+    'and the send bar keeps the draft count and Discard drafts, with no Revise and no ▾',
+    await page.evaluate(() => {
+      const bar = document.querySelector('.kit-sendbar');
+      return (
+        !bar.querySelector('#gly-revise') &&
+        !bar.querySelector('.gly-revise-more') &&
+        /1 draft/.test(bar.querySelector('#gly-drafts').innerText) &&
+        !!bar.querySelector('#gly-discard')
+      );
+    }),
   );
   check(
     'and the top bar has not moved',
@@ -613,17 +689,55 @@ try {
       );
     }),
   );
-  for (const [width, height] of WINDOW_SIZES) {
+  for (const [width, height] of MENU_SIZES) {
     await page.setViewportSize({ width, height });
     await page.waitForTimeout(200);
     await openReviseMore(page);
     const menu = await page.evaluate((sel) => {
       const el = document.querySelector(sel);
       const r = el.getBoundingClientRect();
+      const item = el.querySelector('button');
+      const ir = item.getBoundingClientRect();
+      const box = document
+        .querySelector('#gly-top-revise')
+        .getBoundingClientRect();
+      const revise = getComputedStyle(document.querySelector('#gly-revise'));
+      const is = getComputedStyle(item);
+      const ms = getComputedStyle(el);
+      const face = (s) => ({
+        size: s.fontSize,
+        weight: s.fontWeight,
+        family: s.fontFamily,
+        bg: s.backgroundColor,
+        color: s.color,
+        radius: s.borderTopLeftRadius,
+        align: s.textAlign,
+      });
       return {
         items: [...el.querySelectorAll('button')].map((b) =>
           b.innerText.trim(),
         ),
+        item: { left: ir.left, right: ir.right, height: ir.height },
+        box: { left: box.left, right: box.right, height: box.height },
+        itemFace: face(is),
+        reviseFace: face(revise),
+        frame: {
+          bg: ms.backgroundColor,
+          border: [
+            ms.borderTopWidth,
+            ms.borderRightWidth,
+            ms.borderBottomWidth,
+            ms.borderLeftWidth,
+          ],
+          padding: [
+            ms.paddingTop,
+            ms.paddingRight,
+            ms.paddingBottom,
+            ms.paddingLeft,
+          ],
+          shadow: ms.boxShadow,
+          size: [r.width - ir.width, r.height - ir.height],
+        },
         top: r.top,
         left: r.left,
         right: r.right,
@@ -639,10 +753,58 @@ try {
         menu.bottom <= height,
       JSON.stringify(menu),
     );
+    check(
+      `${width}×${height}: Revise & approve is the top Revise box again, directly under it: same left, right and height, same face`,
+      Math.abs(menu.item.left - menu.box.left) <= 0.5 &&
+        Math.abs(menu.item.right - menu.box.right) <= 0.5 &&
+        Math.abs(menu.item.height - menu.box.height) <= 0.5 &&
+        JSON.stringify(menu.itemFace) === JSON.stringify(menu.reviseFace),
+      JSON.stringify(menu),
+    );
+    check(
+      `${width}×${height}: the menu draws no frame of its own around it: no ground, border, padding or shadow`,
+      /^(transparent|rgba\(0, 0, 0, 0\))$/.test(menu.frame.bg) &&
+        menu.frame.border.every((w) => w === '0px') &&
+        menu.frame.padding.every((p) => p === '0px') &&
+        menu.frame.shadow === 'none' &&
+        menu.frame.size.every((d) => Math.abs(d) <= 0.5),
+      JSON.stringify(menu.frame),
+    );
     await page.keyboard.press('Escape');
     await page
       .waitForSelector(MORE_MENU, { state: 'detached', timeout: 5000 })
       .catch(() => {});
+  }
+  // Down to a phone-sized window the whole top button, ▾ included, is inside
+  // the window and pressable where a reader's pointer lands: the narrow page
+  // scrolls nothing sideways, so a ▾ past the edge is gone.
+  for (const width of NARROW_WIDTHS) {
+    await page.setViewportSize({ width, height: 800 });
+    await page.waitForTimeout(200);
+    const seat = await topButtonSeat(page, '#gly-top-revise', REVISE_MORE);
+    let items = [];
+    if (seat.more) {
+      await page.mouse.click(seat.more.x, seat.more.y);
+      await page
+        .waitForSelector(MORE_MENU, { state: 'visible', timeout: 3000 })
+        .catch(() => {});
+      items = await page.evaluate(
+        (sel) =>
+          [
+            ...(document.querySelector(sel)?.querySelectorAll('button') ?? []),
+          ].map((b) => b.innerText.trim()),
+        MORE_MENU,
+      );
+      await page.keyboard.press('Escape');
+      await page
+        .waitForSelector(MORE_MENU, { state: 'detached', timeout: 5000 })
+        .catch(() => {});
+    }
+    check(
+      `at ${width} wide Revise and its ▾ are wholly in the window, and pressing the ▾ offers Revise & approve`,
+      seat.inside && seat.pressable && items.includes('Revise & approve'),
+      JSON.stringify({ ...seat, items }),
+    );
   }
   await page.setViewportSize({ width: 1440, height: 900 });
   await tabPress(page, 'Instructions');
@@ -659,9 +821,37 @@ try {
   );
   check(
     'with the draft gone the top button reads Approve again, and the ▾ goes',
-    (await primarySeen(page)).visible &&
+    (await primarySeen(page)).label === 'Approve' &&
+      (await primarySeen(page)).visible &&
       (await page.locator(REVISE_MORE).isHidden()),
   );
+  // Approve keeps the same place at a narrow window, and so does its longest
+  // face, History's `← back to draft`.
+  await page.setViewportSize({ width: 500, height: 800 });
+  await page.waitForTimeout(200);
+  const approveNarrow = await topButtonSeat(page, '.kit-bar .kit-primary');
+  await page.click('.gly-versions-open');
+  await page.waitForFunction(
+    () =>
+      document.querySelector('.kit-primary')?.innerText.trim() ===
+      '← back to draft',
+  );
+  const backNarrow = await topButtonSeat(page, '.kit-bar .kit-primary');
+  await page.click('.kit-primary');
+  await page.waitForFunction(
+    () =>
+      document.querySelector('.kit-primary')?.innerText.trim() === 'Approve',
+  );
+  check(
+    'at 500 wide Approve, and ← back to draft in History, are wholly in the window and pressable',
+    approveNarrow.inside &&
+      approveNarrow.pressable &&
+      backNarrow.inside &&
+      backNarrow.pressable,
+    JSON.stringify({ approveNarrow, backNarrow }),
+  );
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.waitForTimeout(200);
 
   // THE EMPTY TAB SAYS HOW. A first-time reviewer doesn't know how to ask for
   // anything, and nothing else on a cold-open page tells them.
@@ -689,11 +879,14 @@ try {
     }),
   );
   check(
-    "the bar's permanent sentence is Revise's title",
+    "the bar's permanent sentence is Revise's tip",
     await page.evaluate(
       () =>
         !document.querySelector('.kit-sendbar-hint') &&
-        document.querySelector('#gly-revise').title ===
+        !document.querySelector('#gly-revise').hasAttribute('title') &&
+        document
+          .querySelector('#gly-revise')
+          .parentElement.querySelector(':scope > .kit-tip')?.textContent ===
           'Revise sends your instructions and edits together. The agent answers by revising the document.',
     ),
   );
@@ -2007,14 +2200,15 @@ try {
   // check after the send is that those words were not sent and are still there.
   await tabPress(page, 'Instructions');
   await page.fill('#gly-doc-box', 'an unsent draft');
-  // WITH WORK PENDING NOTHING SEALS OVER IT: the top bar offers no Approve, and
-  // Revise's ▾ holds Revise & approve beside plain Revise.
+  // WITH WORK PENDING NOTHING SEALS OVER IT: the top button is Revise, not
+  // Approve, and its ▾ holds Revise & approve beside plain Revise.
   await openReviseMore(page);
   const exits = await page.locator(`${MORE_MENU} button`).allInnerTexts();
   check(
-    'with work pending the ▾ offers Revise & approve, and the top bar no Approve',
+    'with work pending the ▾ offers Revise & approve, and the top button is Revise, not Approve',
     JSON.stringify(exits) === JSON.stringify(['Revise & approve']) &&
-      !(await primarySeen(page)).visible,
+      (await primarySeen(page)).label.startsWith('Revise') &&
+      (await page.locator('.kit-primary').isHidden()),
     JSON.stringify(exits),
   );
   await page.keyboard.press('Escape');
@@ -2363,7 +2557,9 @@ try {
     return (
       !!door &&
       door.classList.contains('is-new') &&
-      door.title.includes(`v${n} just arrived`)
+      (
+        door.parentElement.querySelector(':scope > .kit-tip')?.textContent ?? ''
+      ).includes(`v${n} just arrived`)
     );
   }, newest);
   await page.click('.gly-versions-open');

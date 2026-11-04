@@ -2,6 +2,16 @@
 
 Newest first. Notes for releases up to 0.10.2 are on the GitHub releases page: https://github.com/subaud-tools/galley/releases
 
+## 0.32.0
+
+- The top-right button never disappears while the round is yours: Approve on a clean document, Revise with its ▾ while drafts or hand edits are pending, and Revise's waiting face (`revising · 12s`) while the agent has the round. Revise & approve in the ▾ is a button of Revise's own shape, under it. The bar under the document keeps the draft count and Discard drafts.
+- At 1080 wide or less the review page shows one thing at a time (tools-common's narrow mode): it opens on the document with both side panels as strips, the left one counting the reviews waiting on you; pressing a strip gives that panel the frame, pressing it again goes back.
+- The left panel's rows say only what their section doesn't: no dot or `waiting on you` under Waiting on you, no `with the agent` under Revising, and `09:52 · 3 rounds` under Approved. Find a review sits on its own line under the collapse arrow, level with the right panel's tabs.
+- Instructions and Chat open with the same shape (a label, the box, its button under it at the right), so switching tabs moves nothing; Chat's label reads WITH THE AGENT. Add instruction sits under the whole-document box.
+- The row with the round track, History and HTML preview stays under the top bar while the document scrolls.
+- The warning that the file changed outside the editor while you were editing has Dismiss, which clears it for every tab and across reloads.
+- Keys go through tools-common's keyboard layer (0.65.0): `?` lists galley's keys, `/` goes to Find a review, and Esc closes the menu, the instruction box, a pinned change in History, then History, before leaving the text box. Hover help is the kit's tip, on hover and keyboard focus.
+
 ## 0.31.0
 
 - galley keeps a list of its reviews in `reviews.json`, in its state folder beside `docs.json`. An approved review stays listed after its tab closes and across a restart of `galley serve`, and opens again read-only: `Approved HH:MM` and Share in the bar, History and Chat's thread to read, and no agent woken or handed it.

@@ -1150,11 +1150,25 @@ func (s *EditServer) clearNoticeKind(kind string) {
 	}
 }
 
-// diskNotice is the sentence for GET /_galley/revise.
-func (s *EditServer) diskNotice() string {
+// diskNotice is the sentence for GET /_galley/revise, and its kind.
+func (s *EditServer) diskNotice() (text, kind string) {
 	s.noticeMu.Lock()
 	defer s.noticeMu.Unlock()
-	return s.notice
+	return s.notice, s.noticeKind
+}
+
+// handleNoticeDismiss is the reviewer's Dismiss on the disk notice. It clears a
+// clash only: that notice says where the other version went, which the
+// reviewer has read. A missing or unreadable file is a problem still happening,
+// and goes once it is fixed. A notice of any other kind, or none, is left as it
+// is and the answer is the same, so a Dismiss racing a new notice changes
+// nothing.
+func (s *EditServer) handleNoticeDismiss(w http.ResponseWriter, r *http.Request) {
+	if !guard(w, r) {
+		return
+	}
+	s.clearNoticeKind(noticeClash)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // ReviseWatch reports whether the reviewer is still waiting on a revision they
@@ -1233,6 +1247,8 @@ func (s *EditServer) Handler() http.Handler {
 	mux.HandleFunc("/_galley/report", s.handleReport)
 	// The reviewer taking the document back mid-window — see handoff.go.
 	mux.HandleFunc("/_galley/handoff/cancel", s.handleHandoffCancel)
+	// The reviewer's Dismiss on a clash notice; see handleNoticeDismiss.
+	mux.HandleFunc("/_galley/notice/dismiss", s.handleNoticeDismiss)
 	mux.HandleFunc("/_galley/wait", s.handleWait)
 	mux.HandleFunc("/_galley/chat", s.handleChat)
 	mux.HandleFunc("/_galley/chat/reply", s.handleChatReply)
@@ -2547,6 +2563,7 @@ func (s *EditServer) writeReviseState(w http.ResponseWriter) {
 	if !st.VerdictAt.IsZero() {
 		verdictAt = st.VerdictAt.UnixMilli()
 	}
+	notice, noticeKind := s.diskNotice()
 	writeJSON(w, ReviseStateView{
 		Running: running,
 		Waiting: waiting,
@@ -2566,13 +2583,14 @@ func (s *EditServer) writeReviseState(w http.ResponseWriter) {
 		// THE HANDOFF LOCK rides this state for the seal's reason: it is the
 		// same "what should I be showing?" the page already asks every poll.
 		// draftError is the one sentence about a save that will not import.
-		Handoff:    s.handoffOpenNow(),
-		DraftError: s.draftError(),
-		DiskNotice: s.diskNotice(),
-		Sealed:     st.Sealed,
-		Verdict:    st.Verdict,
-		VerdictAt:  verdictAt,
-		MovedOn:    s.approvedText != nil,
+		Handoff:        s.handoffOpenNow(),
+		DraftError:     s.draftError(),
+		DiskNotice:     notice,
+		DiskNoticeKind: noticeKind,
+		Sealed:         st.Sealed,
+		Verdict:        st.Verdict,
+		VerdictAt:      verdictAt,
+		MovedOn:        s.approvedText != nil,
 	})
 }
 
@@ -2623,6 +2641,9 @@ type ReviseStateView struct {
 	// the editor while the reviewer was editing, gone from its path, or not
 	// readable. See saveLocked.
 	DiskNotice string `json:"diskNotice"`
+	// DiskNoticeKind is which notice it is (clash, missing, unreadable,
+	// page-missing; empty with none). The page offers Dismiss on a clash only.
+	DiskNoticeKind string `json:"diskNoticeKind"`
 	// Sealed, Verdict and VerdictAt are the review's ending. The pending view
 	// is the WORK; the seal is whether there is any left to do.
 	Sealed    bool   `json:"sealed"`

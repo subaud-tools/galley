@@ -957,7 +957,9 @@ const gripsNow = (on = page) =>
         kind: g.dataset.kind,
         face: g.textContent,
         label: g.getAttribute('aria-label'),
-        title: g.title,
+        title:
+          g.parentElement.querySelector(':scope > .kit-tip')?.textContent ??
+          null,
         commented: g.classList.contains('is-commented'),
         opacity: Number(getComputedStyle(g).opacity),
         shown: g.checkVisibility(),

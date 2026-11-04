@@ -134,10 +134,11 @@ export function findReviews(pages: PageView[], words: string): PageView[] {
 const MONTHS = 'Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec'.split(' ');
 
 /** An approved row's line: when (today HH:MM, yesterday, else Mon D) and how
- * many rounds. */
+ * many rounds, after the word approved unless word is false. */
 export function approvedMeta(
   p: Pick<PageView, 'approvedAt' | 'rounds'>,
   now: Date,
+  word = true,
 ): string {
   const at = new Date(p.approvedAt ?? 0);
   const day = (d: Date) =>
@@ -150,5 +151,28 @@ export function approvedMeta(
       : days === 1
         ? 'yesterday'
         : `${MONTHS[at.getMonth()]} ${at.getDate()}`;
-  return `approved ${when} · ${p.rounds} round${p.rounds === 1 ? '' : 's'}`;
+  const line = `${when} · ${p.rounds} round${p.rounds === 1 ? '' : 's'}`;
+  return word ? `approved ${line}` : line;
+}
+
+/** What a review's row shows: its meta, the needs-you dot, the wait colour.
+ * Under a state heading (the left panel) it says nothing the heading says; on
+ * the front page, grouped by folder, it keeps its state words and dot. on: the
+ * row in front of the reader. */
+export function rowFace(
+  p: Pick<PageView, 'state' | 'approvedAt' | 'rounds'>,
+  on: boolean,
+  underHeading: boolean,
+  now: Date,
+): { meta: string; attention: boolean; waits: boolean } {
+  const approved = p.state === 'approved' && !!p.approvedAt;
+  return {
+    meta: approved
+      ? approvedMeta(p, now, !underHeading)
+      : underHeading
+        ? ''
+        : stateWords(p.state),
+    attention: p.state === 'you' && !on && !underHeading,
+    waits: p.state === 'agent',
+  };
 }

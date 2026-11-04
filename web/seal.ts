@@ -25,6 +25,7 @@ import { postJSON, routes } from './net.ts';
 import { VERDICT_ENTRUSTED, VERDICT_DISCARDED, clockTime } from './verdict.ts';
 import type { AppShell } from './appshell.ts';
 import type { ReviseWatchView } from './verdict.ts';
+import { tip } from './tip.ts';
 
 const CANCEL_HANDOFF = '✕ cancel';
 
@@ -381,6 +382,7 @@ export const sealMethods = {
     this.handoff = now;
     this.draftError = d.draftError || '';
     this.diskNotice = d.diskNotice || '';
+    this.diskNoticeKind = d.diskNoticeKind || '';
     if (now !== was) {
       if (now) {
         this.editor.setEditable(false);
@@ -398,16 +400,15 @@ export const sealMethods = {
   // `disabled` as well as hidden when no window is open (a button hidden in CSS
   // is still a button to the keyboard).
   makeHandoffCancel(this: AppShell): HTMLButtonElement | null {
-    const anchor = document.getElementById('gly-revise');
-    if (!anchor || !anchor.parentNode) {
+    // The send bar's row, Discard drafts' own.
+    const row = document.getElementById('gly-discard')?.parentNode;
+    if (!row) {
       return null;
     }
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'kit-btn gly-handoff-cancel';
     b.textContent = CANCEL_HANDOFF;
-    b.title =
-      'take the document back from the agent — a parseable draft is kept as its round';
     b.disabled = true;
     b.addEventListener('click', () => {
       if (b.disabled) {
@@ -420,7 +421,11 @@ export const sealMethods = {
     });
     // First in the row: the row is right-aligned, so its coming and going moves
     // no other control.
-    anchor.parentNode.insertBefore(b, anchor.parentNode.firstChild);
+    row.insertBefore(b, row.firstChild);
+    tip(
+      b,
+      'take the document back from the agent — a parseable draft is kept as its round',
+    );
     this.paintCancelOn(b);
     return b;
   },

@@ -326,7 +326,7 @@ func TestOutsideSaveThatPanicsFailsAlone(t *testing.T) {
 	peerA.typeText(t, " typed-into-a")
 	d, _ := f.host.doc(idA)
 	deadline := time.Now().Add(5 * time.Second)
-	for d.server.diskNotice() == "" {
+	for notice, _ := d.server.diskNotice(); notice == ""; notice, _ = d.server.diskNotice() {
 		if time.Now().After(deadline) {
 			t.Fatal("the unreadable save was never reported on its document")
 		}

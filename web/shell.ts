@@ -10,6 +10,7 @@ import {
   buttons,
   card,
   createApi,
+  createKeys,
   createDrafts,
   draftList,
   filterRow,
@@ -19,7 +20,9 @@ import {
   indexRow,
   keepElsewhere,
   live,
+  narrowMode,
   railTabs,
+  remembered,
   sendBar,
   shareMenu,
   stageTrack,
@@ -32,17 +35,22 @@ import {
   type ThreadMessageValue,
 } from '/_kit/kit.js';
 import {
-  approvedMeta,
   docHref,
   findReviews,
   folderItems,
   pageFilters,
   pageIdOf,
+  rowFace,
   stateGroups,
-  stateWords,
   switcherItems,
 } from './pagelist.ts';
-import type { GalleyChrome, TabActions } from './roundbar.ts';
+import {
+  TOP_REVISE,
+  type GalleyChrome,
+  type KeyLayer,
+  type TabActions,
+} from './roundbar.ts';
+import { tip, tipBox, tipText } from './tip.ts';
 import {
   afterFiled,
   strandedValue,
@@ -71,24 +79,21 @@ async function openKept(key: string): Promise<void> {
   go(opened.id);
 }
 
-/** A row for one review, in the index or on the front page. extra: nodes
- * after its button, the index's ⋯. */
+/** A row for one review, in the index or on the front page. underHeading: it
+ * sits under a heading that says where it stands (the index), so it doesn't
+ * say it again. extra: nodes after its button, the index's ⋯. */
 export function reviewRow(
   p: PageView,
   on: boolean,
+  underHeading: boolean,
   extra?: Node[],
 ): HTMLElement {
   return indexRow({
     id: p.id,
     title: p.name,
-    meta:
-      p.state === 'approved' && p.approvedAt
-        ? approvedMeta(p, new Date())
-        : stateWords(p.state),
+    ...rowFace(p, on, underHeading, new Date()),
     on,
     extra,
-    attention: p.state === 'you' && !on,
-    waits: p.state === 'agent',
     select: p.open ? go : () => void openKept(p.key),
   });
 }
@@ -116,16 +121,18 @@ function foldedSections(): string[] {
     .map((g) => g.key)
     .filter(
       (key) =>
-        (localStorage.getItem(foldKey(key)) ??
-          (key === 'approved' ? '1' : '0')) === '1',
+        (remembered.get(foldKey(key)) ?? (key === 'approved' ? '1' : '0')) ===
+        '1',
     );
 }
 
 /** The left panel's body: the search box, the folder filter and the reviews in
- * their sections, each row with its ⋯. Returns the draw for each list. */
+ * their sections, each row with its ⋯. Returns the draw for each list. picked
+ * hears a review chosen from it. */
 function makeIndex(
   body: HTMLElement,
   here: string,
+  picked: () => void,
 ): (pages: PageView[]) => void {
   let held: PageView[] = [];
   let words = '';
@@ -142,6 +149,11 @@ function makeIndex(
     draw(held);
   });
   const list = h('div', { class: 'gly-index' });
+  list.addEventListener('click', (e) => {
+    if (e.target instanceof Element && e.target.closest('.kit-index-main')) {
+      picked();
+    }
+  });
   body.replaceChildren(search, list);
   const more = (p: PageView): HTMLElement => {
     const b = h(
@@ -203,12 +215,14 @@ function makeIndex(
         groups: stateGroups(shown).map((g) => ({
           key: g.key,
           title: g.title,
-          rows: g.pages.map((p) => reviewRow(p, p.id === here, [more(p)])),
+          rows: g.pages.map((p) =>
+            reviewRow(p, p.id === here, true, [more(p)]),
+          ),
           empty: 'Nothing here.',
           edge: g.key === 'you' && g.pages.length ? 'signal' : undefined,
         })),
         folded: foldedSections(),
-        onFold: (key, on) => localStorage.setItem(foldKey(key), on ? '1' : '0'),
+        onFold: (key, on) => remembered.set(foldKey(key), on ? '1' : '0'),
       }),
     );
   }
@@ -286,11 +300,13 @@ export function connect(o: {
   return b;
 }
 
-/** The kit's send bar, built once with the ids the editor paints it by. Its Send
- * is relabelled Revise and takes its label and its state from the editor: the
- * kit's own would rebuild the buttons on every tick of the counter. It holds the
- * round and nothing else, so the kit's hint goes: the sentence is Revise's title. */
-function makeSendBar(): HTMLElement {
+/** The kit's send bar, built once with the ids the editor paints it by: the
+ * draft count and Discard drafts. Its Send is relabelled Revise and goes to the
+ * top bar, with its ▾, as the top-right button while the round has something to
+ * send (`top`); the editor paints its label and state, since the kit's own would
+ * rebuild the buttons on every tick of the counter. The bar holds the round and
+ * nothing else, so the kit's hint goes: the sentence is Revise's tip. */
+function makeSendBar(): { el: HTMLElement; top: HTMLElement } {
   const el = sendBar({
     count: '',
     sends: 1,
@@ -304,7 +320,10 @@ function makeSendBar(): HTMLElement {
   send.id = 'gly-revise';
   // Revise's ▾, one control with it: Revise & approve, shown while work is
   // pending. verdict.ts paints it and opens its menu.
-  send.after(
+  const top = h(
+    'span',
+    { class: 'gly-top-revise', id: 'gly-top-revise', hidden: true },
+    send,
     h(
       'button',
       {
@@ -319,7 +338,7 @@ function makeSendBar(): HTMLElement {
   );
   el.querySelector('.kit-sendbar-count')!.id = 'gly-drafts';
   el.querySelector('.kit-sendbar-hint')?.remove();
-  return el;
+  return { el, top };
 }
 
 // Below this the index starts folded.
@@ -330,6 +349,7 @@ const TAB_INSTRUCTIONS_DOC = 'instructions-doc';
 const TAB_CHAT = 'chat';
 const DOC_HINT = 'Add an instruction on the whole document…';
 const CHAT_HINT = 'Message the agent…';
+const CHAT_LABEL = 'With the agent';
 const CHAT_SAYS =
   "The agent reads it now and answers here. It doesn't change the document; instructions and Revise do.";
 const REVERT_NOTE =
@@ -541,7 +561,15 @@ function makeTabs(
     name: 'Chat',
     note: { el: chatBox.el, box: chatBox.box, send: sendChat, label: 'Send' },
   });
-  chat.querySelector('.kit-note-line')?.classList.add('gly-chat-note');
+  // Chat opens in Instructions' shape, so switching tabs moves nothing: its
+  // label, then its box at the same height with Send under it at the right,
+  // then the messages. The label says who it is with; the kit's heading goes.
+  chat.querySelector('.kit-thread-name')?.remove();
+  const label = chat.querySelector('.kit-label')!;
+  label.textContent = CHAT_LABEL;
+  const note = chat.querySelector('.kit-note-line')!;
+  note.classList.add('gly-chat-note');
+  label.after(note);
   chat.append(h('p', { class: 'kit-meta gly-chat-hint' }, CHAT_SAYS));
   // The kit draws the thread whole, so the messages are kept in a list of their
   // own in its empty line's place, redrawn as they change: the box keeps its words.
@@ -669,7 +697,13 @@ export function mountShell(verdict: () => void): void {
   // share.ts puts it in.
   const docTools = h('span', { class: 'gly-doc-tools', id: 'gly-doc-tools' });
   const stages = h('div', { class: 'gly-stages' }, docTools);
-  const drawIndex = cols.leftBody ? makeIndex(cols.leftBody, id) : () => {};
+  // At 1080 wide or less one thing at a time: the document, or a panel in its
+  // place with the other a strip. A review picked from the index goes back to it.
+  const narrow = narrowMode({ root: app, left: cols.left, right: cols.right });
+  window.addEventListener('pagehide', () => narrow.stop(), { once: true });
+  const drawIndex = cols.leftBody
+    ? makeIndex(cols.leftBody, id, () => narrow.show(null))
+    : () => {};
   const b: BarHandle = connect({
     page: id,
     status: name,
@@ -679,6 +713,7 @@ export function mountShell(verdict: () => void): void {
     refused: () => {},
     draw(pages: PageView[]) {
       drawIndex(pages);
+      narrow.setCount('left', pages.filter((p) => p.state === 'you').length);
       // A page's file under review is its content.md: the list's name is the
       // one it was opened by.
       const here = pages.find((p) => p.id === id);
@@ -691,7 +726,11 @@ export function mountShell(verdict: () => void): void {
   editorCard.querySelector('.kit-card-head')?.replaceChildren(crumb);
   editorCard.classList.add('gly-editor-card');
   editorCard.querySelector('.kit-card-body')?.replaceChildren(main);
-  cols.centre.append(stages, editorCard, makeSendBar());
+  const send = makeSendBar();
+  cols.centre.append(stages, editorCard, send.el);
+  // Revise takes the kit primary's place, in the same box (editor.css).
+  const primary = b.el.querySelector('.kit-primary');
+  primary?.before(send.top);
   const tabs = makeTabs(cols);
   app.append(b.el, cols.left!, cols.centre, cols.right!);
   // The editor's one readout is the bar's status.
@@ -702,10 +741,32 @@ export function mountShell(verdict: () => void): void {
     status.setAttribute('aria-live', 'polite');
   }
   let drawn = '';
+  // / is Find a review: the left panel comes out first when it is a strip.
+  const findReview = (): void => {
+    const find = cols.leftBody?.querySelector<HTMLInputElement>('.gly-find');
+    if (!find) {
+      return;
+    }
+    if (app.classList.contains('kit-narrow')) {
+      narrow.show('left');
+    } else if (cols.left?.classList.contains('kit-collapsed')) {
+      cols.left.querySelector<HTMLElement>('.kit-col-toggle')?.click();
+    }
+    find.focus();
+  };
   const chrome: GalleyChrome = {
     ...tabs,
+    mountKeys(layer: KeyLayer) {
+      const keys = createKeys({ esc: layer.esc, search: findReview });
+      for (const key of layer.keys) {
+        keys.register(key);
+      }
+    },
     paintPrimary(label) {
-      b.setPrimary(label ? { label, run: verdict } : null);
+      const revise = label === TOP_REVISE;
+      b.setPrimary(label && !revise ? { label, run: verdict } : null);
+      send.top.hidden = !revise;
+      b.el.classList.toggle('gly-revise-on-top', revise);
     },
     paintStages(values, open, door) {
       const key = JSON.stringify(values);
@@ -718,9 +779,14 @@ export function mountShell(verdict: () => void): void {
           stages: values,
           open,
           label: 'Rounds',
-          after: [door, docTools],
+          // History's door sits in its tip box (web/tip.ts).
+          after: [door && tipBox(door), docTools],
         }),
       );
+      // A door placed for the first time gets the tip it was given.
+      if (door) {
+        tip(door, tipText(door));
+      }
     },
   };
   window.galleyChrome = chrome;
