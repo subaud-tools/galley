@@ -25,7 +25,7 @@ import { postJSON, routes } from './net.ts';
 import { VERDICT_ENTRUSTED, VERDICT_DISCARDED, clockTime } from './verdict.ts';
 import type { AppShell } from './appshell.ts';
 import type { ReviseWatchView } from './verdict.ts';
-import { tip, tipBox } from './tip.ts';
+import { tip } from './tip.ts';
 
 const CANCEL_HANDOFF = '✕ cancel';
 
@@ -399,8 +399,8 @@ export const sealMethods = {
   // `disabled` as well as hidden when no window is open (a button hidden in CSS
   // is still a button to the keyboard).
   makeHandoffCancel(this: AppShell): HTMLButtonElement | null {
-    const anchor = document.getElementById('gly-revise');
-    const row = anchor ? tipBox(anchor).parentNode : null;
+    // The send bar's row, Discard drafts' own.
+    const row = document.getElementById('gly-discard')?.parentNode;
     if (!row) {
       return null;
     }

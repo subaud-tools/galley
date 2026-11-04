@@ -337,7 +337,11 @@ const page = await browser.newPage({ viewport: { width: 1400, height: 1000 } });
 page.on('pageerror', (e) => console.log(`      [page error] ${e.message}`));
 await page.goto(url, { waitUntil: 'networkidle' });
 await page.waitForSelector('.ProseMirror', { timeout: 15000 });
-await page.waitForSelector('#gly-revise', { timeout: 15000 });
+// Revise is built hidden: on a clean document the top button is Approve.
+await page.waitForSelector('#gly-revise', {
+  state: 'attached',
+  timeout: 15000,
+});
 
 // What the reviewer sees of the last Revise: the pill's state, the line under
 // it, and whether Revise can be pressed.
@@ -438,13 +442,21 @@ async function file(quote, ask) {
   );
 }
 
-// pressRevise is Revise on the send bar, the reviewer's press on the page.
+// pressRevise is Revise, the top button, the reviewer's press on the page.
 async function pressRevise() {
   await until('the agent to be blocked on the wait', 20000, readerAttached);
   await until('Revise to be pressable', 20000, async () => {
     const s = await pageState();
     return s.disabled === false;
   });
+  check(
+    'Revise is pressed as the top button, not on the send bar',
+    await page.evaluate(
+      () =>
+        !!document.querySelector('.kit-bar #gly-revise') &&
+        !document.querySelector('.kit-sendbar #gly-revise'),
+    ),
+  );
   await page.click('#gly-revise');
 }
 
@@ -452,7 +464,7 @@ async function pressRevise() {
 // the reviewer takes it.
 async function pressTrust() {
   await until('the agent to be blocked on the wait', 20000, readerAttached);
-  await page.waitForSelector('#gly-revise-more', {
+  await page.waitForSelector('.kit-bar #gly-revise-more', {
     state: 'visible',
     timeout: 10000,
   });

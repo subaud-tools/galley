@@ -43,7 +43,7 @@ import {
   stateGroups,
   switcherItems,
 } from './pagelist.ts';
-import type { GalleyChrome, TabActions } from './roundbar.ts';
+import { TOP_REVISE, type GalleyChrome, type TabActions } from './roundbar.ts';
 import { tip, tipBox, tipText } from './tip.ts';
 import {
   afterFiled,
@@ -294,11 +294,13 @@ export function connect(o: {
   return b;
 }
 
-/** The kit's send bar, built once with the ids the editor paints it by. Its Send
- * is relabelled Revise and takes its label and its state from the editor: the
- * kit's own would rebuild the buttons on every tick of the counter. It holds the
- * round and nothing else, so the kit's hint goes: the sentence is Revise's title. */
-function makeSendBar(): HTMLElement {
+/** The kit's send bar, built once with the ids the editor paints it by: the
+ * draft count and Discard drafts. Its Send is relabelled Revise and goes to the
+ * top bar, with its ▾, as the top-right button while the round has something to
+ * send (`top`); the editor paints its label and state, since the kit's own would
+ * rebuild the buttons on every tick of the counter. The bar holds the round and
+ * nothing else, so the kit's hint goes: the sentence is Revise's tip. */
+function makeSendBar(): { el: HTMLElement; top: HTMLElement } {
   const el = sendBar({
     count: '',
     sends: 1,
@@ -312,7 +314,10 @@ function makeSendBar(): HTMLElement {
   send.id = 'gly-revise';
   // Revise's ▾, one control with it: Revise & approve, shown while work is
   // pending. verdict.ts paints it and opens its menu.
-  send.after(
+  const top = h(
+    'span',
+    { class: 'gly-top-revise', id: 'gly-top-revise', hidden: true },
+    send,
     h(
       'button',
       {
@@ -327,7 +332,7 @@ function makeSendBar(): HTMLElement {
   );
   el.querySelector('.kit-sendbar-count')!.id = 'gly-drafts';
   el.querySelector('.kit-sendbar-hint')?.remove();
-  return el;
+  return { el, top };
 }
 
 // Below this the index starts folded.
@@ -706,7 +711,11 @@ export function mountShell(verdict: () => void): void {
   editorCard.querySelector('.kit-card-head')?.replaceChildren(crumb);
   editorCard.classList.add('gly-editor-card');
   editorCard.querySelector('.kit-card-body')?.replaceChildren(main);
-  cols.centre.append(stages, editorCard, makeSendBar());
+  const send = makeSendBar();
+  cols.centre.append(stages, editorCard, send.el);
+  // Revise takes the kit primary's place, in the same box (editor.css).
+  const primary = b.el.querySelector('.kit-primary');
+  primary?.before(send.top);
   const tabs = makeTabs(cols);
   app.append(b.el, cols.left!, cols.centre, cols.right!);
   // The editor's one readout is the bar's status.
@@ -720,7 +729,10 @@ export function mountShell(verdict: () => void): void {
   const chrome: GalleyChrome = {
     ...tabs,
     paintPrimary(label) {
-      b.setPrimary(label ? { label, run: verdict } : null);
+      const revise = label === TOP_REVISE;
+      b.setPrimary(label && !revise ? { label, run: verdict } : null);
+      send.top.hidden = !revise;
+      b.el.classList.toggle('gly-revise-on-top', revise);
     },
     paintStages(values, open, door) {
       const key = JSON.stringify(values);

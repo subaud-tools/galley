@@ -10,9 +10,10 @@
 //
 // THE BOTTOM HALF, `verdictMethods`, IS A MIXIN — an object of methods
 // `Object.assign`ed onto `App.prototype` in entry.ts, not a class of its own
-// — and it is Revise on the kit's send bar (`#gly-revise`) with its ▾
-// (Revise & approve, while work is pending), Discard drafts, the bar's
-// primary, the poll response that drives all three
+// — and it is Revise (`#gly-revise`, the top-right button while the round has
+// something to send) with its ▾ (Revise & approve, while work is pending),
+// Discard drafts on the send bar, the bar's primary, the poll response that
+// drives all three
 // (readRevise — which also drives History's and the seal's own readers, see
 // its own comment). One file owns one subject — the
 // verdict, what it is and the controls that set it — rather than splitting
@@ -67,7 +68,7 @@ export interface ReviseWatchView extends ReviseStateView {
 }
 
 /** What the verdict is while markup is pending. `verdict` holds it; the top
- * bar then offers no Approve, and Revise's ▾ holds Revise & approve. */
+ * button is then Revise, and its ▾ holds Revise & approve. */
 export const REVISE_IDLE = 'Revise';
 
 /** The line under a held Revise's pill: the harness is holding the wake
@@ -168,9 +169,9 @@ type VerdictBody = {
 };
 
 export const verdictMethods = {
-  // --- Revise, on the kit's send bar, and how long it has been (R10) ---
+  // --- Revise, the top button, and how long it has been (R10) ---
   //
-  // shell.ts builds the bar and gives its buttons ids. Null in a shell without it.
+  // shell.ts builds it and gives its buttons ids. Null in a shell without it.
   makeRevise(this: AppShell): HTMLButtonElement | null {
     const el = document.getElementById('gly-revise');
     if (!(el instanceof HTMLButtonElement)) {
@@ -321,9 +322,9 @@ export const verdictMethods = {
   },
 
   // askRevise is the PRIMARY's press, and it only decides. In History it is the
-  // way out. On a clean document it approves. With work pending the primary
-  // has no words (Revise's ▾ holds Revise & approve), so a press can never seal
-  // over unsent work. Words left in the whole-document box are work too: a
+  // way out. On a clean document it approves. With work pending the top button
+  // is Revise itself, not this primary (Revise's ▾ holds Revise & approve), so
+  // a press can never seal over unsent work. Words left in the whole-document box are work too: a
   // press files them as an instruction rather than approving over them. The
   // posting, with its status lines and its 409 grammar, lives in postVerdict.
   askRevise(this: AppShell) {
@@ -371,7 +372,7 @@ export const verdictMethods = {
   },
 
   sendVerdict(this: AppShell, body: VerdictBody, approving: boolean) {
-    // Genuinely nullable: a shell without the send bar has no `#gly-revise`.
+    // Genuinely nullable: a shell without the kit has no `#gly-revise`.
     const revise = this.revise;
     if (!revise) {
       return;

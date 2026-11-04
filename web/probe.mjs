@@ -7230,8 +7230,8 @@ function bindsContentField(src) {
         !/\.gly-versions-open\.is-new\{[^}]*(padding|margin|width)/.test(css),
     );
     check(
-      'Revise and Discard keep their box as their labels change',
-      /#gly-revise\{[^}]*min-width/.test(css) &&
+      'Revise (in the top bar) and Discard keep their box as their labels change',
+      /\.gly-top-revise\{[^}]*width:calc\(16ch/.test(css) &&
         /#gly-discard\{[^}]*min-width/.test(css),
     );
   }
@@ -7845,9 +7845,9 @@ function bindsContentField(src) {
     });
   check('a review with the reader offers Approve', words({}) === 'Approve');
   check(
-    'drafts or hand edits pending offer no Approve, and History still the way back',
-    words({ drafts: 1 }) === null &&
-      words({ edits: 1 }) === null &&
+    'drafts or hand edits pending turn the top button to Revise, and History still the way back',
+    words({ drafts: 1 }) === 'Revise' &&
+      words({ edits: 1 }) === 'Revise' &&
       words({ drafts: 1, history: true }) === '← back to draft',
   );
   const more = (o) =>
@@ -7874,9 +7874,13 @@ function bindsContentField(src) {
   );
   check('an approved review offers nothing', words({ sealed: true }) === null);
   check(
-    'with the agent offers nothing',
-    words({ waiting: true, message: { state: 'working' } }) === null &&
-      words({ handoff: true }) === null,
+    'with the agent the top button is Revise, with its own face (the counter, send again)',
+    words({ waiting: true, message: { state: 'working' } }) === 'Revise' &&
+      words({ handoff: true }) === 'Revise',
+  );
+  check(
+    'an approved review offers nothing, drafts or not',
+    words({ sealed: true, drafts: 1 }) === null,
   );
   check(
     'after no reply Approve is back',
@@ -7884,8 +7888,8 @@ function bindsContentField(src) {
   );
 
   check(
-    'an open handoff keeps Approve off even after no reply',
-    words({ handoff: true, message: { state: 'no_reply' } }) === null,
+    'an open handoff keeps Approve off even after no reply: the top is Revise, to send again',
+    words({ handoff: true, message: { state: 'no_reply' } }) === 'Revise',
   );
   check(
     'and nobody is working on it: not live',

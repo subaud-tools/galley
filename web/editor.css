@@ -2483,30 +2483,37 @@ body.gly-history-mode .kit-sendbar { display: none; }
   cursor: pointer;
   white-space: nowrap;
 }
-/* Labels that change on a press or a tick keep their box. */
-#gly-revise { min-width: 22ch; }
-/* Revise's ▾ is one control with it: no gap between them (the kit's 8px, taken
-   back), the shared edge squared, a hairline of the button's ink between. */
+/* Revise is the top-right button while the round has something to send: it
+   takes the kit primary's box (below) and its face, its ▾ one control with it,
+   no gap between them, the shared edge squared, a hairline of the button's ink
+   between. Revise grows to fill what the ▾ leaves, so the box never changes. */
+.kit-bar.gly-revise-on-top .kit-primary[hidden] { display: none; }
+.gly-top-revise { display: inline-flex; flex: none; width: calc(16ch + 52px); font: 700 13px var(--kit-mono); }
+.gly-top-revise[hidden] { display: none; }
+.gly-top-revise .kit-btn {
+  font: 700 13px var(--kit-mono);
+  border: 0;
+  padding-block: 7px;
+  white-space: nowrap;
+}
+.gly-top-revise #gly-revise { flex: 1; min-width: 0; padding-inline: 0; text-align: center; }
 /* Revise sits in its tip box (web/tip.ts), the ▾ beside the box. */
 .gly-tip-at:has(~ #gly-revise-more:not([hidden])) > #gly-revise { border-top-right-radius: 0; border-bottom-right-radius: 0; }
-.kit-sendbar .gly-revise-more {
-  margin-left: -8px;
+.gly-top-revise .gly-revise-more {
+  flex: none;
   padding-inline: 8px;
   border-top-left-radius: 0;
   border-bottom-left-radius: 0;
-  border-left-color: color-mix(in srgb, var(--kit-signal-ink) 35%, var(--kit-signal));
+  border-left: 1px solid color-mix(in srgb, var(--kit-signal-ink) 35%, var(--kit-signal));
 }
 #gly-discard { min-width: 21ch; }
 /* And give the box up before the row runs off the bar: the status shortens first,
    then the room kept for a longer label goes. */
 @container (max-width: 800px) {
   #gly-discard { min-width: 0; }
-  #gly-revise { min-width: 16ch; }
   .kit-sendbar .kit-btns { gap: 6px; }
-  .kit-sendbar .gly-revise-more { margin-left: -6px; }
 }
 @container (max-width: 560px) {
-  #gly-revise { min-width: 0; }
   .kit-sendbar .kit-btn { padding-inline: 6px; }
   .kit-sendbar .gly-notice { gap: 4px; }
   .gly-notice-read { padding-inline: 6px; }
@@ -2568,12 +2575,13 @@ body.gly-sealed .gly-chat-hint { display: none; }
 .gly-tab > .kit-label:not(:first-child) { margin-top: 16px; }
 
 /* THE TOP BUTTON KEEPS ITS PLACE. Its words change on its own press (Approve,
-   ← back to draft) and it has none while drafts are pending, the agent revises
-   or the review is approved; a box that changed with them would slide the bar
-   (the rule web/history.ts states for History's door). One width, fitting the
-   longest label: `← back to draft` is 15 characters of the 13px mono, given
-   16ch for the arrow's glyph, plus the kit's 26px padding each side. With no
-   words the box stays, unseen. */
+   ← back to draft), it gives way to Revise (above) while the round has
+   something to send, and it has none on an approved review; a box that changed
+   with them would slide the bar (the rule web/history.ts states for History's
+   door). One width, fitting the longest label: `← back to draft` is 15
+   characters of the 13px mono, given 16ch for the arrow's glyph, plus the kit's
+   26px padding each side; Revise's longest, `Revise · send again`, is 19ch with
+   no ▾. With no words the box stays, unseen. */
 .kit-bar .kit-primary { width: calc(16ch + 52px); padding-inline: 0; text-align: center; white-space: nowrap; }
 .kit-bar .kit-primary[hidden] { display: inline-block; visibility: hidden; }
 

@@ -276,8 +276,8 @@ async function reviseReady(page) {
   );
 }
 
-// With work pending the top bar offers no Approve: Revise's ▾ holds Revise &
-// approve, in the kit's menu.
+// With work pending the top button is Revise, and its ▾ holds Revise & approve,
+// in the kit's menu.
 const REVISE_MORE = '#gly-revise-more';
 const MORE_MENU = '.kit-share-menu:not([hidden])';
 async function openReviseMore(page) {
@@ -287,17 +287,24 @@ async function openReviseMore(page) {
   await page.waitForSelector(MORE_MENU, { state: 'visible', timeout: 5000 });
 }
 
-// Every child of the top bar, where it sits and how wide it is.
+// Every child of the top bar that takes room, where it sits and how wide it is.
+// The top-right slot is one seat, `top`: the kit primary (Approve, ← back to
+// draft), or Revise with its ▾ in its place.
 function topBarSeats(page) {
   return page.evaluate(() =>
-    [...document.querySelector('.kit-bar').children].map((el) => {
-      // A control in its tip box (web/tip.ts) is read as the control.
-      const at = el.classList.contains('gly-tip-at')
-        ? el.firstElementChild
-        : el;
-      const r = at.getBoundingClientRect();
-      return { el: at.className, left: r.left, width: r.width };
-    }),
+    [...document.querySelector('.kit-bar').children]
+      .filter((el) => getComputedStyle(el).display !== 'none')
+      .map((el) => {
+        // A control in its tip box (web/tip.ts) is read as the control.
+        const at = el.classList.contains('gly-tip-at')
+          ? el.firstElementChild
+          : el;
+        const r = at.getBoundingClientRect();
+        const top =
+          at.classList.contains('kit-primary') ||
+          at.classList.contains('gly-top-revise');
+        return { el: top ? 'top' : at.className, left: r.left, width: r.width };
+      }),
   );
 }
 
@@ -317,14 +324,21 @@ function sameSeats(a, b) {
   );
 }
 
-// The top button as a reader sees it: shown, its words, and its box.
+// The top button as a reader sees it: shown, its words, its ▾, and its box.
+// It is the kit primary, or Revise in its place.
 function primarySeen(page) {
   return page.evaluate(() => {
-    const b = document.querySelector('.kit-primary');
+    const top = document.querySelector('#gly-top-revise');
+    const revise = !!top && getComputedStyle(top).display !== 'none';
+    const b = revise ? top : document.querySelector('.kit-primary');
     const r = b.getBoundingClientRect();
+    const more = document.querySelector('#gly-revise-more');
     return {
       visible: getComputedStyle(b).visibility !== 'hidden' && r.width > 0,
-      label: b.innerText.trim(),
+      label: revise
+        ? document.querySelector('#gly-revise').innerText.trim()
+        : b.innerText.trim(),
+      more: revise && !!more && !more.hidden,
       width: r.width,
     };
   });
@@ -546,8 +560,8 @@ try {
   // --- THE TOP BAR HOLDS STILL ---
   //
   // The top button changes its words on its own press (Approve, ← back to
-  // draft) and has nothing to say while drafts are pending; none of it may
-  // slide its neighbours. History in and out, at both window sizes.
+  // draft) and is Revise while drafts are pending; none of it may slide its
+  // neighbours. History in and out, at both window sizes.
   for (const [width, height] of WINDOW_SIZES) {
     await page.setViewportSize({ width, height });
     await page.waitForTimeout(200);
@@ -587,16 +601,33 @@ try {
   );
   await addRangeInstruction(page, 'A draft for the split button.');
   await page.waitForSelector(REVISE_MORE, { state: 'visible', timeout: 10000 });
-  await page.waitForFunction(() => {
-    const b = document.querySelector('.kit-primary');
-    return getComputedStyle(b).visibility === 'hidden' || !b.innerText.trim();
-  });
+  await page
+    .waitForFunction(
+      () => document.querySelector('.kit-bar #gly-revise')?.offsetWidth > 0,
+      null,
+      { timeout: 10000 },
+    )
+    .catch(() => {});
   const draftPrimary = await primarySeen(page);
   check(
-    'with a draft pending the top button says nothing and keeps its box',
-    !draftPrimary.visible &&
+    'with a draft pending the top button turns from Approve to Revise with its ▾, in the same box',
+    draftPrimary.visible &&
+      draftPrimary.label.startsWith('Revise') &&
+      draftPrimary.more &&
       Math.abs(draftPrimary.width - idlePrimary.width) <= 0.5,
     JSON.stringify({ draftPrimary, idlePrimary }),
+  );
+  check(
+    'and the send bar keeps the draft count and Discard drafts, with no Revise and no ▾',
+    await page.evaluate(() => {
+      const bar = document.querySelector('.kit-sendbar');
+      return (
+        !bar.querySelector('#gly-revise') &&
+        !bar.querySelector('.gly-revise-more') &&
+        /1 draft/.test(bar.querySelector('#gly-drafts').innerText) &&
+        !!bar.querySelector('#gly-discard')
+      );
+    }),
   );
   check(
     'and the top bar has not moved',
@@ -663,7 +694,8 @@ try {
   );
   check(
     'with the draft gone the top button reads Approve again, and the ▾ goes',
-    (await primarySeen(page)).visible &&
+    (await primarySeen(page)).label === 'Approve' &&
+      (await primarySeen(page)).visible &&
       (await page.locator(REVISE_MORE).isHidden()),
   );
 
@@ -2014,14 +2046,15 @@ try {
   // check after the send is that those words were not sent and are still there.
   await tabPress(page, 'Instructions');
   await page.fill('#gly-doc-box', 'an unsent draft');
-  // WITH WORK PENDING NOTHING SEALS OVER IT: the top bar offers no Approve, and
-  // Revise's ▾ holds Revise & approve beside plain Revise.
+  // WITH WORK PENDING NOTHING SEALS OVER IT: the top button is Revise, not
+  // Approve, and its ▾ holds Revise & approve beside plain Revise.
   await openReviseMore(page);
   const exits = await page.locator(`${MORE_MENU} button`).allInnerTexts();
   check(
-    'with work pending the ▾ offers Revise & approve, and the top bar no Approve',
+    'with work pending the ▾ offers Revise & approve, and the top button is Revise, not Approve',
     JSON.stringify(exits) === JSON.stringify(['Revise & approve']) &&
-      !(await primarySeen(page)).visible,
+      (await primarySeen(page)).label.startsWith('Revise') &&
+      (await page.locator('.kit-primary').isHidden()),
     JSON.stringify(exits),
   );
   await page.keyboard.press('Escape');
