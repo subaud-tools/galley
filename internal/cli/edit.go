@@ -62,8 +62,6 @@ type editFlags struct {
 	port     *int
 	noOpen   *bool
 	onRevise *string
-	onSettle *string
-	quiet    *time.Duration
 	root     *string
 	owner    *string
 }
@@ -75,9 +73,6 @@ func newEditFlags() (*flag.FlagSet, *editFlags) {
 		noOpen: fs.Bool("no-open", false, "do not open a browser"),
 		onRevise: fs.String("on-revise", "", "shell command that hands the round's instructions to an agent, "+
 			"run on demand (POST /_galley/revise, or the editor's Revise button)"),
-		onSettle: fs.String("on-settle", "", "shell command to run once the document settles in live mode "+
-			"(e.g. 'muster nudge galley')"),
-		quiet: fs.Duration("quiet", 8*time.Second, "how long the document must sit unchanged before --on-settle fires"),
 		root: fs.String("root", "", "site root to serve preview assets from, for an HTML page (default: the page's own "+
 			"directory). Set it to the site root so a subpage's ../shared assets resolve in the preview "+
 			"as they do when the whole site is served from that root."),
@@ -132,7 +127,7 @@ func runEdit(args []string, out, errw io.Writer) error {
 	if _, err := client.Do(ctx, http.MethodPost, "/api/docs", serve.OpenRequest{
 		Path: abs,
 		DocOptions: serve.DocOptions{
-			Owner: *v.owner, OnRevise: *v.onRevise, OnSettle: *v.onSettle, Quiet: *v.quiet, Root: *v.root, Dir: dir,
+			Owner: *v.owner, OnRevise: *v.onRevise, Root: *v.root, Dir: dir,
 		},
 	}, &doc); err != nil {
 		// The server's own sentence, without its status.
@@ -146,7 +141,7 @@ func runEdit(args []string, out, errw io.Writer) error {
 	_, _ = fmt.Fprintf(out, "document  %s\n", doc.Page)
 	_, _ = fmt.Fprintf(out, "room      %s\n", doc.Room)
 	_, _ = fmt.Fprintf(out, "serving   %s\n", doc.URL)
-	for _, line := range editStartupLines(filepath.Base(doc.Page), *v.onRevise, *v.onSettle, *v.quiet) {
+	for _, line := range editStartupLines(filepath.Base(doc.Page), *v.onRevise) {
 		_, _ = fmt.Fprintln(out, line)
 	}
 	_, _ = fmt.Fprintln(out, "\nEdits sync as you type. Ctrl-C to stop.")
@@ -212,11 +207,10 @@ func holdDocument(ctx context.Context, client *pageserve.Client, id, owner strin
 }
 
 // editStartupLines reports how this session is configured to answer a Revise
-// press: pull (`galley wait`), then the two push variants layered on top of
-// it. Pull comes first and is printed unconditionally, because it is the
-// primary loop — the session already in the room blocks on it, no flag
-// required — and push (--on-revise, --on-settle) is the cold-start and
-// live-notify fallback for when nobody is. Presenting push first would read
+// press: pull (`galley wait`), then the push variant layered on top of it.
+// Pull comes first and is printed unconditionally, because it is the primary
+// loop — the session already in the room blocks on it, no flag required — and
+// push (--on-revise) is the cold-start fallback for when nobody is. Presenting push first would read
 // as though the two were equals; they are not.
 //
 // Deliberately silent about who is actually waiting right now. At the point
@@ -230,52 +224,24 @@ func holdDocument(ctx context.Context, client *pageserve.Client, id, owner strin
 //
 // KEPT DELIBERATELY SHORT. This prints on every single `galley edit`, unlike
 // `document`/`room`/`serving` above it whose length is the path's
-// fault, not the label's. An early draft spelled out the full reasoning here
-// — why a waiter is dynamic, why a settle only wakes one in ● live — and
-// that reasoning is real, but it belongs somewhere a reader goes once
-// (`galley edit -h`, and this doc comment), not somewhere it is read and
-// re-read on every startup. Each line keeps exactly one fact: what is
-// configured, that a waiter is reached either way, and — for on-settle — the
-// mode asymmetry, since that is the one a reader cannot guess.
-func editStartupLines(mdBase, onRevise, onSettle string, quiet time.Duration) []string {
+// fault, not the label's. Each line keeps exactly one fact: what is
+// configured, and that a waiter is reached either way.
+func editStartupLines(mdBase, onRevise string) []string {
 	const label = "%-9s  %s"
 	lines := []string{
 		fmt.Sprintf(label, "pull", fmt.Sprintf(
-			"`galley wait %s` — waits for Revise (● live: also a settle)", mdBase)),
+			"`galley wait %s` — waits for Revise and chat", mdBase)),
 	}
 
 	if onRevise != "" {
 		lines = append(lines, fmt.Sprintf(label, "on-revise",
 			fmt.Sprintf("%s  (on demand only — the editor's Revise button, or `galley revise`)", onRevise)))
 	} else {
-		// The half that used to go unsaid: a missing --on-revise announced
-		// nothing, while a missing --on-settle got a line below. One dead hook
-		// silent and the other narrated cost a live diagnosis, twice — this
-		// says the same thing --on-settle's unset branch always has, at the
-		// same length. The full "refuses only if neither is listening" case
+		// A dead hook said out loud: silence is indistinguishable from a
+		// broken agent. The full "refuses only if neither is listening" case
 		// is in `galley edit -h`, not repeated here.
 		lines = append(lines, fmt.Sprintf(label, "on-revise",
 			"unset — a Revise press still reaches `galley wait "+mdBase+"` if blocked"))
-	}
-
-	// Said out loud in both directions. Live mode with no command configured
-	// is silence, and silence is indistinguishable from a broken agent — so
-	// the reviewer learns here, at startup, rather than by flipping the toggle
-	// and waiting for nothing to happen.
-	if onSettle != "" {
-		lines = append(lines, fmt.Sprintf(label, "on-settle",
-			fmt.Sprintf("%s  (after %s of quiet, in ● live mode only)", onSettle, quiet)))
-	} else {
-		// NOT "still wakes" unqualified — that claim went stale the moment
-		// this handled --on-revise being optional. A Revise press wakes a
-		// `galley wait` session in EITHER mode; a settle only wakes one once
-		// the session has been switched to ● live, whether or not --on-settle
-		// itself is set (Notifier.SetWake is the pull half of the same event
-		// Command pushes). Collapsing that into one unconditional "wakes"
-		// would be wrong within a minute of `on ask`, the default, staying
-		// the default — so the mode asymmetry stays even in the short form.
-		lines = append(lines, fmt.Sprintf(label, "on-settle",
-			"unset — `galley wait "+mdBase+"` wakes on Revise always, on settle only in ● live"))
 	}
 
 	return lines

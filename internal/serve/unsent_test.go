@@ -288,14 +288,13 @@ func TestReviseRecordsTheRoundBeforeEmptyingTheUnsentRound(t *testing.T) {
 }
 
 // The rail once filtered a retracted instruction and the wait payload and
-// the notify fingerprint did not, so the agent was handed work the reviewer
-// had already taken back.
+// its fingerprint did not, so the agent was handed work the reviewer had
+// already taken back.
 //
-// AND THE FINGERPRINT MAY NOT MOVE ACROSS THE PROJECTION. SeedNotify (after an
-// agent's write) and handleWait take it in the window between a write that
-// removes a comment's last mark and the next projection. If it still counted
-// the comment there while the projection's did not, the notifier would see a
-// change nobody made and, in live mode, cut a round for it.
+// AND THE FINGERPRINT MAY NOT MOVE ACROSS THE PROJECTION. handleWait takes it
+// in the window between a write that removes a comment's last mark and the next
+// projection. If it still counted the comment there while the projection's did
+// not, a waiter's cursor would read a change nobody made.
 func TestTheWaitPayloadAndTheRailAgree(t *testing.T) {
 	s := newEditServer(t, t.TempDir(), "d.md", "# T\n\nCognito mints every token.\n\nSecond para here.\n")
 	t.Cleanup(func() { _ = s.Close() })
@@ -476,7 +475,7 @@ func TestACommentFiledWhileARoundIsSentKeepsTheSentRoundInPendingJSON(t *testing
 	}
 }
 
-// Two sends can overlap (a Revise press and a live settle), so one send
+// Two sends can overlap, so one send
 // finishing must not release another's in-flight round.
 func TestOneSendDoesNotReleaseAnotherSendsRound(t *testing.T) {
 	s := newEditServer(t, t.TempDir(), "d.md", unsentDoc)

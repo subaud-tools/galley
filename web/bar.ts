@@ -1,29 +1,25 @@
-// web/bar.ts owns the readout on the kit's bar, which surfaces are on screen at
-// this width, and the mode toggle beside History.
+// web/bar.ts owns the readout on the kit's bar and which surfaces are on screen
+// at this width.
 //
 // It is a MIXIN — an object of methods `Object.assign`ed onto `App.prototype`
 // in entry.ts — not a class of its own, so every method here still reads and
 // writes `this` on the live App instance exactly as it did before the move
-// (`this.status`, `this.bar`, `this.modeUI`, and so on). `this`
+// (`this.status`, `this.bar`, and so on). `this`
 // IS TYPED AGAINST `AppShell` (web/appshell.ts) — see that file's own header
 // for the this-typing decision.
 //
 // THIS IS WHAT REMAINS once History (web/history.ts), Revise (web/verdict.ts) and
 // the seal have their own homes, and the page's bar is the kit's (web/shell.ts):
-// the status line, the surfaces decision, and the mode switch.
+// the status line and the surfaces decision.
 // paintSurfaces is the second-most behaviour-dense method in the file after
 // paintAnchors — it is the ONLY place any of the three surfaces is shown or
 // hidden, so every other piece of code sets state and calls it rather than
 // touching `hidden` itself.
 //
-// The mode vocabulary — MODE_ASK, MODE_LIVE, modeLabel, modeOn, modeTitle,
-// nextMode — and the readout's phase vocabulary — PHASE_DRAFT, PHASE_AGENT,
-// PHASE_SETTLED, roundPhrase, HANDOFF_NOTE_HELD — move here with the methods
-// that are their only callers. entry.ts's constructor still reads MODE_ASK
-// to seed `this.mode`, and imports it back from here — the same shape as
-// every other mixin wiring, not a cycle: bar.ts never imports from entry.ts.
+// The readout's phase vocabulary — PHASE_DRAFT, PHASE_AGENT, PHASE_SETTLED,
+// roundPhrase, HANDOFF_NOTE_HELD — moves here with the methods that are its only
+// callers. bar.ts never imports from entry.ts.
 
-import { getJSON, postJSON, routes } from './net.ts';
 import { agentHolds, roundInHand } from './roundbar.ts';
 import { age } from './suggestions.ts';
 import { roundCards, STAGE_READING } from './versions.ts';
@@ -95,68 +91,6 @@ function paintDiskNotice(text: string) {
  * failure the grammar has no word for and silence reads as a lost save. */
 const HANDOFF_NOTE_HELD =
   'agent is revising — its last save is held (not yet importable)';
-
-// The two modes a session can be in, spelled the same way the Go side spells
-// them (serve.ModeAsk / serve.ModeLive) because they cross the wire verbatim.
-export const MODE_ASK = 'ask';
-export const MODE_LIVE = 'live';
-
-// The narrow type both mode constants share — App.mode's own type, and every
-// function below that takes a mode.
-export type Mode = typeof MODE_ASK | typeof MODE_LIVE;
-
-// The object makeMode builds: the switch itself and the hold button beside
-// it, plus the two stacked labels hold's own box never resizes for. See
-// makeMode's own comment for why the two hold labels share one grid cell.
-export interface ModeUI {
-  toggle: HTMLButtonElement;
-  hold: HTMLButtonElement;
-  holdOff: HTMLElement;
-  holdOn: HTMLElement;
-}
-
-/**
- * modeLabel is the SWITCH'S LABEL, and it takes no argument on purpose.
- *
- * ONE LABEL AND A STATE, not two labels. This used to be a two-state badge
- * reading `on ask` / `● live`: two nouns, neither of which says "this is a
- * control", and one of which reads as a riddle to anyone who has not read the
- * spec. "on ask" was handoff §4's copy and it was the copy that failed — the
- * mode is the one control whose entire job is to tell you which world you are
- * in, and it was not doing it.
- *
- * Nothing is lost by naming only the on state. The mode's whole effect is
- * whether `⏸ hold` is on screen; Revise is visible in both states already, so
- * the thing you would do instead of going live is in front of you either way
- * and the off state needs no name of its own.
- *
- * The label is a constant, and the signature says so — a caller that thinks it
- * varies with the mode has misunderstood the control.
- */
-export function modeLabel(): string {
-  return 'live';
-}
-
-/** modeOn is the switch's position — what `aria-checked` reports. */
-export function modeOn(mode: Mode): boolean {
-  return mode === MODE_LIVE;
-}
-
-/**
- * modeTitle is the hover text, and it carries the VERB, because a switch's
- * label is its state and a state cannot also be an instruction. Two facts,
- * both ways: what is happening now, and what a click does about it.
- */
-export function modeTitle(mode: Mode): string {
-  return mode === MODE_LIVE
-    ? 'the agent is woken whenever the document settles — click to stop'
-    : 'the agent hears nothing until you press Revise — click to go live';
-}
-
-/** nextMode is what clicking the toggle asks the server for. */
-export function nextMode(mode: Mode): Mode {
-  return mode === MODE_LIVE ? MODE_ASK : MODE_LIVE;
-}
 
 export const barMethods = {
   // --- status ---
@@ -330,109 +264,5 @@ export const barMethods = {
     this.status.title =
       'everything you do applies to the document as it happens — ' +
       'your instructions go to the agent as one round when you press Revise';
-  },
-
-  // --- the mode toggle ---
-  //
-  // The toggle says whether the agent is listening at all. Live also earns a
-  // ⏸ hold button beside it (handoff §4) — that one is added where it works,
-  // not here, because a control that appears and does nothing when pressed is
-  // the failure this editor's refusal note exists to avoid.
-  makeMode(this: AppShell): ModeUI {
-    const toggle = document.createElement('button');
-    toggle.type = 'button';
-    toggle.className = 'gly-mode';
-    // role="switch" is the honest markup for a thing with one label and two
-    // positions, and it is not decoration: it is what makes the control
-    // announce itself as flippable and report which way it is flipped, to the
-    // keyboard and to a screen reader, without a second label to keep in step.
-    toggle.setAttribute('role', 'switch');
-    // The track and its knob. A <span> pair rather than a checkbox, because
-    // the button already carries the semantics and a real checkbox here would
-    // be a second focusable thing inside one control.
-    const track = document.createElement('span');
-    track.className = 'gly-switch';
-    track.appendChild(document.createElement('span')).className =
-      'gly-switch-knob';
-    const label = document.createElement('span');
-    label.className = 'gly-mode-label';
-    label.textContent = modeLabel();
-    toggle.append(track, label);
-    toggle.addEventListener('click', () => this.toggleMode());
-
-    // A click must never move the thing it landed on, or the thing beside it.
-    // Hold's own label changes on its own click (`⏸ hold` becomes `▶ release · 0`,
-    // which is wider), so the two labels are stacked in ONE grid cell and the
-    // swap cannot change its box.
-    const hold = document.createElement('button');
-    hold.type = 'button';
-    hold.className = 'gly-hold';
-    const holdOff = document.createElement('span');
-    holdOff.className = 'gly-hold-label';
-    const holdOn = document.createElement('span');
-    holdOn.className = 'gly-hold-label';
-    hold.append(holdOff, holdOn);
-    hold.addEventListener('click', () => this.toggleHold());
-
-    // Beside History, hold first: it takes no room while it is off.
-    document.getElementById('gly-doc-tools')?.append(hold, toggle);
-    return { toggle, hold, holdOff, holdOn };
-  },
-
-  paintMode(this: AppShell) {
-    const { toggle, hold } = this.modeUI;
-    // The label never changes — see modeLabel. What changes is the POSITION,
-    // and it is written once, to aria-checked, with the stylesheet reading it
-    // from there. A class saying the same thing in parallel is a second source
-    // of truth for one fact, and the two drift the first time one is forgotten.
-    const on = modeOn(this.mode);
-    toggle.setAttribute('aria-checked', on ? 'true' : 'false');
-    toggle.title = modeTitle(this.mode);
-    toggle.classList.toggle('gly-on', on);
-    // Hold only exists in live mode: on ask nothing arrives unasked, so there
-    // is nothing to hold back, and a control that can never do anything in
-    // this state is chrome rather than a choice.
-    //
-    // It is `disabled` as well as hidden: a card hidden
-    // in CSS was once still a button to the keyboard.
-    hold.classList.toggle('gly-reserved', !on);
-    hold.disabled = !on;
-    this.paintHold();
-  },
-
-  readMode(this: AppShell) {
-    getJSON<{ mode?: Mode }>(routes.mode)
-      .then((d) => {
-        if (!d || !d.mode) {
-          return;
-        }
-        this.mode = d.mode;
-        this.paintMode();
-      })
-      .catch(() => {});
-  },
-
-  // The request is what changes the mode, not the click. An optimistic flip
-  // followed by a failed POST would leave the header claiming a state the
-  // server is not in — and the state in question is "is anyone being woken",
-  // which is exactly the thing that must not be guessed at.
-  toggleMode(this: AppShell) {
-    const want = nextMode(this.mode);
-    postJSON(routes.mode, { mode: want })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((d: { mode?: Mode } | null) => {
-        if (d && d.mode) {
-          this.mode = d.mode;
-          // Leaving live strands anything held: the ⏸ button is hidden on ask,
-          // so there would be cards the rail is not drawing and no control to
-          // bring them back. Release first, then repaint.
-          if (this.mode !== MODE_LIVE && this.holding) {
-            this.release();
-            return;
-          }
-          this.paintMode();
-        }
-      })
-      .catch(() => {});
   },
 };

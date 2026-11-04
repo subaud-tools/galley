@@ -109,19 +109,12 @@ func TestDeletingTheSentenceDeletesTheInstruction(t *testing.T) {
 	}
 }
 
-// TestAnAgentWriteThatRemovesACommentsWordsCutsNoRound is the spurious round.
-// In live mode a settle is a send, so any fingerprint the agent did not cause
-// is a round. The agent rewrites the words a seen comment highlights; mutate
-// seeds the notifier with what the agent was handed, and the projection that
-// follows must hand the notifier that same fingerprint. A projection that
-// writes the review map (deleting the thread) moves it, and cuts a round.
+// TestAnAgentWriteThatRemovesACommentsWordsCutsNoRound is the spurious round:
+// the agent rewrites the words a seen comment highlights, and the projections
+// that follow are saves, not sends, so they cut nothing.
 func TestAnAgentWriteThatRemovesACommentsWordsCutsNoRound(t *testing.T) {
 	s := newEditServer(t, t.TempDir(), "d.md", foxDoc)
 	t.Cleanup(func() { _ = s.Close() })
-	s.Notify.Quiet = 50 * time.Millisecond
-	if err := s.SetMode(ModeLive); err != nil {
-		t.Fatal(err)
-	}
 	instructOK(t, s, map[string]any{"op": "comment", "path": []int{1}, "from": 0, "to": 13, "text": "which fox?"})
 	if err := s.Project(); err != nil { // seen
 		t.Fatal(err)

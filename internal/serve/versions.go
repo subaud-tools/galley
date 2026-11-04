@@ -5,16 +5,11 @@ package serve
 //
 // COMMIT ON SEND is the one rule, and every cut in this file is a send: a
 // Revise press hands the round to the agent, the agent's return hands it back,
-// the wake a live settle fires sends without a press, and a verdict is the
-// round the review ended on. Both modes use one mechanism — live simply sends
-// more often.
+// and a verdict is the round the review ended on.
 //
 // A SAVE IS NOT A SEND, and the difference is the whole of "a version is a
-// round, not every save". Live mode used to cut on any projection whose digest
-// had moved, so a reviewer typing prose committed a full copy of the document
-// per export debounce while sending nothing to anybody. The live cut hangs off
-// the notifier's own decision to wake the agent now — see EditServer.wakeSettle
-// — which is the thing that actually sends, and which prose does not move.
+// round, not every save": a reviewer typing prose sends nothing to anybody, so
+// it cuts nothing; a Revise and the agent's return do.
 //
 // WHERE THE CUT HAPPENS IS THE WHOLE OF THE CORRECTNESS ARGUMENT. While a round
 // is open the browser's CRDT is the live state and the file is a projection, so
@@ -270,13 +265,8 @@ func (s *EditServer) recordCannot(why string) {
 // a round is a SEND, and an instruction with no edit beside it is still an
 // instruction. See roundAuthors for who is named on which.
 //
-// A LIVE SETTLE IS NOT SEEN HERE AT ALL, and that is the fix for the defect
-// this file shipped with: it used to cut a round on any live projection whose
-// digest had moved, which is a round PER CHANGED SAVE — a reviewer typing prose
-// cut a full copy of the document every 400ms export debounce, and sent nothing
-// to anybody while doing it. The send in live mode is the notifier's own
-// decision to wake the agent, so the cut hangs off that decision instead. See
-// wakeSettle.
+// A SAVE IS NOT SEEN HERE AT ALL: a round is cut on a send, and a reviewer
+// typing prose sends nothing to anybody.
 func (s *EditServer) cutIfSending(out []byte, landed bool, asked int) {
 	intent := s.pendingCut
 	s.pendingCut = nil
@@ -304,11 +294,6 @@ func (s *EditServer) cutIfSending(out []byte, landed bool, asked int) {
 	}
 
 	store := s.Versions()
-	latest, ok, err := store.Latest()
-	if err != nil {
-		s.logVersionFailure(err)
-		return
-	}
 	// THE OBSERVED MOVEMENT BELONGS TO THE FIRST ROUND CUT. Two sends in one
 	// projection share their bytes, so naming the same movement on both would
 	// say the document was moved twice. A press over a document nobody has
@@ -316,14 +301,6 @@ func (s *EditServer) cutIfSending(out []byte, landed bool, asked int) {
 	// tolerates by design: a round with nobody named is still a round.
 	authors := s.roundAuthors()
 	for _, send := range sends {
-		// A LIVE SETTLE THAT MOVED NOTHING IS NOT A ROUND. An explicit press or
-		// a landing is a round whether or not the words changed — an agent that
-		// returned without changing anything is still an answer — but a settle
-		// has no such claim on its own: the notifier legitimately wakes on a
-		// pending set that moved without the prose moving with it.
-		if send.reason == versions.ReasonSettled && send.instruction == "" && ok && latest.Digest == digestOf(out) {
-			continue
-		}
 		r, err := store.Commit(string(out), versions.Round{
 			At:          time.Now().UTC(),
 			Authors:     authors,
@@ -347,7 +324,6 @@ func (s *EditServer) cutIfSending(out []byte, landed bool, asked int) {
 		}
 		s.debugVersionCut(r)
 		authors = nil
-		latest, ok = r, true
 		s.movedByAgent = false
 		s.movedByReviewer.Store(false)
 		s.lastCutN = r.N
@@ -398,8 +374,8 @@ func (s *EditServer) cutOutside(out []byte) {
 
 // roundAuthors names who moved the document since the last cut.
 //
-// ALTERNATION IS A PROPERTY OF BATCHING, NOT A LAW. In live mode the CRDT
-// merged both parties' work before anything was cut, so a round genuinely can
+// ALTERNATION IS A PROPERTY OF BATCHING, NOT A LAW. The CRDT merges both
+// parties' work before anything is cut, so a round genuinely can
 // carry both — and `v12 · user and agent` is information, not an evasion.
 //
 // Both halves are observed at the source rather than inferred from the bytes.

@@ -57,6 +57,8 @@ type AgentWake struct {
 	Note        string       `json:"note,omitempty"`
 	Pending     *PendingView `json:"pending,omitempty"`
 	Report      string       `json:"report,omitempty"`
+	// Chat is the reviewer's message on a chat wake.
+	Chat *ChatWake `json:"chat,omitempty"`
 }
 
 // AgentStatus is GET /api/agent/status's answer: what galley_channel_status
@@ -277,6 +279,7 @@ func (h *Host) attach(ctx context.Context, session, id string, d hostedDoc, at *
 		wake := AgentWake{
 			Page: d.server.MdPath, Room: d.server.Room, Reason: reply.Reason,
 			Fingerprint: reply.Fingerprint, Pending: reply.Pending, Report: reply.Report,
+			Chat: reply.Chat,
 		}
 		ended := reply.Reason == waitApprove
 		g.mu.Lock()

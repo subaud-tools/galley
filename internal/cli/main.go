@@ -47,7 +47,7 @@ the room, push can spawn one — with the document and nothing else — and
 
 The channel is pull, packaged: it starts with the session, waits on every
 document this session opens — and any unowned one under its root — and delivers
-each Revise, settle and Approve into the session as an event. No listener to
+each Revise, chat message and Approve into the session as an event. No listener to
 remember. In Claude Code it comes from galley's plugin; install it once, then
 start claude as usual:
   claude plugin marketplace add subaud-tools/plugins
@@ -147,8 +147,7 @@ func newApp() *tools.App {
 		Help: "Revise wakes whoever is listening: a session blocked on `galley wait <doc>`\n" +
 			"always, plus --on-revise's command if one is configured — refused only when\n" +
 			"neither is present. A hook and a waiter are not alternatives; both fire if\n" +
-			"both are there. A settle only reaches `galley wait` while the editor is in\n" +
-			"● live mode (toggled in the browser), whether or not --on-settle is set.\n\n" +
+			"both are there. A save wakes nobody.\n\n" +
 			"The hook is told a round arrived, NOT to go read `galley pending` — a sent\n" +
 			"round is no longer pending, so the woken agent runs `galley wait <doc>`,\n" +
 			"which prints the captured round it was woken by.\n\n" +
@@ -241,9 +240,10 @@ func newApp() *tools.App {
 		Group:    "review",
 		Summary:  "block until the reviewer asks, then print what is pending",
 		Synopsis: "wait <doc.md> [flags]",
-		Help: "Blocks until the reviewer presses Revise, presses Approve, or — in ● live\n" +
-			"mode — until the document settles, then prints the captured round. An\n" +
-			"approve ends the review; the other wakes ask for an answer. A review that\n" +
+		Help: "Blocks until the reviewer presses Revise or Approve, then prints the\n" +
+			"captured round. An approve ends the review; the other wakes ask for an\n" +
+			"answer. A chat message wakes it with reason `chat` and the message's words;\n" +
+			"it never changes the document. A review that\n" +
 			"has ALREADY ended is reported at once rather than waited on. There is no\n" +
 			"offline form: without a running editor there is nothing to wait for in a\n" +
 			"file.\n\n" +

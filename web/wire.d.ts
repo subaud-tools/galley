@@ -105,6 +105,10 @@ export interface PageView {
   state: string;
 }
 
+export interface ChatView {
+  messages: ChatMessageView[] | null;
+}
+
 export interface BlockRef {
   key: string;
   kind: string;
@@ -130,6 +134,17 @@ export interface MessageView {
   state: MessageState;
   line: string;
   held: boolean;
+}
+
+export interface ChatMessageView {
+  id: number;
+  from: string;
+  at: string;
+  text: string;
+  html?: string;
+  state?: MessageState;
+  line?: string;
+  replyTo?: number;
 }
 
 export type MessageState =

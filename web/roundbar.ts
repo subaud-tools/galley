@@ -31,6 +31,8 @@ export interface TabActions {
   remove(key: string): void;
   select(key: string): void;
   file(text: string): Promise<boolean>;
+  /** Sends a chat message to the agent. False when the server didn't take it. */
+  chat(text: string): Promise<boolean>;
   revert(key: string): void;
   /** A row left the page while its box held words it hadn't saved. */
   stranded(words: string): void;
@@ -45,7 +47,8 @@ export interface GalleyChrome {
     selected: string;
     counts: { instructions: number; chat: number };
   }): void;
-  paintChat(messages: ChatMessage[]): void;
+  /** The thread, and how many of its messages wait on the agent. */
+  paintChat(messages: ChatMessage[], waiting: number): void;
   /** Opens the Instructions tab on a draft's row. */
   showRow(key: string): void;
   /** Opens the Instructions tab with the whole-document box in hand. */

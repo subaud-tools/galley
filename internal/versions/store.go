@@ -86,7 +86,7 @@ import (
 )
 
 // Author names a party that moved the document in a round. A round may carry
-// BOTH: in live mode the CRDT merged two people's work before anything was cut,
+// BOTH: the CRDT merges two people's work before anything is cut,
 // and `v12 · user and agent` is information rather than an embarrassment.
 const (
 	AuthorReviewer = "user"
@@ -110,10 +110,8 @@ const (
 	ReasonRevise = "revise"
 	// ReasonLanded is the agent's return: the revision arriving.
 	ReasonLanded = "landed"
-	// ReasonSettled is a live exchange. There is no press, so the send is the
-	// moment the agent is actually WOKEN — not every settle, and emphatically
-	// not every save: a reviewer typing prose settles constantly and hands over
-	// nothing.
+	// ReasonSettled is a round the retired live mode cut. Nothing writes it
+	// now; it is kept so a rounds.jsonl written before still reads.
 	ReasonSettled = "settled"
 	// ReasonVerdict is the round the review ended on.
 	ReasonVerdict = "verdict"

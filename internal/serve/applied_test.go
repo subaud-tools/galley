@@ -157,18 +157,6 @@ func TestReviseAndLiveSendTheSameRound(t *testing.T) {
 				press(t, s, "{}")
 			},
 		},
-		{
-			name:   "live",
-			reason: versions.ReasonSettled,
-			send: func(t *testing.T, s *EditServer) {
-				t.Helper()
-				fp, _, err := s.waitFingerprint()
-				if err != nil {
-					t.Fatal(err)
-				}
-				s.wakeSettle(fp)
-			},
-		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()

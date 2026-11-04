@@ -554,12 +554,7 @@ export const sealMethods = {
   // track: a sealed review is exactly when somebody wants to read what happened,
   // and reading is the only thing left.
   sealHides(this: AppShell): (HTMLElement | null)[] {
-    return [
-      this.modeUI && this.modeUI.toggle,
-      this.modeUI && this.modeUI.hold,
-      this.discardBtn,
-      this.revise,
-    ];
+    return [this.discardBtn, this.revise];
   },
 
   paintSeal(this: AppShell) {
@@ -582,11 +577,10 @@ export const sealMethods = {
       }
     }
     if (!sealed) {
-      // HANDED BACK TO THEIR OWN PAINTERS, never left at `false`. hold is
-      // disabled on ask and Revise is disabled while a command runs; a blanket
-      // re-enable here would be this function inventing a second, wrong answer
-      // to a question two others already answer correctly.
-      this.paintMode();
+      // HANDED BACK TO ITS OWN PAINTER, never left at `false`. Revise is
+      // disabled while a command runs; a blanket re-enable here would be this
+      // function inventing a second, wrong answer to a question another
+      // already answers correctly.
       this.paintRevise();
     }
     this.sealUI.readout.classList.toggle('gly-seal-off', !sealed);
@@ -629,10 +623,10 @@ export const sealMethods = {
   // own button (dead until its block has a key), and every box that disables
   // itself for the flight of its own POST were re-enabled the same way, and
   // would be again. So: return early when the review is live, and let
-  // `paintMode`, `paintRevise`, `paintCensus` and the in-flight writers stay the
+  // `paintRevise`, `paintCensus` and the in-flight writers stay the
   // sole owners of the flag — exactly the discipline `paintSeal` already applies
   // to the bar. The unseal transition re-derives them by their owners rather
-  // than leaving them stale: `paintSeal` calls `paintMode`/`paintRevise` itself,
+  // than leaving them stale: `paintSeal` calls `paintRevise` itself,
   // and `applySeal` repaints the rail and the census on the way back to live.
   // §8a in web/layers.mjs is the gate, and it was shown red first — twice, the
   // second time against a build with this early return deleted, after the fold

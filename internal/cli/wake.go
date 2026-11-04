@@ -27,7 +27,7 @@
 // spellings and one silence"), and a carrier fixed while its twin is forgotten
 // is how this arrived.
 //
-// WHAT IS DELIBERATELY NOT SHARED: `revise` and `settle`. Those two sentences
+// WHAT IS DELIBERATELY NOT SHARED: `revise` and `chat`. Those two sentences
 // name their own carrier's next verb — the channel's says `galley_ack`, an MCP
 // tool a shell loop cannot call, and the CLI's is the re-arm pointer wait.go
 // prints — and there is nothing about the REVIEW's meaning in either to

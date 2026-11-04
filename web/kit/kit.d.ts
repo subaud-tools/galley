@@ -522,6 +522,8 @@ export interface ThreadNote {
   el: HTMLElement;
   box: HTMLTextAreaElement;
   send(): void;
+  /** The button's words; none, Send note. */
+  label?: string;
 }
 
 export interface ThreadOptions<M extends ThreadMessageValue> {

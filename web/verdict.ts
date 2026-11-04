@@ -14,8 +14,7 @@
 // (Revise & approve, while work is pending), Discard drafts, the bar's
 // primary, the poll response that drives all three
 // (readRevise — which also drives History's and the seal's own readers, see
-// its own comment), and hold/release, the browser-side queue over what the
-// rail shows while the mode is live. One file owns one subject — the
+// its own comment). One file owns one subject — the
 // verdict, what it is and the controls that set it — rather than splitting
 // the noun from the verb.
 //
@@ -24,8 +23,6 @@
 
 import type { PendingThread } from './tabs.ts';
 import { getJSON, postJSON, routes } from './net.ts';
-import { runFor } from './runs.ts';
-import { arrivalMessage, queueArrivals, holdLabel } from './arrivals.ts';
 import {
   agentHolds,
   draftCountWords,
@@ -36,11 +33,10 @@ import {
   sendFace,
 } from './roundbar.ts';
 import { STAGE_READING } from './versions.ts';
-import type { AppShell, ArrivalItem } from './appshell.ts';
+import type { AppShell } from './appshell.ts';
 import type { ReviseStateView } from './wire';
 import { messagePill } from './kit/dom.js';
 import { shareMenu } from './kit/share.js';
-import type { SuggestionLike } from './suggestions.ts';
 
 // The full shape of what GET /_galley/revise answers.
 //
@@ -171,21 +167,6 @@ type VerdictBody = {
 };
 
 export const verdictMethods = {
-  paintHold(this: AppShell) {
-    const { hold, holdOff, holdOn } = this.modeUI;
-    // Both labels are written on every paint and both stay laid out — see
-    // makeMode. Only which of them is VISIBLE changes, so the button's width
-    // is the wider of the two whatever state it is in.
-    holdOff.textContent = holdLabel(false, 0);
-    holdOn.textContent = holdLabel(true, this.heldArrivals.length);
-    holdOff.classList.toggle('gly-reserved', this.holding);
-    holdOn.classList.toggle('gly-reserved', !this.holding);
-    hold.title = this.holding
-      ? 'show the arrivals that landed while you were holding — they are already in the document'
-      : 'keep new arrivals quiet — they still land in the document, they just wait';
-    hold.classList.toggle('gly-on', this.holding);
-  },
-
   // --- Revise, on the kit's send bar, and how long it has been (R10) ---
   //
   // shell.ts builds the bar and gives its buttons ids. Null in a shell without it.
@@ -587,79 +568,5 @@ export const verdictMethods = {
     this.paintDiscard();
     this.paintMessage();
     this.paintChrome();
-  },
-
-  // --- hold and release ---
-  //
-  // HOLD IS A BROWSER-SIDE QUEUE OVER WHAT THE RAIL DISPLAYS, NOT A
-  // SERVER-SIDE GATE ON THE DOCUMENT. The suggestions are in the CRDT and on
-  // disk either way, and pretending otherwise would mean the file and the
-  // screen disagreeing about what the document contains. A held arrival is a
-  // CARD NOT YET SHOWN, never a suggestion not yet made — and the opposite
-  // reading is the intuitive one, which is why it is said here and again in
-  // arrivals.ts.
-  toggleHold(this: AppShell) {
-    if (this.holding) {
-      this.release();
-      return;
-    }
-    this.holding = true;
-    this.paintHold();
-  },
-
-  // withhold takes the arrivals out of the rail's hands and returns what is
-  // left to announce — which is nothing, by construction. The section is
-  // resolved HERE rather than at release, because by then the document has
-  // moved on and the heading an arrival landed under may not be the heading it
-  // is under any more.
-  withhold(this: AppShell, arrived: ArrivalItem[]): ArrivalItem[] {
-    const runs = this.runsNow();
-    for (const a of arrived) {
-      if (a.run) {
-        this.held.add(a.run);
-      }
-    }
-    this.heldArrivals = queueArrivals(
-      this.heldArrivals,
-      arrived.map((a): ArrivalItem => {
-        // `a` is the loose arrival shape, not a full SuggestionLike (it
-        // carries no `text`) — runFor only ever reads `kind`/`author` off it
-        // through sameSuggestion, which is exactly what this reconstructs.
-        // Same pattern as pending.ts's noticeArrivals, for the same reason.
-        const suggestion: SuggestionLike = {
-          kind: a.kind || '',
-          run: a.run,
-          author: a.author,
-        };
-        return {
-          ...a,
-          section: this.sectionFor(runFor(runs, { run: a.run, suggestion })),
-        };
-      }),
-    );
-    return [];
-  },
-
-  release(this: AppShell) {
-    const batch = this.heldArrivals;
-    this.holding = false;
-    this.held.clear();
-    this.heldArrivals = [];
-    for (const a of batch) {
-      if (a.run) {
-        this.newRuns.add(a.run);
-      }
-    }
-    this.paintMode();
-    this.paintTabs();
-    if (batch.length === 0) {
-      return;
-    }
-    // One summary for the batch, not one strip per arrival — the reviewer
-    // asked to be told all at once, which is what holding meant.
-    this.arrivalQueue = queueArrivals(this.arrivalQueue, batch);
-    this.stripBatch = batch;
-    this.showStrip(arrivalMessage(batch));
-    this.clearNewLater();
   },
 };

@@ -678,10 +678,10 @@ try {
 
   await measureBar(page, 'idle');
   check(
-    'live, hold and the HTML preview are beside History, not on the bar',
+    'the HTML preview is beside History, not on the bar',
     await page.evaluate(() => {
       const row = document.querySelector('.gly-stages');
-      return ['.gly-mode', '.gly-hold', '.gly-preview-open'].every(
+      return ['.gly-preview-open'].every(
         (sel) =>
           row.querySelector(sel) &&
           !document.querySelector(`.kit-sendbar ${sel}`),
@@ -1166,7 +1166,8 @@ try {
   // --- EVERY INSTRUCTION IN THE INSTRUCTIONS TAB ---
   //
   // Its first section is the whole document: a box and Add instruction, with
-  // its rows under it; then the text's. The Chat tab has no box.
+  // its rows under it; then the text's. The Chat tab's one box is its message
+  // to the agent, never an instruction's.
   const layout = await page.evaluate(() => {
     const tab = document.querySelector('.gly-tab');
     const labels = [
@@ -1191,6 +1192,7 @@ try {
         ),
       ].some((q) => q.textContent === 'Whole document'),
       chatBoxes: chat ? chat.querySelectorAll('textarea').length : -1,
+      chatBox: chat?.querySelector('textarea')?.placeholder ?? '',
     };
   });
   check(
@@ -1212,8 +1214,8 @@ try {
     JSON.stringify(layout),
   );
   check(
-    'the Chat tab has no box',
-    layout.chatBoxes === 0,
+    "the Chat tab's one box messages the agent",
+    layout.chatBoxes === 1 && layout.chatBox === 'Message the agent…',
     JSON.stringify(layout),
   );
   check(

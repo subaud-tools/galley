@@ -300,9 +300,7 @@ func (s *EditServer) handleHandoffCancel(w http.ResponseWriter, r *http.Request)
 // round's record is the only place their words still are. An ask whose quote
 // is still in the document, once, comes back on it; any other comes back on
 // the whole document. New keys, since the old ones name the cancelled round.
-// The refile is not news to the notifier: the reviewer took the round back,
-// and a live settle sending it at once would undo the cancel. Call it with no
-// lock held.
+// Call it with no lock held.
 func (s *EditServer) refileAsks(round int) {
 	if round <= 0 {
 		return
@@ -339,7 +337,6 @@ func (s *EditServer) refileAsks(round int) {
 		}
 		return
 	}
-	s.SeedNotify()
 }
 
 // refiledAsk is one ask of a cancelled round, ready to be filed again: about
