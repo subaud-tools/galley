@@ -291,8 +291,12 @@ async function openReviseMore(page) {
 function topBarSeats(page) {
   return page.evaluate(() =>
     [...document.querySelector('.kit-bar').children].map((el) => {
-      const r = el.getBoundingClientRect();
-      return { el: el.className, left: r.left, width: r.width };
+      // A control in its tip box (web/tip.ts) is read as the control.
+      const at = el.classList.contains('gly-tip-at')
+        ? el.firstElementChild
+        : el;
+      const r = at.getBoundingClientRect();
+      return { el: at.className, left: r.left, width: r.width };
     }),
   );
 }
@@ -689,11 +693,14 @@ try {
     }),
   );
   check(
-    "the bar's permanent sentence is Revise's title",
+    "the bar's permanent sentence is Revise's tip",
     await page.evaluate(
       () =>
         !document.querySelector('.kit-sendbar-hint') &&
-        document.querySelector('#gly-revise').title ===
+        !document.querySelector('#gly-revise').hasAttribute('title') &&
+        document
+          .querySelector('#gly-revise')
+          .parentElement.querySelector(':scope > .kit-tip')?.textContent ===
           'Revise sends your instructions and edits together. The agent answers by revising the document.',
     ),
   );
@@ -2363,7 +2370,9 @@ try {
     return (
       !!door &&
       door.classList.contains('is-new') &&
-      door.title.includes(`v${n} just arrived`)
+      (
+        door.parentElement.querySelector(':scope > .kit-tip')?.textContent ?? ''
+      ).includes(`v${n} just arrived`)
     );
   }, newest);
   await page.click('.gly-versions-open');

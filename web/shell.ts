@@ -44,6 +44,7 @@ import {
   switcherItems,
 } from './pagelist.ts';
 import type { GalleyChrome, TabActions } from './roundbar.ts';
+import { tip, tipBox, tipText } from './tip.ts';
 import {
   afterFiled,
   strandedValue,
@@ -732,9 +733,14 @@ export function mountShell(verdict: () => void): void {
           stages: values,
           open,
           label: 'Rounds',
-          after: [door, docTools],
+          // History's door sits in its tip box (web/tip.ts).
+          after: [door && tipBox(door), docTools],
         }),
       );
+      // A door placed for the first time gets the tip it was given.
+      if (door) {
+        tip(door, tipText(door));
+      }
     },
   };
   window.galleyChrome = chrome;

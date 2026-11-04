@@ -92,11 +92,10 @@ export function cardBody(el: HTMLElement): HTMLElement {
   return body;
 }
 
-/** What a card that can point at something says it does. ONE SPELLING: it is
- *  also the predicate `.gly-card.gly-thread:not([title])` keys its `cursor:
- *  default` on, so the title and the handler are the same fact by construction
- *  rather than by two rules agreeing. */
-const REVEAL_TITLE = 'show me where this is';
+/** What a card that can point at something says it does, in its tip: put on
+ *  with web/tip.ts once the card is in its rail, since a tip box takes the
+ *  card's place there. */
+export const REVEAL_TITLE = 'show me where this is';
 
 /**
  * revealOn makes a card answer the one question a card in a rail is asked:
@@ -117,17 +116,9 @@ const REVEAL_TITLE = 'show me where this is';
  *
  * @param el the card
  * @param act what the reveal does
- * @param title the tooltip, or '' for a card that says nothing
  */
-export function revealOn(
-  el: HTMLElement,
-  act: () => void,
-  title: string = REVEAL_TITLE,
-): HTMLElement {
+export function revealOn(el: HTMLElement, act: () => void): HTMLElement {
   el.tabIndex = 0;
-  if (title) {
-    el.title = title;
-  }
   el.addEventListener('click', (event) => {
     const target = event.target;
     if (target instanceof Element && target.closest('button, textarea')) {

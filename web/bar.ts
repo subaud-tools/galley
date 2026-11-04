@@ -24,6 +24,7 @@ import { agentHolds, roundInHand } from './roundbar.ts';
 import { age } from './suggestions.ts';
 import { roundCards, STAGE_READING } from './versions.ts';
 import type { AppShell } from './appshell.ts';
+import { tip } from './tip.ts';
 
 /** THE READOUT SAYS WHERE THE DOCUMENT IS, IN A GRAMMAR THAT ALWAYS FITS.
  *
@@ -209,13 +210,12 @@ export const barMethods = {
               return `${n} ${n === 1 ? 'round' : 'rounds'}`;
             })();
       this.status.textContent = `${where} · draft is untouched`;
-      this.status.title =
-        'History is read-only — nothing here changes the draft';
+      tip(this.status, 'History is read-only — nothing here changes the draft');
       return;
     }
     if (this.sealed) {
       this.status.textContent = this.said;
-      this.status.title = '';
+      tip(this.status, '');
       return;
     }
     const parts: string[] = [];
@@ -260,9 +260,11 @@ export const barMethods = {
     }
     this.status.textContent = parts.join(' · ');
     // The full sentence, always, because the cell is allowed to lose the end of
-    // it. This is the title the untracked cell used to carry, moved with it.
-    this.status.title =
+    // it. This is the tip the untracked cell used to carry, moved with it.
+    tip(
+      this.status,
       'everything you do applies to the document as it happens — ' +
-      'your instructions go to the agent as one round when you press Revise';
+        'your instructions go to the agent as one round when you press Revise',
+    );
   },
 };

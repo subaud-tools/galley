@@ -47,6 +47,7 @@ import {
   stateWords,
   switcherItems,
 } from './pagelist.ts';
+import { tipText } from './tip.ts';
 import {
   agentHolds,
   draftCountWords,
@@ -489,7 +490,8 @@ function paintedMessage({ message, sealed = false, history = false }) {
       const pill = msg && msg.nodes[0];
       const line = msg && msg.nodes[1];
       return {
-        title: cell.title,
+        // The cell's tip, as web/tip.ts holds it for an element with no page.
+        title: tipText(cell),
         empty: cell.nodes.length === 0,
         msg: msg ? msg.className : '',
         pill: pill ? pill.className : '',

@@ -34,6 +34,7 @@
 
 import { apiUrl, postJSON, routes } from './net.ts';
 import type { AppShell } from './appshell.ts';
+import { tip, tipBox } from './tip.ts';
 import {
   SHARE_LABEL,
   SHARE_DOWNLOAD_HTML,
@@ -117,9 +118,10 @@ export const shareMethods = {
     b.type = 'button';
     b.className = 'kit-btn gly-share';
     b.textContent = SHARE_LABEL;
-    b.title = 'hand the approved document to a reader';
     b.hidden = true;
-    revise.parentNode.insertBefore(b, revise.nextSibling);
+    const at = tipBox(revise);
+    at.parentNode?.insertBefore(b, at.nextSibling);
+    tip(b, 'hand the approved document to a reader');
     // The kit's menu binds the button's click to its toggle, and closes on an
     // outside click, Escape and a resize. Built now, hidden: the button is
     // hidden until the seal edge, so nothing can open it before approval.
@@ -204,11 +206,11 @@ export const shareMethods = {
     b.type = 'button';
     b.className = 'kit-btn gly-preview-open';
     b.textContent = PREVIEW_LABEL;
-    b.title = 'the branded page Download HTML saves, refreshed on every save';
     b.addEventListener('click', () => {
       window.open(apiUrl(routes.render), '_blank', 'noopener');
     });
     tools.append(b);
+    tip(b, 'the branded page Download HTML saves, refreshed on every save');
     return b;
   },
 };

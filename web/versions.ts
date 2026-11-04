@@ -53,7 +53,9 @@ import {
   setStackHeight,
   coalesce,
   growthWatch,
+  REVEAL_TITLE,
 } from './card.ts';
+import { tip } from './tip.ts';
 
 // THE WIRE'S OWN TYPES, GENERATED FROM THE GO STRUCTS THAT SEND THEM.
 //
@@ -990,9 +992,12 @@ export class VersionsPanel {
     this.restoreArmed.classList.toggle('gly-reserved', !armed);
     this.restoreBusy.classList.toggle('gly-reserved', !this.restoring);
     this.restoreButton.classList.toggle('is-armed', armed);
-    this.restoreButton.title = armed
-      ? 'press again to overwrite the current draft with this version'
-      : 'copy this version over the current draft — the draft is not sent, and git still has it';
+    tip(
+      this.restoreButton,
+      armed
+        ? 'press again to overwrite the current draft with this version'
+        : 'copy this version over the current draft — the draft is not sent, and git still has it',
+    );
   }
 
   // --- the rail ---
@@ -1090,14 +1095,11 @@ export class VersionsPanel {
       // `.catch(() => {})` already absorbs a fetch failure — revealOn's `act`
       // is typed `() => void`, so the wrapper both satisfies that and marks
       // the intent rather than leaving the return value unmentioned.
-      revealOn(
-        el,
-        () => {
-          void this.openRound(round.n);
-        },
-        'read this round',
-      );
+      revealOn(el, () => {
+        void this.openRound(round.n);
+      });
       this.rail.appendChild(el);
+      tip(el, 'read this round');
     }
 
     // THE FOOT CARD IS THE FILE AS IT ARRIVED, and it is dashed because it is
@@ -1267,6 +1269,7 @@ export class VersionsPanel {
       // the navigation*.
       revealOn(card, () => this.pick(change.region));
       cards.appendChild(card);
+      tip(card, REVEAL_TITLE);
     }
   }
 
@@ -1342,10 +1345,7 @@ export class VersionsPanel {
     if (!this.open || this.stage !== STAGE_READING || !this.cards) {
       return;
     }
-    const cards = [...this.cards.children].filter(
-      (el): el is HTMLElement =>
-        el instanceof HTMLElement && el.classList.contains('gly-card'),
-    );
+    const cards = this.cardEls();
     if (!cards.length) {
       setStackHeight(this.cards, null);
       return;
@@ -1395,9 +1395,20 @@ export class VersionsPanel {
   // web/card.ts, over this rail's own cards. They are named here so the two
   // rails read the same and so `paintRail` has something to call before it
   // destroys every card the observer is holding.
+  // The change cards, each in its tip box (web/tip.ts) or not yet.
+  cardEls(): HTMLElement[] {
+    return this.cards
+      ? [
+          ...this.cards.querySelectorAll<HTMLElement>(
+            ':scope > .gly-card, :scope > .gly-tip-at > .gly-card',
+          ),
+        ]
+      : [];
+  }
+
   watchCards(): void {
     if (this.cards) {
-      this.growth.watch(this.cards.children);
+      this.growth.watch(this.cardEls());
     }
   }
 
@@ -1492,13 +1503,7 @@ export class VersionsPanel {
     this.rail.classList.toggle('is-picking', picking);
     this.paper.classList.toggle('is-picking', picking);
     if (this.cards) {
-      // A real `instanceof` narrowing rather than the JSDoc cast this used
-      // to carry — every child here is one of this file's own cards, built
-      // by cardShell, so the guard never actually skips one.
-      for (const card of this.cards.children) {
-        if (!(card instanceof HTMLElement)) {
-          continue;
-        }
+      for (const card of this.cardEls()) {
         card.classList.toggle(
           'is-picked',
           picking && Number(card.dataset.region) === on,

@@ -142,6 +142,7 @@ import { coerceLevel } from './heading.ts';
 // header carries the whole argument: the two rails are one surface and were
 // built twice.
 import { coalesce } from './card.ts';
+import { tip } from './tip.ts';
 import { VersionsPanel } from './versions.ts';
 // getJSON/postJSON own talking to the server; see web/net.ts's header for why
 // they cannot live in a mixin.
@@ -1709,15 +1710,12 @@ class App implements AppState {
     read.type = 'button';
     read.className = 'gly-notice-read';
     read.textContent = 'read changes';
-    read.title = 'open this round in History, on what it changed';
     read.addEventListener('click', () => this.readChanges());
 
     const show = document.createElement('button');
     show.type = 'button';
     show.className = 'gly-notice-show';
     show.textContent = 'show me';
-    show.title =
-      'scroll to what arrived — the only thing on this strip that moves the page';
     show.addEventListener('click', () => this.showMe());
 
     // THE QUIET WAY OUT, and it takes nothing with it. Dismissing is "not now",
@@ -1728,7 +1726,6 @@ class App implements AppState {
     dismiss.type = 'button';
     dismiss.className = 'gly-notice-dismiss';
     dismiss.textContent = 'dismiss';
-    dismiss.title = 'put this away — History stays marked until you read it';
     dismiss.addEventListener('click', () => this.hideStrip());
 
     // Handoff §11, verbatim. It says both that this notice is about to go and
@@ -1738,6 +1735,12 @@ class App implements AppState {
     fade.textContent = ARRIVAL_SUFFIX;
 
     root.append(text, read, show, dismiss, fade);
+    tip(read, 'open this round in History, on what it changed');
+    tip(
+      show,
+      'scroll to what arrived — the only thing on this strip that moves the page',
+    );
+    tip(dismiss, 'put this away — History stays marked until you read it');
     document.getElementById('gly-drafts')?.after(root);
     return { root, text, read, show, dismiss, fade };
   }

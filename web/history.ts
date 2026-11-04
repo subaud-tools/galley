@@ -30,6 +30,7 @@ import {
   VERSIONS_NAME,
 } from './versions.ts';
 import type { AppShell, ReviseView } from './appshell.ts';
+import { tip } from './tip.ts';
 
 export const historyMethods = {
   // --- the rounds ---
@@ -47,7 +48,6 @@ export const historyMethods = {
     // here survived implementation but failed discovery in the first real
     // review: the four views and history existed behind a symbol nobody read.
     b.setAttribute('aria-label', VERSIONS_NAME);
-    b.title = `${VERSIONS_NAME} — every round of this document, and what was asked for`;
     b.setAttribute('aria-expanded', 'false');
     b.addEventListener('click', () => this.toggleVersions());
     // The stage track carries it: the record as a whole, beside its rounds.
@@ -252,7 +252,7 @@ export const historyMethods = {
       chip.setAttribute('aria-expanded', open ? 'true' : 'false');
       chip.classList.toggle('is-open', open);
       chip.classList.toggle('is-new', waiting);
-      chip.title = title;
+      tip(chip, title);
     }
   },
 };

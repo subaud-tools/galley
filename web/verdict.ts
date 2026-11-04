@@ -37,6 +37,7 @@ import type { AppShell } from './appshell.ts';
 import type { ReviseStateView } from './wire';
 import { messagePill } from './kit/dom.js';
 import { shareMenu } from './kit/share.js';
+import { tip } from './tip.ts';
 
 // The full shape of what GET /_galley/revise answers.
 //
@@ -524,13 +525,13 @@ export const verdictMethods = {
       this.hideArrivedRound();
     }
     cell.textContent = '';
-    cell.title = '';
+    tip(cell, '');
     if (!m || this.sealed || history) {
       return;
     }
     const line = messageLine(m);
     cell.append(messagePill(m.state, line));
-    cell.title = line;
+    tip(cell, line);
   },
 
   paintRevise(this: AppShell) {
@@ -550,7 +551,7 @@ export const verdictMethods = {
     });
     revise.textContent = face.label;
     revise.disabled = face.disabled || this.approved || this.settling;
-    revise.title = face.title;
+    tip(revise, face.title);
     const more = document.getElementById('gly-revise-more');
     if (more instanceof HTMLButtonElement) {
       more.hidden =

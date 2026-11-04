@@ -25,6 +25,7 @@ import { postJSON, routes } from './net.ts';
 import { VERDICT_ENTRUSTED, VERDICT_DISCARDED, clockTime } from './verdict.ts';
 import type { AppShell } from './appshell.ts';
 import type { ReviseWatchView } from './verdict.ts';
+import { tip, tipBox } from './tip.ts';
 
 const CANCEL_HANDOFF = '✕ cancel';
 
@@ -399,15 +400,14 @@ export const sealMethods = {
   // is still a button to the keyboard).
   makeHandoffCancel(this: AppShell): HTMLButtonElement | null {
     const anchor = document.getElementById('gly-revise');
-    if (!anchor || !anchor.parentNode) {
+    const row = anchor ? tipBox(anchor).parentNode : null;
+    if (!row) {
       return null;
     }
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'kit-btn gly-handoff-cancel';
     b.textContent = CANCEL_HANDOFF;
-    b.title =
-      'take the document back from the agent — a parseable draft is kept as its round';
     b.disabled = true;
     b.addEventListener('click', () => {
       if (b.disabled) {
@@ -420,7 +420,11 @@ export const sealMethods = {
     });
     // First in the row: the row is right-aligned, so its coming and going moves
     // no other control.
-    anchor.parentNode.insertBefore(b, anchor.parentNode.firstChild);
+    row.insertBefore(b, row.firstChild);
+    tip(
+      b,
+      'take the document back from the agent — a parseable draft is kept as its round',
+    );
     this.paintCancelOn(b);
     return b;
   },

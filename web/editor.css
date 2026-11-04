@@ -1779,7 +1779,8 @@ body.gly-history-mode .kit-card-body > main {
 /* GUTTER_PX, the same 26 the band insets its own cards by, so a card's left
    edge is the same fact in both views rather than two arrangements that happen
    to look alike at one window width. */
-.gly-versions .gly-versions-rail > * {
+.gly-versions .gly-versions-rail > :not(.gly-tip-at),
+.gly-versions .gly-versions-rail > .gly-tip-at > :not(.kit-tip) {
   margin-left: var(--gly-rail-gutter);
 }
 /* THE DRAFT'S PAPER, WEARING DIFF MARKS — and the paper itself, its block
@@ -2395,6 +2396,11 @@ body.gly-page .ProseMirror p.gly-shell-marker {
    would make the grid a scroll container and unstick the bar, the columns and
    the send bar from the window. clip stops it the same way and scrolls nothing. */
 .kit-app.kit-narrow { overflow-x: clip; }
+
+/* A control's tip box (web/tip.ts) lays out nothing of its own: the control
+   is where it was, and the tip is fixed. A tip with no words shows nothing. */
+.kit-tip-at.gly-tip-at { display: contents; }
+.gly-tip-at > .kit-tip:empty { display: none; }
 .kit-app > .kit-bar {
   position: sticky;
   top: 0;
@@ -2481,7 +2487,8 @@ body.gly-history-mode .kit-sendbar { display: none; }
 #gly-revise { min-width: 22ch; }
 /* Revise's ▾ is one control with it: no gap between them (the kit's 8px, taken
    back), the shared edge squared, a hairline of the button's ink between. */
-#gly-revise:has(~ #gly-revise-more:not([hidden])) { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+/* Revise sits in its tip box (web/tip.ts), the ▾ beside the box. */
+.gly-tip-at:has(~ #gly-revise-more:not([hidden])) > #gly-revise { border-top-right-radius: 0; border-bottom-right-radius: 0; }
 .kit-sendbar .gly-revise-more {
   margin-left: -8px;
   padding-inline: 8px;
