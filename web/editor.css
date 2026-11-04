@@ -2445,6 +2445,10 @@ body.gly-page .ProseMirror p.gly-shell-marker {
   color: var(--gly-del);
 }
 .kit-bar .gly-disk-notice[hidden] { display: none; }
+/* A clash's Dismiss, at the notice's end, in the notice's ink. */
+.kit-bar .gly-disk-notice:has(.gly-disk-dismiss) { display: flex; align-items: flex-start; gap: 10px; }
+.kit-bar .gly-disk-notice:has(.gly-disk-dismiss) > span { flex: 1; min-width: 0; }
+.gly-disk-dismiss { flex: none; color: inherit; border-color: currentColor; padding: 0 8px; }
 
 /* The send bar is docked to the window's foot: the centre column fills the window
    and has no foot of its own, the card ends at the bar, and the bar is one row at

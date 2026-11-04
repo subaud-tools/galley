@@ -848,6 +848,7 @@ class App implements AppState {
   handoff: boolean;
   draftError: string;
   diskNotice: string;
+  diskNoticeKind: string;
   reviseWaiting: boolean;
 
   // --- fields private to this file's own methods (lit-run highlighting,
@@ -1075,6 +1076,7 @@ class App implements AppState {
     this.handoff = false;
     this.draftError = '';
     this.diskNotice = '';
+    this.diskNoticeKind = '';
     this.cancelBtn = this.makeHandoffCancel();
 
     // SHARE, built hidden directly after Revise — after the cancel button so

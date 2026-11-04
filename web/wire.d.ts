@@ -57,6 +57,7 @@ export interface ReviseStateView {
   handoff: boolean;
   draftError: string;
   diskNotice: string;
+  diskNoticeKind: string;
   sealed: boolean;
   verdict: string;
   verdictAt: number;

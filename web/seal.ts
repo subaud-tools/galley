@@ -382,6 +382,7 @@ export const sealMethods = {
     this.handoff = now;
     this.draftError = d.draftError || '';
     this.diskNotice = d.diskNotice || '';
+    this.diskNoticeKind = d.diskNoticeKind || '';
     if (now !== was) {
       if (now) {
         this.editor.setEditable(false);

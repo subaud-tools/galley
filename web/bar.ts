@@ -24,6 +24,7 @@ import { agentHolds, roundInHand } from './roundbar.ts';
 import { age } from './suggestions.ts';
 import { roundCards, STAGE_READING } from './versions.ts';
 import type { AppShell } from './appshell.ts';
+import { postJSON, routes } from './net.ts';
 import { tip } from './tip.ts';
 
 /** THE READOUT SAYS WHERE THE DOCUMENT IS, IN A GRAMMAR THAT ALWAYS FITS.
@@ -53,6 +54,12 @@ export function roundPhrase(rounds: number, phase: string): string {
   return `${where} · ${phase}`;
 }
 
+// The one disk notice the reviewer may dismiss: the file changed outside the
+// editor while they were editing. It says where the other version went, and once
+// read there is nothing left to do. Missing and unreadable describe a problem
+// still happening, and go on their own once it is fixed.
+const NOTICE_CLASH = 'clash';
+
 /** THE FILE ITSELF GETS ITS OWN LINE, under the bar's row and full width.
  *
  * Changed outside the editor, gone from its path, or unreadable (galley#44):
@@ -61,8 +68,9 @@ export function roundPhrase(rounds: number, phase: string): string {
  * this last — so `Nothing is being saved.` was the part a reviewer never saw.
  * It is a child of the sticky bar rather than a sibling, so it scrolls with the
  * bar; it hangs below the bar out of flow (see `.gly-disk-notice`), because it
- * arrives unasked and must move nothing. Absent when empty. */
-function paintDiskNotice(text: string) {
+ * arrives unasked and must move nothing. Absent when empty. A clash carries
+ * Dismiss, which `dismiss` runs. */
+function paintDiskNotice(text: string, kind: string, dismiss: () => void) {
   let el = document.getElementById('gly-disk-notice');
   if (!el) {
     const bar = document.querySelector('.kit-bar');
@@ -76,7 +84,24 @@ function paintDiskNotice(text: string) {
     bar.appendChild(el);
   }
   el.hidden = !text;
-  el.textContent = text;
+  // The readout repaints on a timer: a notice already showing is left as it
+  // is, so its Dismiss is never swapped out from under a press.
+  const said = `${kind}\n${text}`;
+  if (el.dataset.said === said) {
+    return;
+  }
+  el.dataset.said = said;
+  const words = document.createElement('span');
+  words.textContent = text;
+  el.replaceChildren(words);
+  if (text && kind === NOTICE_CLASH) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'kit-btn gly-disk-dismiss';
+    b.textContent = 'Dismiss';
+    b.addEventListener('click', dismiss);
+    el.append(b);
+  }
 }
 
 /** The handoff's three strings, exported for the same reason every other
@@ -187,8 +212,29 @@ export const barMethods = {
    * A SEALED REVIEW PRINTS ONLY THE REPLY. The state there is the seal's own
    * readout (`Approved HH:MM`), which makeSeal puts BEFORE this element for
    * the same reason: the reply lands after it and moves nothing. */
+  // Dismiss on a clash notice. The server clears it only if it is still a
+  // clash, so this page, a reload and every other tab stop showing it; the page
+  // drops it at once and the next poll says what the server holds.
+  dismissDiskNotice(this: AppShell) {
+    void postJSON(routes.noticeDismiss, {})
+      .then((res) => {
+        if (!res.ok) {
+          this.say(`dismiss failed (${res.status})`);
+          return;
+        }
+        if (this.diskNoticeKind === NOTICE_CLASH) {
+          this.diskNotice = '';
+          this.diskNoticeKind = '';
+          this.paintReadout();
+        }
+      })
+      .catch((err: unknown) => this.say(`dismiss failed: ${String(err)}`));
+  },
+
   paintReadout(this: AppShell) {
-    paintDiskNotice(this.diskNotice);
+    paintDiskNotice(this.diskNotice, this.diskNoticeKind, () =>
+      this.dismissDiskNotice(),
+    );
     // HISTORY SAYS WHERE YOU ARE AND THAT THE DRAFT IS SAFE, and it says both
     // in one clause so the mode can never be mistaken for the draft. The whole
     // fixed grammar below — the phase, the connection, the save age — is about

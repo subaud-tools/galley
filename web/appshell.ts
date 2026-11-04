@@ -354,6 +354,8 @@ export interface AppState {
   handoff: boolean;
   draftError: string;
   diskNotice: string;
+  /** Which notice it is: the page offers Dismiss on a clash only. */
+  diskNoticeKind: string;
   reviseWaiting: boolean;
 }
 
@@ -379,6 +381,7 @@ export interface AppMethods {
   clearNewLater(): void;
   noticeArrivals(arrived: ArrivalItem[]): void;
   paintReadout(): void;
+  dismissDiskNotice(): void;
   paintRevise(): void;
   sendVerdict(
     body: Parameters<AppShell['postVerdict']>[0],

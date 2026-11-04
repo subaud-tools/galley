@@ -17,7 +17,7 @@ galley is a document two parties revise in rounds. The reviewer reads a draft in
 
 Do **not** poll `galley wait` to find out whether a review started. If no editor is running for the file, `galley wait` exits immediately — that means "nothing to wait for", not "try again". Call `galley_open` instead.
 
-Between rounds, galley loads your edits to an open document. If you and the reviewer change it at the same time, the reviewer's copy is kept and yours is saved in .galley/recovery. Stop the review before moving or deleting the file.
+Between rounds, galley loads your edits to an open document. If you and the reviewer change it at the same time, the reviewer's copy is kept and yours is saved in .galley/recovery; their page says so, with a `Dismiss` that clears the warning for every tab. Stop the review before moving or deleting the file.
 
 ## What the reviewer does, so you can tell them
 
