@@ -687,10 +687,21 @@ try {
     const menu = await page.evaluate((sel) => {
       const el = document.querySelector(sel);
       const r = el.getBoundingClientRect();
+      const item = el.querySelector('button');
+      const ir = item.getBoundingClientRect();
+      const pad = parseFloat(getComputedStyle(el).paddingLeft);
       return {
         items: [...el.querySelectorAll('button')].map((b) =>
           b.innerText.trim(),
         ),
+        itemClass: item.className,
+        reviseClass: document.querySelector('#gly-revise').className,
+        itemBg: getComputedStyle(item).backgroundColor,
+        reviseBg: getComputedStyle(document.querySelector('#gly-revise'))
+          .backgroundColor,
+        across:
+          Math.abs(ir.left - (r.left + pad + 1)) <= 1 &&
+          Math.abs(ir.right - (r.right - pad - 1)) <= 1,
         top: r.top,
         left: r.left,
         right: r.right,
@@ -704,6 +715,15 @@ try {
         menu.left >= 0 &&
         menu.right <= width &&
         menu.bottom <= height,
+      JSON.stringify(menu),
+    );
+    check(
+      `${width}×${height}: Revise & approve is a filled button of Revise's type, across the menu`,
+      menu.itemClass.split(' ').includes('kit-btn') &&
+        menu.itemClass.split(' ').includes('fill') &&
+        menu.reviseClass.split(' ').includes('fill') &&
+        menu.itemBg === menu.reviseBg &&
+        menu.across,
       JSON.stringify(menu),
     );
     await page.keyboard.press('Escape');

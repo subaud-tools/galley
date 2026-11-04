@@ -2521,6 +2521,14 @@ body.gly-history-mode .kit-sendbar { display: none; }
 .gly-top-revise #gly-revise { flex: 1; min-width: 0; padding-inline: 0; text-align: center; }
 /* Revise sits in its tip box (web/tip.ts), the ▾ beside the box. */
 .gly-tip-at:has(~ #gly-revise-more:not([hidden])) > #gly-revise { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+/* Its ▾'s one item, Revise & approve, is a send too: Revise's filled button
+   and face, across the menu. */
+.gly-revise-menu .kit-btn.fill {
+  font: 700 13px var(--kit-mono);
+  padding: 7px 14px;
+  text-align: center;
+}
+.gly-revise-menu .kit-btn.fill:hover { border-color: var(--kit-signal); filter: brightness(1.08); }
 .gly-top-revise .gly-revise-more {
   flex: none;
   padding-inline: 8px;
@@ -2580,7 +2588,10 @@ body.gly-sealed .gly-tab-hint { display: none; }
 .gly-edit-words ins { color: var(--gly-ins); text-decoration-style: dotted; }
 /* The row lit from either end: hovered here, or its words hovered there. */
 .kit-draft-row.gly-lit { border-color: var(--kit-signal); }
-/* The thread's messages, then this round's drafts, then the box. */
+/* Chat in Instructions' shape: the label, the box across the panel with Send
+   under it at its right edge, then the messages and the sentence. */
+.gly-chat-note { margin-bottom: 8px; }
+.gly-chat-note > .kit-btns { align-self: flex-end; }
 .gly-chat-said > .kit-empty { margin: 0 0 12px; }
 .gly-chat-said.gly-chat-told > .kit-empty { display: none; }
 .gly-chat-said:not(.gly-chat-told) > .kit-thread-msgs { display: none; }
@@ -2626,8 +2637,10 @@ body.gly-sealed .gly-chat-hint { display: none; }
 /* --- the left panel ---
    The search box over the folder filter and the sections; each row's ⋯ sits
    beside its button, centred on it, as the attention dot does. */
-/* Find a review shares the fold arrow's line and ends before it: the arrow is
-   25px wide, 12px in from the edge, so the box stops 8px short of it. */
-.gly-find { margin: 8px 45px 4px 12px; width: calc(100% - 57px); min-height: 25px; }
+/* Find a review has its own line under the fold arrow, across the panel, its
+   top level with the right panel's tab row: the kit sets that row 41px into
+   its column (.kit-rail-tabs), and this column's body starts where that one's
+   does. */
+.gly-find { margin: 41px 12px 4px; width: calc(100% - 24px); min-height: 25px; }
 .gly-index { padding: 0 12px 12px; }
 .gly-row-more { flex: none; align-self: center; }

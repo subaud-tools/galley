@@ -349,6 +349,7 @@ const TAB_INSTRUCTIONS_DOC = 'instructions-doc';
 const TAB_CHAT = 'chat';
 const DOC_HINT = 'Add an instruction on the whole document…';
 const CHAT_HINT = 'Message the agent…';
+const CHAT_LABEL = 'With the agent';
 const CHAT_SAYS =
   "The agent reads it now and answers here. It doesn't change the document; instructions and Revise do.";
 const REVERT_NOTE =
@@ -560,7 +561,15 @@ function makeTabs(
     name: 'Chat',
     note: { el: chatBox.el, box: chatBox.box, send: sendChat, label: 'Send' },
   });
-  chat.querySelector('.kit-note-line')?.classList.add('gly-chat-note');
+  // Chat opens in Instructions' shape, so switching tabs moves nothing: its
+  // label, then its box at the same height with Send under it at the right,
+  // then the messages. The label says who it is with; the kit's heading goes.
+  chat.querySelector('.kit-thread-name')?.remove();
+  const label = chat.querySelector('.kit-label')!;
+  label.textContent = CHAT_LABEL;
+  const note = chat.querySelector('.kit-note-line')!;
+  note.classList.add('gly-chat-note');
+  label.after(note);
   chat.append(h('p', { class: 'kit-meta gly-chat-hint' }, CHAT_SAYS));
   // The kit draws the thread whole, so the messages are kept in a list of their
   // own in its empty line's place, redrawn as they change: the box keeps its words.

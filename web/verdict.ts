@@ -188,14 +188,22 @@ export const verdictMethods = {
     // review, so the whole-document box's words go with it.
     const more = document.getElementById('gly-revise-more');
     if (more) {
-      shareMenu(more, [{ label: MENU_TRUST, act: 'trust' }], () => {
-        const filed = window.galleyChrome?.fileWords() ?? Promise.resolve(true);
-        void filed.then((ok) => {
-          if (ok) {
-            this.postVerdict({ approveOnAnswer: true }, false);
-          }
-        });
-      });
+      const menu = shareMenu(
+        more,
+        [{ label: MENU_TRUST, act: 'trust' }],
+        () => {
+          const filed =
+            window.galleyChrome?.fileWords() ?? Promise.resolve(true);
+          void filed.then((ok) => {
+            if (ok) {
+              this.postVerdict({ approveOnAnswer: true }, false);
+            }
+          });
+        },
+      );
+      // Revise & approve is a send too: Revise's filled button, the menu's width.
+      menu.el.classList.add('gly-revise-menu');
+      menu.el.querySelector('button')?.classList.add('kit-btn', 'fill');
     }
     return el;
   },

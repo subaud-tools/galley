@@ -112,6 +112,60 @@ check(
   'the box has a button saying Send',
   (await send.count()) === 1 && (await send.innerText()).trim() === 'Send',
 );
+// Instructions and Chat open in one shape, so switching tabs moves nothing:
+// the tab row stays put, each tab's box sits at the same height, and its button
+// sits under the box at its right edge. Chat's label says who it is with.
+{
+  const shape = (tab) =>
+    page.evaluate((tab) => {
+      const at = (e) => e?.getBoundingClientRect().toJSON() ?? null;
+      const panel = document.querySelector(
+        `.kit-rail-panel[aria-label="${tab}"]`,
+      );
+      const box = panel.querySelector('textarea');
+      const btn = panel.querySelector('.kit-note-line .kit-btn');
+      return {
+        row: at(document.querySelector('.kit-rail-tabrow')),
+        label: panel.querySelector('.kit-label')?.textContent ?? '',
+        heading: !!panel.querySelector('.kit-thread-name'),
+        box: at(box),
+        btn: at(btn),
+      };
+    }, tab);
+  const tabTo = async (tab) => {
+    await page.click(`.kit-rail-tabrow button:has-text("${tab}")`);
+    await page.waitForTimeout(100);
+  };
+  await tabTo('Instructions');
+  const ins = await shape('Instructions');
+  await tabTo('Chat');
+  const chat = await shape('Chat');
+  const under = (s) =>
+    s.box &&
+    s.btn &&
+    s.btn.top >= s.box.bottom &&
+    Math.abs(s.btn.right - s.box.right) <= 1;
+  check(
+    'switching Instructions to Chat leaves the tab row and the box where they were',
+    !!ins.row &&
+      !!chat.row &&
+      ins.row.top === chat.row.top &&
+      !!ins.box &&
+      !!chat.box &&
+      ins.box.top === chat.box.top &&
+      ins.box.left === chat.box.left &&
+      ins.box.width === chat.box.width,
+    JSON.stringify({ ins, chat }),
+  );
+  check(
+    "Chat's label reads With the agent, with no heading, and Send sits under its box at the right, as Add instruction does",
+    chat.label === 'With the agent' &&
+      !chat.heading &&
+      under(chat) &&
+      under(ins),
+    JSON.stringify({ ins, chat }),
+  );
+}
 check(
   'the hint is under the box',
   (
