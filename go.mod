@@ -6,7 +6,7 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/reearth/ygo v1.43.0
 	github.com/subaud-tools/tools-common v0.66.0
-	github.com/subaud-tools/tools-common/mermaidkit v0.2.0
+	github.com/subaud-tools/tools-common/mermaidkit v0.3.0
 	github.com/subaud-tools/tools-common/sqlitedb v0.2.0
 	github.com/yuin/goldmark v1.8.5
 	golang.org/x/net v0.59.0
