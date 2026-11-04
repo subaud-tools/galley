@@ -294,6 +294,13 @@ jobs:
         env:
           GALLEY: ${{ github.workspace }}/bin/galley
 
+      # The page's keys are the kit's: letters in the document stay letters,
+      # ? lists galley's keys, / finds a review, and Esc runs the chain.
+      - name: Gate — the page's keys
+        run: node web/keys.mjs
+        env:
+          GALLEY: ${{ github.workspace }}/bin/galley
+
       # `web/layers.mjs` IS DELIBERATELY NOT HERE YET, AND THAT IS NOT AN
       # OVERSIGHT — it is the one gate that measures PIXELS, and it is not
       # platform-stable. Two checks fail on a Linux runner and pass on a mac:

@@ -24,6 +24,7 @@
     "switcher.mjs",
     "chat.mjs",
     "kept.mjs",
+    "keys.mjs",
     "schema.mjs",
     "schemacheck.mjs",
     "schemacorpus.mjs",

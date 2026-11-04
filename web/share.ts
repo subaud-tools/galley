@@ -7,11 +7,10 @@
 // THE BOTTOM HALF, `shareMethods`, IS A MIXIN `Object.assign`ed onto
 // `App.prototype` in entry.ts, typed against `AppShell` like web/seal.ts.
 //
-// SHARE APPEARS ONLY AFTER APPROVAL, IN THE BOX REVISE LEAVES. It is built
-// hidden, directly after `#gly-revise`, and `applySeal` swaps the two on the
-// sealing edge (and back on the unseal edge) with `hidden`, so exactly one of
-// them occupies the slot. Its width and height are Revise's own, read on that
-// edge, so approving moves nothing in the bar (web/share.mjs measures it).
+// SHARE APPEARS ONLY AFTER APPROVAL, at the end of the send bar, where Revise
+// sat before it moved to the top bar. It is built hidden, and `applySeal` swaps
+// it with Revise on the sealing edge (and back on the unseal edge) with
+// `hidden` (web/share.mjs checks it).
 //
 // TWO WAYS TO HAND IT OVER. A download is the browser's: Download HTML is
 // GET /_galley/render?download=1 (the branded page, no refresh script) and
@@ -34,6 +33,7 @@
 
 import { apiUrl, postJSON, routes } from './net.ts';
 import type { AppShell } from './appshell.ts';
+import { tip } from './tip.ts';
 import {
   SHARE_LABEL,
   SHARE_DOWNLOAD_HTML,
@@ -106,20 +106,21 @@ function download(href: string) {
 let replyClear: ReturnType<typeof setTimeout> | undefined;
 
 export const shareMethods = {
-  // makeShare builds the button hidden, directly after Revise, so it can take
-  // Revise's place on the seal edge. Null where the shell has no Revise.
+  // makeShare builds the button hidden, at the end of the send bar's row, where
+  // Revise sat before it moved to the top bar, and shows it on the seal edge.
+  // Null where the shell has no Revise.
   makeShare(this: AppShell): HTMLButtonElement | null {
-    const revise = this.revise;
-    if (!revise || !revise.parentNode) {
+    const row = this.discardBtn?.parentNode;
+    if (!this.revise || !row) {
       return null;
     }
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'kit-btn gly-share';
     b.textContent = SHARE_LABEL;
-    b.title = 'hand the approved document to a reader';
     b.hidden = true;
-    revise.parentNode.insertBefore(b, revise.nextSibling);
+    row.appendChild(b);
+    tip(b, 'hand the approved document to a reader');
     // The kit's menu binds the button's click to its toggle, and closes on an
     // outside click, Escape and a resize. Built now, hidden: the button is
     // hidden until the seal edge, so nothing can open it before approval.
@@ -131,9 +132,8 @@ export const shareMethods = {
     return b;
   },
 
-  // swapShare is the seal edge's half for the slot: sealed shows Share in
-  // Revise's box (one CSS width, `--gly-verb-w`, and the bar's padding),
-  // unsealed hands the slot back to Revise.
+  // swapShare is the seal edge's half: sealed shows Share and hides Revise,
+  // unsealed hands back to Revise.
   swapShare(this: AppShell, sealed: boolean) {
     const share = this.share;
     const revise = this.revise;
@@ -204,11 +204,11 @@ export const shareMethods = {
     b.type = 'button';
     b.className = 'kit-btn gly-preview-open';
     b.textContent = PREVIEW_LABEL;
-    b.title = 'the branded page Download HTML saves, refreshed on every save';
     b.addEventListener('click', () => {
       window.open(apiUrl(routes.render), '_blank', 'noopener');
     });
     tools.append(b);
+    tip(b, 'the branded page Download HTML saves, refreshed on every save');
     return b;
   },
 };

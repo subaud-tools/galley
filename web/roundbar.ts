@@ -17,6 +17,26 @@ export interface RoundStage {
   opens?: string | null;
 }
 
+// What this file needs of the kit's EscCloser and KeyBinding, spelled here for
+// the same reason: the page's keys, which the shell gives to createKeys.
+export interface EscStep {
+  label: string;
+  /** Closes it if it is open and says so. */
+  close(): boolean;
+}
+export interface PageKey {
+  keys: string;
+  label: string;
+  /** false leaves the key to the browser. */
+  run(): boolean;
+  inField?: boolean;
+}
+/** The page's keyboard: the Esc chain, in the order tried, and its keys. */
+export interface KeyLayer {
+  esc: EscStep[];
+  keys: PageKey[];
+}
+
 declare global {
   interface Window {
     galleyChrome?: GalleyChrome;
@@ -62,6 +82,8 @@ export interface GalleyChrome {
   /** Waits out every save and filing on its way, trying a failed save again.
    * False when something is still not with the server. */
   settled(): Promise<boolean>;
+  /** Gives the page's keys to the kit's keyboard layer, with / for Find a review. */
+  mountKeys(layer: KeyLayer): void;
   paintPrimary(label: string | null): void;
   paintStages(
     stages: RoundStage[],
@@ -163,9 +185,13 @@ export function agentHolds(o: {
   return o.handoff || o.waiting || agentHasIt(o.message);
 }
 
-/** The bar's one primary: Approve while the review is with the reader and
- * nothing is pending, the way back while History is open, otherwise none. With
- * drafts or hand edits pending, Revise's ▾ holds Revise & approve instead. */
+/** The words in the bar's top-right slot. The way back while History is open;
+ * nothing once the review is approved; Approve while the review is with the
+ * reader and nothing is pending. Otherwise Revise: with drafts or hand edits
+ * pending (its ▾ holds Revise & approve), and while the agent has the round,
+ * where Revise's own face counts the seconds or offers to send again. The
+ * shell shows Revise itself (`#gly-revise`) for that word, not the kit's
+ * primary, so there is one Revise and one way it posts. */
 export function primaryWords(o: {
   history: boolean;
   sealed: boolean;
@@ -178,11 +204,17 @@ export function primaryWords(o: {
   if (o.history) {
     return '← back to draft';
   }
-  if (o.drafts + o.edits > 0) {
+  if (o.sealed) {
     return null;
   }
-  return o.sealed || o.handoff || agentHolds(o) ? null : 'Approve';
+  if (o.drafts + o.edits > 0 || o.handoff || agentHolds(o)) {
+    return TOP_REVISE;
+  }
+  return 'Approve';
 }
+
+/** The top slot's word for Revise. */
+export const TOP_REVISE = 'Revise';
 
 /** Whether Revise shows its ▾ (Revise & approve): while drafts or hand edits
  * are pending and the round is the reader's. */

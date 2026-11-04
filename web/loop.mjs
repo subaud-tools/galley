@@ -646,7 +646,7 @@ check(
 
 // --- §3 Revise, and the agent is handed the round ------------------------
 
-// Revise is the kit's Send on the send bar: the press is the send.
+// Revise is the kit's Send, moved to the top bar: the press is the send.
 await page.click('#gly-revise');
 
 const woke = await heard('woke', 20000);

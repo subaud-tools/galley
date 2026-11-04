@@ -43,6 +43,7 @@ import {
 } from './grips.ts';
 import type { GripTarget } from './grips.ts';
 import { scopeKey } from './scope.ts';
+import { tip, tipBox } from './tip.ts';
 import type { EditorView } from '@tiptap/pm/view';
 import type { Node as PMNode } from '@tiptap/pm/model';
 import type { AppShell, Thread } from './appshell.ts';
@@ -139,11 +140,11 @@ export const figureMethods = {
       pin.style.height = `${thread.region.h * 100}%`;
       const said =
         (thread.entries && thread.entries[0] && thread.entries[0].text) || '';
-      pin.title = said || 'an instruction on this region';
       pin.setAttribute('aria-label', `instruction on a region: ${said}`);
       pin.addEventListener('mousedown', (event) => event.preventDefault());
       pin.addEventListener('click', () => this.openDraft(thread.key));
       layer.appendChild(pin);
+      tip(pin, said || 'an instruction on this region');
     }
   },
 
@@ -226,8 +227,10 @@ export const figureMethods = {
     const off = !!this.sealed || !!this.handoff;
     layer.hidden = off;
     const have = new Map<string, HTMLButtonElement>();
+    // Each grip sits in its tip box (web/tip.ts), and the box is the layer's
+    // child: what is placed, ordered and removed.
     for (const b of layer.querySelectorAll<HTMLButtonElement>(
-      ':scope > .gly-block-grip',
+      ':scope > .gly-block-grip, :scope > .gly-tip-at > .gly-block-grip',
     )) {
       have.set(`${b.dataset.index}:${b.dataset.kind}`, b);
     }
@@ -235,7 +238,7 @@ export const figureMethods = {
     const claim = (b: HTMLButtonElement | undefined, t: GripTarget) =>
       b &&
       !kept.has(b) &&
-      b.parentElement === layer &&
+      tipBox(b).parentElement === layer &&
       b.dataset.kind === t.kind
         ? b
         : null;
@@ -250,8 +253,8 @@ export const figureMethods = {
       b.dataset.index = String(t.index);
       b.hidden = off;
       b.disabled = off;
-      if (layer.children[i] !== b) {
-        layer.insertBefore(b, layer.children[i] || null);
+      if (layer.children[i] !== tipBox(b)) {
+        layer.insertBefore(tipBox(b), layer.children[i] || null);
       }
       // THE COUNT IS THE BLOCK'S OWN, by its key from the server's list: a
       // section's grip counts the instructions on its heading, not those on
@@ -265,12 +268,12 @@ export const figureMethods = {
       b.classList.toggle('is-commented', count > 0);
       const label = gripLabel(t, doc.child(t.index).textContent, count);
       b.setAttribute('aria-label', label);
-      b.title = label;
+      tip(b, label);
       return b;
     });
     for (const gone of have.values()) {
       if (!kept.has(gone)) {
-        gone.remove();
+        tipBox(gone).remove();
       }
     }
 

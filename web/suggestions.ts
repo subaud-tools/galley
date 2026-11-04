@@ -680,10 +680,9 @@ export interface SuggestionRun {
 }
 
 // attrString narrows a mark attribute — typed `any` by prosemirror-model's
-// own Attrs — to the string it is meant to be, or '' for anything else. The
-// same "no assertions, narrow with a real check" discipline tabs.ts's
-// keyTargetIsEditable uses, applied to the one place this file reads an
-// attribute off a mark.
+// own Attrs — to the string it is meant to be, or '' for anything else: no
+// assertions, narrow with a real check, applied to the one place this file
+// reads an attribute off a mark.
 function attrString(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }

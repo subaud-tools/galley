@@ -88,7 +88,7 @@
 //     THIS constructor, the same shape as `cardSizes` beside it. Moved to
 //     AppState; see appshell.ts's note at that field for the full argument.
 //   - AppMethods was missing every constructor-only builder this file calls
-//     by name (`makeCensus`, `makeSheet`, `makeRevise`, `onKey`, `refuse`,
+//     by name (`makeCensus`, `makeSheet`, `makeRevise`, `keyLayer`, `refuse`,
 //     `enterHistory`, and sixteen more) — real mixin methods from Tasks 5-7,
 //     each already carrying `this: AppShell`, that nothing before this task
 //     needed typed because nothing before this task's own constructor CALLED
@@ -142,6 +142,7 @@ import { coerceLevel } from './heading.ts';
 // header carries the whole argument: the two rails are one surface and were
 // built twice.
 import { coalesce } from './card.ts';
+import { tip } from './tip.ts';
 import { VersionsPanel } from './versions.ts';
 // getJSON/postJSON own talking to the server; see web/net.ts's header for why
 // they cannot live in a mixin.
@@ -674,6 +675,21 @@ function init(opts?: { room?: string; wsURL?: string }): void {
       ...(pageMode ? [headingAlign()] : []),
     ],
     autofocus: false,
+    editorProps: {
+      handleDOMEvents: {
+        // ESC IS THE PAGE'S, NOT THE EDITOR'S. ProseMirror's own keydown
+        // calls preventDefault on every Esc, and the kit's keyboard layer
+        // leaves a prevented key alone, so Esc in the document would close
+        // nothing and never leave it. Answering it here keeps ProseMirror's
+        // handler off it (no keymap here binds Esc) and lets it bubble.
+        keydown: (_view, event) =>
+          event.key === 'Escape' &&
+          !event.metaKey &&
+          !event.ctrlKey &&
+          !event.altKey &&
+          !event.shiftKey,
+      },
+    },
   });
 
   app = new App({ editor, provider, room });
@@ -700,9 +716,8 @@ function init(opts?: { room?: string; wsURL?: string }): void {
 // hands back always comes straight from `this.comments` (threadFor filters
 // the very array `threads()` returns, see suggestions.ts's threadFor), which
 // this App always populates as `Thread[]`. So the richer shape is real, not
-// assumed — narrowed here with a real runtime check rather than trusted,
-// the same discipline tabs.ts's `keyTargetIsEditable` uses for the same
-// reason: a boundary's declared type is narrower than what it actually
+// assumed — narrowed here with a real runtime check rather than trusted:
+// a boundary's declared type is narrower than what it actually
 // carries, and `in` says so honestly instead of asserting it away.
 function isThread(t: ThreadLike): t is Thread {
   return 'key' in t;
@@ -847,6 +862,7 @@ class App implements AppState {
   handoff: boolean;
   draftError: string;
   diskNotice: string;
+  diskNoticeKind: string;
   reviseWaiting: boolean;
 
   // --- fields private to this file's own methods (lit-run highlighting,
@@ -1074,6 +1090,7 @@ class App implements AppState {
     this.handoff = false;
     this.draftError = '';
     this.diskNotice = '';
+    this.diskNoticeKind = '';
     this.cancelBtn = this.makeHandoffCancel();
 
     // SHARE, built hidden directly after Revise — after the cancel button so
@@ -1224,7 +1241,8 @@ class App implements AppState {
     // CLAUDE.md), and a note that arrives in that rebuild needs its words
     // before the next poll. Same shape as the figure NodeView's rebuild above.
     editor.on('update', () => this.paintNoteWords());
-    document.addEventListener('keydown', (event) => this.onKey(event));
+    // The page's keys are the kit's keyboard layer, which the shell holds.
+    window.galleyChrome?.mountKeys(this.keyLayer());
 
     // --- the right-click, and what it offers ---
     //
@@ -1709,15 +1727,12 @@ class App implements AppState {
     read.type = 'button';
     read.className = 'gly-notice-read';
     read.textContent = 'read changes';
-    read.title = 'open this round in History, on what it changed';
     read.addEventListener('click', () => this.readChanges());
 
     const show = document.createElement('button');
     show.type = 'button';
     show.className = 'gly-notice-show';
     show.textContent = 'show me';
-    show.title =
-      'scroll to what arrived — the only thing on this strip that moves the page';
     show.addEventListener('click', () => this.showMe());
 
     // THE QUIET WAY OUT, and it takes nothing with it. Dismissing is "not now",
@@ -1728,7 +1743,6 @@ class App implements AppState {
     dismiss.type = 'button';
     dismiss.className = 'gly-notice-dismiss';
     dismiss.textContent = 'dismiss';
-    dismiss.title = 'put this away — History stays marked until you read it';
     dismiss.addEventListener('click', () => this.hideStrip());
 
     // Handoff §11, verbatim. It says both that this notice is about to go and
@@ -1738,6 +1752,12 @@ class App implements AppState {
     fade.textContent = ARRIVAL_SUFFIX;
 
     root.append(text, read, show, dismiss, fade);
+    tip(read, 'open this round in History, on what it changed');
+    tip(
+      show,
+      'scroll to what arrived — the only thing on this strip that moves the page',
+    );
+    tip(dismiss, 'put this away — History stays marked until you read it');
     document.getElementById('gly-drafts')?.after(root);
     return { root, text, read, show, dismiss, fade };
   }
@@ -2020,16 +2040,29 @@ class App implements AppState {
     if (!bar) {
       return;
     }
+    // The round row sticks under the bar and wraps on a narrow window once the
+    // track holds a few rounds; page mode's view switch sticks under it, so
+    // its height is published the same way, as `--gly-stages-h`.
+    const row = document.querySelector('.gly-stages');
+    const seats = [
+      [bar, '--gly-bar-h'],
+      [row, '--gly-stages-h'],
+    ] as const;
     const publish = () => {
-      const h = bar.getBoundingClientRect().height;
-      if (h > 0) {
-        document.documentElement.style.setProperty('--gly-bar-h', `${h}px`);
+      for (const [el, name] of seats) {
+        const h = el?.getBoundingClientRect().height ?? 0;
+        if (h > 0) {
+          document.documentElement.style.setProperty(name, `${h}px`);
+        }
       }
     };
     publish();
     if (typeof window.ResizeObserver === 'function') {
       this.barSize = new window.ResizeObserver(publish);
       this.barSize.observe(bar);
+      if (row) {
+        this.barSize.observe(row);
+      }
       return;
     }
     // No ResizeObserver: a resize is the only thing left that changes the
@@ -2093,8 +2126,8 @@ Object.assign(App.prototype, shareMethods);
 // arrives through one of the eleven `Object.assign` calls immediately above,
 // so no class body declares them and `implements` cannot verify them; this
 // merges their names and signatures onto `App`'s type so the calls this
-// file itself makes to them (`this.makeCensus()` in the constructor,
-// `this.onKey(event)` in the keydown listener, and so on) type-check
+// file itself makes to them (`this.makeCensus()`,
+// `this.keyLayer()` in the constructor, and so on) type-check
 // against a real claim rather than an implicit `any`.
 interface App extends AppMethods {}
 

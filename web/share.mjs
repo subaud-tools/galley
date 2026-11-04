@@ -285,6 +285,73 @@ async function statusSays(page, want) {
       String(opened[0][2] || '').includes('noopener'),
     opened,
   );
+  // THE KIT'S TIP, NOT THE BROWSER'S TITLE: on hover and on keyboard focus,
+  // and a press still goes to the button.
+  {
+    const tipOf = (sel) =>
+      page.evaluate((s) => {
+        const b = document.querySelector(s);
+        const t = b?.parentElement?.querySelector(':scope > .kit-tip');
+        return {
+          title: b?.getAttribute('title') ?? null,
+          text: t?.textContent ?? null,
+          shown: !!t && getComputedStyle(t).display !== 'none',
+          described: !!t && b?.getAttribute('aria-describedby') === t.id,
+          expanded: b?.getAttribute('aria-expanded') ?? null,
+        };
+      }, sel);
+    const PREVIEW = '.gly-stages .gly-preview-open';
+    await page.hover(PREVIEW);
+    const hovered = await tipOf(PREVIEW);
+    check(
+      'HTML preview has no native title, and the kit tip says what it does on hover',
+      hovered.title === null &&
+        hovered.text ===
+          'the branded page Download HTML saves, refreshed on every save' &&
+        hovered.shown &&
+        hovered.described,
+      hovered,
+    );
+    await page.mouse.move(0, 0);
+    await page.locator('.gly-versions-open').focus();
+    const door = await tipOf('.gly-versions-open');
+    await page.keyboard.press('Tab');
+    const focused = await tipOf(PREVIEW);
+    check(
+      'and on keyboard focus',
+      focused.shown &&
+        (await page.evaluate(
+          (s) => document.activeElement === document.querySelector(s),
+          PREVIEW,
+        )),
+      focused,
+    );
+    check(
+      "History's tip leaves its own aria-expanded alone",
+      door.expanded === 'false' && door.title === null && !!door.text,
+      door,
+    );
+    const pressed = await page.evaluate(() => {
+      window.__opened = [];
+      window.open = (...a) => {
+        window.__opened.push(a);
+        return null;
+      };
+    });
+    void pressed;
+    await page.keyboard.press('Enter');
+    await page.mouse.click(
+      ...(await page
+        .locator(PREVIEW)
+        .boundingBox()
+        .then((r) => [r.x + r.width / 2, r.y + r.height / 2])),
+    );
+    check(
+      'Enter and a click on it still open the preview',
+      (await page.evaluate(() => window.__opened.length)) === 2,
+      await page.evaluate(() => window.__opened),
+    );
+  }
   {
     const res = await fetch(`${base}/_galley/render`);
     const body = await res.text();

@@ -1779,7 +1779,8 @@ body.gly-history-mode .kit-card-body > main {
 /* GUTTER_PX, the same 26 the band insets its own cards by, so a card's left
    edge is the same fact in both views rather than two arrangements that happen
    to look alike at one window width. */
-.gly-versions .gly-versions-rail > * {
+.gly-versions .gly-versions-rail > :not(.gly-tip-at),
+.gly-versions .gly-versions-rail > .gly-tip-at > :not(.kit-tip) {
   margin-left: var(--gly-rail-gutter);
 }
 /* THE DRAFT'S PAPER, WEARING DIFF MARKS — and the paper itself, its block
@@ -2259,12 +2260,12 @@ body.gly-history-mode .kit-card-body > main {
    already uses one rail over.
    ========================================================================= */
 
-/* The segmented control rides just under the sticky bar, spanning the working
+/* The segmented control rides just under the sticky round row, spanning the working
    area. It borrows the bar buttons' shape (0,1,1 base rule above) and adds only
    the pressed state, the layout and the sticky position that differ. */
 body.gly-page .gly-viewbar {
   position: sticky;
-  top: calc(var(--gly-kit-bar) + var(--gly-bar-h, 3.4rem));
+  top: calc(var(--gly-kit-bar) + var(--gly-stages-h));
   z-index: 6;
   display: flex;
   justify-content: center;
@@ -2391,6 +2392,15 @@ body.gly-page .ProseMirror p.gly-shell-marker {
 :root { --gly-kit-bar: 52px; }
 .kit-page, .kit-app { height: auto; min-height: 100vh; }
 .kit-app { overflow: visible; }
+/* The kit's narrow mode stops sideways scroll with overflow-x: hidden, which
+   would make the grid a scroll container and unstick the bar, the columns and
+   the send bar from the window. clip stops it the same way and scrolls nothing. */
+.kit-app.kit-narrow { overflow-x: clip; }
+
+/* A control's tip box (web/tip.ts) lays out nothing of its own: the control
+   is where it was, and the tip is fixed. A tip with no words shows nothing. */
+.kit-tip-at.gly-tip-at { display: contents; }
+.gly-tip-at > .kit-tip:empty { display: none; }
 .kit-app > .kit-bar {
   position: sticky;
   top: 0;
@@ -2412,8 +2422,26 @@ body.gly-page .ProseMirror p.gly-shell-marker {
 
 .gly-editor-card .kit-card-body > main { margin: 0 auto; }
 
-/* The rounds, above the card, with the whole record at the end of the line. */
-.gly-stages .kit-stages { margin: 0 0 12px; }
+/* The rounds, above the card, with the whole record at the end of the line.
+   The row sticks under the bar while the document scrolls, on the page's
+   background so the text doesn't show through, over the card's grips and pins
+   and under the side columns, the send bar and the bar (whose disk notice
+   hangs over it). Its gaps are its own padding, with the top one taken back
+   out of the flow, so at rest it sits where it always did. */
+/* The stuck row's height: its 8px and 12px gaps around one 20px line of the
+   track. Page mode's view switch sticks just under it. The row wraps on a
+   narrow window once there are a few rounds, so the editor measures it and
+   publishes the real height (entry.ts watchBar); this is the first paint's. */
+:root { --gly-stages-h: 40px; }
+.gly-stages {
+  position: sticky;
+  top: var(--gly-kit-bar);
+  z-index: 7;
+  margin-top: -8px;
+  padding: 8px 0 12px;
+  background: var(--kit-bg);
+}
+.gly-stages .kit-stages { margin: 0; }
 .gly-stages .gly-versions-open { margin-left: auto; padding: 0 10px; font-size: 12px; line-height: 18px; }
 .gly-versions-open.is-open, .gly-versions-open.is-new { border-color: var(--kit-signal); color: var(--kit-signal); }
 
@@ -2435,6 +2463,10 @@ body.gly-page .ProseMirror p.gly-shell-marker {
   color: var(--gly-del);
 }
 .kit-bar .gly-disk-notice[hidden] { display: none; }
+/* A clash's Dismiss, at the notice's end, in the notice's ink. */
+.kit-bar .gly-disk-notice:not([hidden]):has(.gly-disk-dismiss) { display: flex; align-items: flex-start; gap: 10px; }
+.kit-bar .gly-disk-notice:has(.gly-disk-dismiss) > span { flex: 1; min-width: 0; }
+.gly-disk-dismiss { flex: none; color: inherit; border-color: currentColor; padding: 0 8px; }
 
 /* The send bar is docked to the window's foot: the centre column fills the window
    and has no foot of its own, the card ends at the bar, and the bar is one row at
@@ -2473,29 +2505,53 @@ body.gly-history-mode .kit-sendbar { display: none; }
   cursor: pointer;
   white-space: nowrap;
 }
-/* Labels that change on a press or a tick keep their box. */
-#gly-revise { min-width: 22ch; }
-/* Revise's ▾ is one control with it: no gap between them (the kit's 8px, taken
-   back), the shared edge squared, a hairline of the button's ink between. */
-#gly-revise:has(~ #gly-revise-more:not([hidden])) { border-top-right-radius: 0; border-bottom-right-radius: 0; }
-.kit-sendbar .gly-revise-more {
-  margin-left: -8px;
+/* Revise is the top-right button while the round has something to send: it
+   takes the kit primary's box (below) and its face, its ▾ one control with it,
+   no gap between them, the shared edge squared, a hairline of the button's ink
+   between. Revise grows to fill what the ▾ leaves, so the box never changes. */
+.kit-bar.gly-revise-on-top .kit-primary[hidden] { display: none; }
+.gly-top-revise { display: inline-flex; flex: 0 var(--gly-top-give) auto; min-width: max-content; width: calc(16ch + 52px); font: 700 13px var(--kit-mono); }
+.gly-top-revise[hidden] { display: none; }
+.gly-top-revise .kit-btn {
+  font: 700 13px var(--kit-mono);
+  border: 0;
+  padding-block: 7px;
+  white-space: nowrap;
+}
+.gly-top-revise #gly-revise { flex: 1; min-width: 0; padding-inline: 0; text-align: center; }
+/* Revise sits in its tip box (web/tip.ts), the ▾ beside the box. */
+.gly-tip-at:has(~ #gly-revise-more:not([hidden])) > #gly-revise { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+/* Its ▾'s one item, Revise & approve, is a send too, so it is Revise again:
+   the menu draws no frame (no ground, hairline, padding or lift), and the
+   button takes the top box's face; verdict.ts gives it the box's width. */
+.kit-share-menu.gly-revise-menu {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.gly-revise-menu .kit-btn.fill {
+  font: 700 13px var(--kit-mono);
+  border: 0;
+  padding: 7px 0;
+  text-align: center;
+}
+.gly-revise-menu .kit-btn.fill:hover { border-color: var(--kit-signal); filter: brightness(1.08); }
+.gly-top-revise .gly-revise-more {
+  flex: none;
   padding-inline: 8px;
   border-top-left-radius: 0;
   border-bottom-left-radius: 0;
-  border-left-color: color-mix(in srgb, var(--kit-signal-ink) 35%, var(--kit-signal));
+  border-left: 1px solid color-mix(in srgb, var(--kit-signal-ink) 35%, var(--kit-signal));
 }
 #gly-discard { min-width: 21ch; }
 /* And give the box up before the row runs off the bar: the status shortens first,
    then the room kept for a longer label goes. */
 @container (max-width: 800px) {
   #gly-discard { min-width: 0; }
-  #gly-revise { min-width: 16ch; }
   .kit-sendbar .kit-btns { gap: 6px; }
-  .kit-sendbar .gly-revise-more { margin-left: -6px; }
 }
 @container (max-width: 560px) {
-  #gly-revise { min-width: 0; }
   .kit-sendbar .kit-btn { padding-inline: 6px; }
   .kit-sendbar .gly-notice { gap: 4px; }
   .gly-notice-read { padding-inline: 6px; }
@@ -2540,7 +2596,10 @@ body.gly-sealed .gly-tab-hint { display: none; }
 .gly-edit-words ins { color: var(--gly-ins); text-decoration-style: dotted; }
 /* The row lit from either end: hovered here, or its words hovered there. */
 .kit-draft-row.gly-lit { border-color: var(--kit-signal); }
-/* The thread's messages, then this round's drafts, then the box. */
+/* Chat in Instructions' shape: the label, the box across the panel with Send
+   under it at its right edge, then the messages and the sentence. */
+.gly-chat-note { margin-bottom: 8px; }
+.gly-chat-note > .kit-btns { align-self: flex-end; }
 .gly-chat-said > .kit-empty { margin: 0 0 12px; }
 .gly-chat-said.gly-chat-told > .kit-empty { display: none; }
 .gly-chat-said:not(.gly-chat-told) > .kit-thread-msgs { display: none; }
@@ -2548,20 +2607,31 @@ body.gly-sealed .gly-tab-hint { display: none; }
 .gly-chat-hint { margin: 8px 0 0; font: 11.5px var(--kit-mono); color: var(--kit-muted); }
 body.gly-sealed .gly-chat-note,
 body.gly-sealed .gly-chat-hint { display: none; }
-/* The whole-document section: its box and Add instruction, then its rows, then
-   the text's label with the gap a new section takes. */
-.gly-doc-line { margin-bottom: 8px; }
+/* The whole-document section: its box across the panel with Add instruction
+   under it at its right edge, then its rows, then the text's label with the gap
+   a new section takes. */
+.gly-doc-line { flex-direction: column; align-items: stretch; margin-bottom: 8px; }
+.gly-doc-line > .kit-btns { align-self: flex-end; }
 .gly-doc-drafts:has(.kit-draft-row) { margin-bottom: 8px; }
 .gly-tab > .kit-label:not(:first-child) { margin-top: 16px; }
 
 /* THE TOP BUTTON KEEPS ITS PLACE. Its words change on its own press (Approve,
-   ← back to draft) and it has none while drafts are pending, the agent revises
-   or the review is approved; a box that changed with them would slide the bar
-   (the rule web/history.ts states for History's door). One width, fitting the
-   longest label: `← back to draft` is 15 characters of the 13px mono, given
-   16ch for the arrow's glyph, plus the kit's 26px padding each side. With no
-   words the box stays, unseen. */
-.kit-bar .kit-primary { width: calc(16ch + 52px); padding-inline: 0; text-align: center; white-space: nowrap; }
+   ← back to draft), it gives way to Revise (above) while the round has
+   something to send, and it has none on an approved review; a box that changed
+   with them would slide the bar (the rule web/history.ts states for History's
+   door). One width, fitting the longest label: `← back to draft` is 15
+   characters of the 13px mono, given 16ch for the arrow's glyph, plus the kit's
+   26px padding each side; Revise's longest, `Revise · send again`, is 19ch with
+   no ▾. With no words the box stays, unseen. */
+.kit-bar .kit-primary { flex-shrink: var(--gly-top-give); width: calc(16ch + 52px); padding-inline: 0; text-align: center; white-space: nowrap; }
+/* ON A NARROW WINDOW THE BOX GIVES WAY BEFORE IT RUNS OFF THE BAR. The narrow
+   page scrolls nothing sideways, so whatever passes the edge can't be reached.
+   The status shortens first (it gives way at full weight); once it is gone the
+   top button and the "also open" chip give up the rest together, the button no
+   narrower than its words (and its ▾). Where everything fits, nothing gives
+   and the box is the width above. */
+:root { --gly-top-give: 0.01; }
+.kit-bar .kit-also { flex-shrink: var(--gly-top-give); min-width: 0; }
 .kit-bar .kit-primary[hidden] { display: inline-block; visibility: hidden; }
 
 /* --- a kept review whose file has moved on ---
@@ -2575,6 +2645,10 @@ body.gly-sealed .gly-chat-hint { display: none; }
 /* --- the left panel ---
    The search box over the folder filter and the sections; each row's ⋯ sits
    beside its button, centred on it, as the attention dot does. */
-.gly-find { margin: 12px 12px 4px; width: calc(100% - 24px); }
+/* Find a review has its own line under the fold arrow, across the panel, its
+   top level with the right panel's tab row: the kit sets that row 41px into
+   its column (.kit-rail-tabs), and this column's body starts where that one's
+   does. */
+.gly-find { margin: 41px 12px 4px; width: calc(100% - 24px); min-height: 25px; }
 .gly-index { padding: 0 12px 12px; }
 .gly-row-more { flex: none; align-self: center; }
