@@ -2260,12 +2260,12 @@ body.gly-history-mode .kit-card-body > main {
    already uses one rail over.
    ========================================================================= */
 
-/* The segmented control rides just under the sticky bar, spanning the working
+/* The segmented control rides just under the sticky round row, spanning the working
    area. It borrows the bar buttons' shape (0,1,1 base rule above) and adds only
    the pressed state, the layout and the sticky position that differ. */
 body.gly-page .gly-viewbar {
   position: sticky;
-  top: calc(var(--gly-kit-bar) + var(--gly-bar-h, 3.4rem));
+  top: calc(var(--gly-kit-bar) + var(--gly-stages-h));
   z-index: 6;
   display: flex;
   justify-content: center;
@@ -2422,8 +2422,24 @@ body.gly-page .ProseMirror p.gly-shell-marker {
 
 .gly-editor-card .kit-card-body > main { margin: 0 auto; }
 
-/* The rounds, above the card, with the whole record at the end of the line. */
-.gly-stages .kit-stages { margin: 0 0 12px; }
+/* The rounds, above the card, with the whole record at the end of the line.
+   The row sticks under the bar while the document scrolls, on the page's
+   background so the text doesn't show through, over the card's grips and pins
+   and under the side columns, the send bar and the bar (whose disk notice
+   hangs over it). Its gaps are its own padding, with the top one taken back
+   out of the flow, so at rest it sits where it always did. */
+/* The stuck row's height: its 8px and 12px gaps around one 20px line of the
+   track. Page mode's view switch sticks just under it. */
+:root { --gly-stages-h: 40px; }
+.gly-stages {
+  position: sticky;
+  top: var(--gly-kit-bar);
+  z-index: 7;
+  margin-top: -8px;
+  padding: 8px 0 12px;
+  background: var(--kit-bg);
+}
+.gly-stages .kit-stages { margin: 0; }
 .gly-stages .gly-versions-open { margin-left: auto; padding: 0 10px; font-size: 12px; line-height: 18px; }
 .gly-versions-open.is-open, .gly-versions-open.is-new { border-color: var(--kit-signal); color: var(--kit-signal); }
 

@@ -299,6 +299,53 @@ try {
   check('↓ scrolls the page', scrolled > 0, String(scrolled));
   await page.evaluate(() => window.scrollTo(0, 0));
 
+  // --- the round row stays under the bar (not a key: this fixture is long) ---
+  for (const width of [1400, 864]) {
+    await page.setViewportSize({ width, height: 800 });
+    await page.waitForTimeout(200);
+    await page.evaluate(() =>
+      window.scrollTo(
+        0,
+        (document.documentElement.scrollHeight - window.innerHeight) / 2,
+      ),
+    );
+    await page.waitForTimeout(200);
+    const row = await page.evaluate(() => {
+      const bar = document.querySelector('.kit-bar').getBoundingClientRect();
+      const stages = document.querySelector('.gly-stages');
+      const seen = (sel) => {
+        const el = document.querySelector(sel);
+        const r = el?.getBoundingClientRect();
+        if (!r || !r.width) return false;
+        const at = document.elementFromPoint(
+          r.left + r.width / 2,
+          r.top + r.height / 2,
+        );
+        return !!at && el.contains(at);
+      };
+      return {
+        scrolled: window.scrollY,
+        bar: bar.bottom,
+        top: stages.getBoundingClientRect().top,
+        bg: getComputedStyle(stages).backgroundColor,
+        history: seen('.gly-versions-open'),
+        preview: seen('.gly-preview-open'),
+      };
+    });
+    check(
+      `at ${width} wide, scrolled mid-document, the round row sits under the bar with History and HTML preview in view`,
+      row.scrolled > 200 &&
+        Math.abs(row.top - row.bar) <= 1 &&
+        row.history &&
+        row.preview &&
+        row.bg !== 'rgba(0, 0, 0, 0)',
+      JSON.stringify(row),
+    );
+  }
+  await page.setViewportSize({ width: 1400, height: 800 });
+  await page.waitForTimeout(200);
+  await page.evaluate(() => window.scrollTo(0, 0));
+
   // --- the menu's ↓, then Esc closes the menu ---
   const margin = await page.evaluate(() => {
     const pm = document.querySelector('.ProseMirror').getBoundingClientRect();
@@ -363,16 +410,19 @@ try {
   if ((await pendingCount(page)) !== 1) throw new Error('fixture drifted');
   await oneRound(page);
   await page.click('.gly-versions-open');
-  // History opens on the round just read, or on its list: then the round.
-  await page.waitForSelector(
-    '.gly-versions-change[data-region], .gly-versions-round[data-round]',
-    { timeout: 10000 },
-  );
-  if (!(await page.locator('.gly-versions-change[data-region]').count())) {
-    await page.locator('.gly-versions-round[data-round]').first().click();
+  // History opens on the round just read, or on its list, which may still be
+  // redrawing as the round lands: press the newest round until its changes show.
+  for (let i = 0; i < 20; i++) {
+    if (await page.locator('.gly-versions-change[data-region]').count()) break;
+    await page
+      .locator('.gly-versions-round[data-round]')
+      .first()
+      .click({ timeout: 1000 })
+      .catch(() => {});
+    await page.waitForTimeout(250);
   }
   await page.waitForSelector('.gly-versions-change[data-region]', {
-    timeout: 10000,
+    timeout: 5000,
   });
   await page.click('.gly-versions-change[data-region]');
   await page.keyboard.press('Escape');
