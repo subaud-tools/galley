@@ -184,6 +184,36 @@ const reopen = async () => {
     }, 5000),
     await visible(),
   );
+  {
+    const find = await page.locator('.gly-find').boundingBox();
+    const arrow = await page
+      .locator('.kit-left-col > .kit-col-toggle')
+      .boundingBox();
+    check(
+      'Find a review ends before the fold arrow, on its line',
+      !!find &&
+        !!arrow &&
+        find.x + find.width <= arrow.x &&
+        find.y < arrow.y + arrow.height &&
+        arrow.y < find.y + find.height,
+      { find, arrow },
+    );
+    const box = await page.locator('#gly-doc-box').boundingBox();
+    const add = await page
+      .locator('.gly-doc-line .kit-btn', { hasText: 'Add instruction' })
+      .boundingBox();
+    const panel = await page.locator('.gly-doc-line').boundingBox();
+    check(
+      'the whole-document box takes the panel width, Add instruction under it at its right edge',
+      !!box &&
+        !!add &&
+        !!panel &&
+        Math.abs(box.width - panel.width) <= 2 &&
+        add.y >= box.y + box.height &&
+        Math.abs(add.x + add.width - (box.x + box.width)) <= 2,
+      { box, add, panel },
+    );
+  }
   check(
     'the search box says Find a review',
     (await page.locator('.gly-find').getAttribute('placeholder')) ===
@@ -235,8 +265,9 @@ const sealedPage = async (page, when) => {
 {
   const page = await reopen();
   check(
-    'the left panel still lists the approved review',
-    (await keptRow(page).innerText()).includes('approved'),
+    'the left panel still lists the approved review, by when and its rounds and without the word its heading says',
+    /\d+ rounds?/.test(await keptRow(page).innerText()) &&
+      !(await keptRow(page).innerText()).includes('approved'),
     await keptRow(page).innerText(),
   );
   await keptRow(page).locator('.kit-index-main').click();

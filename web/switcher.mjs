@@ -189,6 +189,15 @@ check(
         .innerText()
     ).includes('plan.md'),
 );
+check(
+  'under Waiting on you its rows have no dot and no words saying so',
+  (await count('.kit-left-col .kit-attn-dot')) === 0 &&
+    (
+      await page
+        .locator('.kit-left-col .kit-group-rows .kit-index-row')
+        .allInnerTexts()
+    ).every((t) => !t.includes('waiting on you')),
+);
 
 await pressed.click();
 const menu = await page.locator('.kit-also-row').allInnerTexts();
@@ -228,15 +237,17 @@ check(
   await until(() => page.locator('.kit-primary').isHidden()),
 );
 check(
-  'and the index says approved',
-  await until(async () =>
+  'and the index moves it under Approved, saying its rounds and not the word',
+  await until(async () => {
     // Approved is folded at first, so its rows are read, not seen.
-    (
-      await page
-        .locator('.kit-left-col .kit-group-rows .kit-index-row.on')
-        .textContent()
-    ).includes('approved'),
-  ),
+    const said = await page
+      .locator(
+        '.kit-left-col .kit-group[data-group="approved"] .kit-index-row.on',
+      )
+      .textContent()
+      .catch(() => '');
+    return /\d+ rounds?/.test(said ?? '') && !said?.includes('approved');
+  }),
 );
 await pressed.click();
 {

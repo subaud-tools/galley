@@ -2548,9 +2548,11 @@ body.gly-sealed .gly-tab-hint { display: none; }
 .gly-chat-hint { margin: 8px 0 0; font: 11.5px var(--kit-mono); color: var(--kit-muted); }
 body.gly-sealed .gly-chat-note,
 body.gly-sealed .gly-chat-hint { display: none; }
-/* The whole-document section: its box and Add instruction, then its rows, then
-   the text's label with the gap a new section takes. */
-.gly-doc-line { margin-bottom: 8px; }
+/* The whole-document section: its box across the panel with Add instruction
+   under it at its right edge, then its rows, then the text's label with the gap
+   a new section takes. */
+.gly-doc-line { flex-direction: column; align-items: stretch; margin-bottom: 8px; }
+.gly-doc-line > .kit-btns { align-self: flex-end; }
 .gly-doc-drafts:has(.kit-draft-row) { margin-bottom: 8px; }
 .gly-tab > .kit-label:not(:first-child) { margin-top: 16px; }
 
@@ -2575,6 +2577,8 @@ body.gly-sealed .gly-chat-hint { display: none; }
 /* --- the left panel ---
    The search box over the folder filter and the sections; each row's ⋯ sits
    beside its button, centred on it, as the attention dot does. */
-.gly-find { margin: 12px 12px 4px; width: calc(100% - 24px); }
+/* Find a review shares the fold arrow's line and ends before it: the arrow is
+   25px wide, 12px in from the edge, so the box stops 8px short of it. */
+.gly-find { margin: 8px 45px 4px 12px; width: calc(100% - 57px); min-height: 25px; }
 .gly-index { padding: 0 12px 12px; }
 .gly-row-more { flex: none; align-self: center; }

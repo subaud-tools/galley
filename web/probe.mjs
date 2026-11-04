@@ -41,6 +41,7 @@ import {
   folderGroups,
   pageFilters,
   pageIdOf,
+  rowFace,
   stateGroups,
   statePills,
   stateWords,
@@ -5952,6 +5953,44 @@ function bindsContentField(src) {
     metas.join('|') ===
       'approved 14:02 · 3 rounds|approved yesterday · 1 round|approved Oct 30 · 2 rounds',
     metas,
+  );
+  const face = (p, on, underHeading) => {
+    const f = rowFace(p, on, underHeading, now);
+    return `${f.meta}/${f.attention}/${f.waits}`;
+  };
+  const kept = {
+    state: 'approved',
+    approvedAt: at(2, 9, 0),
+    rounds: 2,
+  };
+  check(
+    'under its heading a row says nothing the heading says: no dot or words waiting on you, no with the agent, no word approved',
+    [
+      face({ state: 'you' }, false, true),
+      face({ state: 'agent' }, false, true),
+      face(kept, false, true),
+    ].join('|') === '/false/false|/false/true|yesterday · 2 rounds/false/false',
+    [
+      face({ state: 'you' }, false, true),
+      face({ state: 'agent' }, false, true),
+      face(kept, false, true),
+    ],
+  );
+  check(
+    'on the front page, grouped by folder, a row keeps its state words and dot',
+    [
+      face({ state: 'you' }, false, false),
+      face({ state: 'you' }, true, false),
+      face({ state: 'agent' }, false, false),
+      face(kept, false, false),
+    ].join('|') ===
+      'waiting on you/true/false|waiting on you/false/false|with the agent/false/true|approved yesterday · 2 rounds/false/false',
+    [
+      face({ state: 'you' }, false, false),
+      face({ state: 'you' }, true, false),
+      face({ state: 'agent' }, false, false),
+      face(kept, false, false),
+    ],
   );
   items[0].onClick();
   check('a switcher row goes to its review', went.join() === 'b', went);

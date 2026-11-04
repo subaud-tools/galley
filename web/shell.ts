@@ -20,6 +20,7 @@ import {
   keepElsewhere,
   live,
   railTabs,
+  remembered,
   sendBar,
   shareMenu,
   stageTrack,
@@ -32,14 +33,13 @@ import {
   type ThreadMessageValue,
 } from '/_kit/kit.js';
 import {
-  approvedMeta,
   docHref,
   findReviews,
   folderItems,
   pageFilters,
   pageIdOf,
+  rowFace,
   stateGroups,
-  stateWords,
   switcherItems,
 } from './pagelist.ts';
 import type { GalleyChrome, TabActions } from './roundbar.ts';
@@ -71,24 +71,21 @@ async function openKept(key: string): Promise<void> {
   go(opened.id);
 }
 
-/** A row for one review, in the index or on the front page. extra: nodes
- * after its button, the index's ⋯. */
+/** A row for one review, in the index or on the front page. underHeading: it
+ * sits under a heading that says where it stands (the index), so it doesn't
+ * say it again. extra: nodes after its button, the index's ⋯. */
 export function reviewRow(
   p: PageView,
   on: boolean,
+  underHeading: boolean,
   extra?: Node[],
 ): HTMLElement {
   return indexRow({
     id: p.id,
     title: p.name,
-    meta:
-      p.state === 'approved' && p.approvedAt
-        ? approvedMeta(p, new Date())
-        : stateWords(p.state),
+    ...rowFace(p, on, underHeading, new Date()),
     on,
     extra,
-    attention: p.state === 'you' && !on,
-    waits: p.state === 'agent',
     select: p.open ? go : () => void openKept(p.key),
   });
 }
@@ -116,8 +113,8 @@ function foldedSections(): string[] {
     .map((g) => g.key)
     .filter(
       (key) =>
-        (localStorage.getItem(foldKey(key)) ??
-          (key === 'approved' ? '1' : '0')) === '1',
+        (remembered.get(foldKey(key)) ?? (key === 'approved' ? '1' : '0')) ===
+        '1',
     );
 }
 
@@ -203,12 +200,14 @@ function makeIndex(
         groups: stateGroups(shown).map((g) => ({
           key: g.key,
           title: g.title,
-          rows: g.pages.map((p) => reviewRow(p, p.id === here, [more(p)])),
+          rows: g.pages.map((p) =>
+            reviewRow(p, p.id === here, true, [more(p)]),
+          ),
           empty: 'Nothing here.',
           edge: g.key === 'you' && g.pages.length ? 'signal' : undefined,
         })),
         folded: foldedSections(),
-        onFold: (key, on) => localStorage.setItem(foldKey(key), on ? '1' : '0'),
+        onFold: (key, on) => remembered.set(foldKey(key), on ? '1' : '0'),
       }),
     );
   }

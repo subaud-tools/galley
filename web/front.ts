@@ -58,7 +58,7 @@ function draw(pages: PageView[]): void {
       groups: groups.map((g) => ({
         key: g.folder,
         title: g.folder,
-        rows: g.pages.map((p) => reviewRow(p, false)),
+        rows: g.pages.map((p) => reviewRow(p, false, false)),
         empty: 'Nothing here.',
         edge: g.edge || undefined,
       })),
