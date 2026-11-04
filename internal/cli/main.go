@@ -47,7 +47,7 @@ the room, push can spawn one — with the document and nothing else — and
 
 The channel is pull, packaged: it starts with the session, waits on every
 document this session opens — and any unowned one under its root — and delivers
-each Revise, settle and Approve into the session as an event. No listener to
+each Revise, settle, chat message and Approve into the session as an event. No listener to
 remember. In Claude Code it comes from galley's plugin; install it once, then
 start claude as usual:
   claude plugin marketplace add subaud-tools/plugins
@@ -243,7 +243,9 @@ func newApp() *tools.App {
 		Synopsis: "wait <doc.md> [flags]",
 		Help: "Blocks until the reviewer presses Revise, presses Approve, or — in ● live\n" +
 			"mode — until the document settles, then prints the captured round. An\n" +
-			"approve ends the review; the other wakes ask for an answer. A review that\n" +
+			"approve ends the review; the other wakes ask for an answer. A chat message\n" +
+			"wakes it with reason `chat` and the message's words; it never changes the\n" +
+			"document. A review that\n" +
 			"has ALREADY ended is reported at once rather than waited on. There is no\n" +
 			"offline form: without a running editor there is nothing to wait for in a\n" +
 			"file.\n\n" +

@@ -181,6 +181,14 @@ It refuses, with the reason, when:
 - the review is sealed;
 - there is no such version.
 
+## Chat
+
+The right-hand column's **Chat** tab is a conversation with the agent. Type in its box (`Message the agent…`) and press **Send** or Enter. Under the box: *The agent reads it now and answers here. It doesn't change the document; instructions and Revise do.*
+
+The message reaches the agent's session at once and shows the kit's states as it goes: `sent`, `with the agent`, `working` with the agent's one line, then `answered` with the agent's reply under it, or `declined` or `failed`. A message sent while no agent is attached waits and is delivered when one is. You can chat while the agent holds a round; the round is not disturbed.
+
+Chat never edits the document and never files an instruction. Ask or discuss in Chat; to change the document, add an instruction and press Revise. Each Revise you send also appears in the thread, with the agent's note when the round settles. The thread is kept beside the document's versions in `.galley`, so it survives reloads and restarts, and an approved review shows it read-only, with no box.
+
 ## Live mode
 
 The `live` switch decides whether the agent hears anything before you press Revise.

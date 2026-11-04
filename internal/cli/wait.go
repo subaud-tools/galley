@@ -106,6 +106,9 @@ const (
 	reasonChanged = "changed"
 	reasonTimeout = "timeout"
 	reasonClosed  = "closed"
+	// reasonChat is a reviewer's chat message, in waitResult.Chat: a question
+	// for the agent, never a round and never a change to the document.
+	reasonChat = "chat"
 )
 
 // waitResult is GET /_galley/wait's JSON, and — with --json — this command's
@@ -117,6 +120,8 @@ type waitResult struct {
 	// Note is the reopen's reason and rides only that wake — the one thing in
 	// a wake that is not a fact about the document.
 	Note string `json:"note,omitempty"`
+	// Chat is the reviewer's message on a chat wake.
+	Chat *serve.ChatWake `json:"chat,omitempty"`
 }
 
 // errWaitTimeout and errWaitStopped are the two non-zero answers, and they are
@@ -265,6 +270,11 @@ func wakeText(doc string, res waitResult) string {
 	wk := res.wake(doc)
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s   %s\n", res.Reason, res.Fingerprint)
+	if res.Reason == reasonChat && res.Chat != nil {
+		fmt.Fprintf(&b, "chat message %d on %s:\n\n%s\n\n%s\n", res.Chat.ID, wk.page, res.Chat.Text, chatGuidance)
+		fmt.Fprintf(&b, "re-arm    galley wait %s --since %s\n", doc, res.Fingerprint)
+		return b.String()
+	}
 	fmt.Fprintf(&b, "%d instruction(s) on %s\n", len(res.Pending.Instructions), wk.page)
 	if len(res.Pending.Instructions) > 0 {
 		b.WriteByte('\n')
@@ -364,7 +374,7 @@ func waitFor(baseURL, since string, timeout time.Duration) (waitResult, error) {
 		}
 
 		switch res.Reason {
-		case reasonRevise, reasonSettle, reasonChanged, reasonApprove:
+		case reasonRevise, reasonSettle, reasonChanged, reasonApprove, reasonChat:
 			return res, nil
 		case reasonClosed:
 			return waitResult{}, errWaitStopped

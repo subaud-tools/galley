@@ -358,3 +358,33 @@ func TestWaitDistinguishesTimeoutFromAStoppedEditor(t *testing.T) {
 		t.Fatal("waitFor never returned after the editor stopped")
 	}
 }
+
+// `galley wait` returns a chat message as a wake with its words, rather than
+// refusing a reason it does not know.
+func TestWaitAcceptsChat(t *testing.T) {
+	dir := t.TempDir()
+	doc := writeDoc(t, dir, "doc.md", "# T\n\nClean.\n")
+	srv, err := serve.NewEdit(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+	t.Cleanup(func() { _ = srv.Close() })
+	resp, err := serverClient.Post(ts.URL+"/_galley/chat", "application/json", strings.NewReader(`{"text":"Why this?"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+
+	res, err := waitFor(ts.URL, "", 5*time.Second)
+	if err != nil {
+		t.Fatalf("wait: %v", err)
+	}
+	if res.Reason != "chat" {
+		t.Fatalf("reason = %q, want chat", res.Reason)
+	}
+	if got := wakeText(doc, res); !strings.Contains(got, "Why this?") {
+		t.Errorf("the wake does not print the message:\n%s", got)
+	}
+}
