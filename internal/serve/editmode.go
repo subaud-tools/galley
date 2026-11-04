@@ -2877,25 +2877,13 @@ func (s *EditServer) handleReport(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &req) {
 		return
 	}
-	if err := checkReportEvent(req.Event); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
 	s.applyReport(req.Event, req.Token)
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// checkReportEvent refuses an event the harness has no business sending.
-// activity (the session working or idle) is taken and changes nothing.
-func checkReportEvent(event channelmcp.ReportEvent) error {
-	switch event {
-	case channelmcp.ReportHeld, channelmcp.ReportLanded, channelmcp.ReportTurnEnded, channelmcp.ReportActivity:
-		return nil
-	}
-	return fmt.Errorf("event %q: want held, landed, turn_ended or activity", event)
-}
-
-// applyReport moves the window's message as the report says.
+// applyReport moves the window's message as the report says. activity (the
+// session working or idle), or an event a newer harness added, is taken and
+// changes nothing.
 func (s *EditServer) applyReport(event channelmcp.ReportEvent, token string) {
 	s.reviseMu.Lock()
 	changed := false

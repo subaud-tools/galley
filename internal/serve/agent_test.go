@@ -418,9 +418,14 @@ func TestAgentReportReachesOnlyTheSessionsDocuments(t *testing.T) {
 	if got := state(b.ID); got != "sent" {
 		t.Fatalf("the other session's message is %q", got)
 	}
-	bad := map[string]string{"session": "sess-a", "event": "nonsense"}
-	if code := r.call(t, http.MethodPost, "/api/agent/report", bad, nil); code != http.StatusBadRequest {
-		t.Fatalf("a bad event answered %d", code)
+	// An event a newer harness added is taken and changes nothing: a 400
+	// would reach the harness's stderr every turn.
+	future := map[string]string{"session": "sess-b", "event": "future_event", "token": wakeA.Report}
+	if code := r.call(t, http.MethodPost, "/api/agent/report", future, nil); code != http.StatusNoContent {
+		t.Fatalf("an unknown event answered %d", code)
+	}
+	if got := state(b.ID); got != "sent" {
+		t.Fatalf("an unknown event moved the message to %q", got)
 	}
 	// activity (working or idle) is taken and changes nothing.
 	activity := map[string]string{"session": "sess-b", "event": "activity", "token": "idle"}

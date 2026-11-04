@@ -424,10 +424,6 @@ func (h *Host) handleAgentReport(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "session is required", http.StatusBadRequest)
 		return
 	}
-	if err := checkReportEvent(in.Event); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
 	h.mu.Lock()
 	docs := maps.Clone(h.docs)
 	h.mu.Unlock()
