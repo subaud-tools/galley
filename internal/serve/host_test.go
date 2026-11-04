@@ -469,7 +469,7 @@ func TestPagesHoldNoOwnerHookOrPath(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("GET /api/pages with the cookie = %d: %s", code, body)
 	}
-	want := []PageView{{ID: a.ID, Name: "doc.md", Folder: filepath.Base(filepath.Dir(doc)), State: PageWithYou}}
+	want := []PageView{{ID: a.ID, Name: "doc.md", Folder: filepath.Base(filepath.Dir(doc)), State: PageWithYou, Key: a.ID, Open: true}}
 	if !slices.Equal(views, want) {
 		t.Fatalf("pages = %+v, want %+v", views, want)
 	}

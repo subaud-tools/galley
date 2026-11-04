@@ -103,6 +103,10 @@ export interface PageView {
   name: string;
   folder: string;
   state: string;
+  key: string;
+  open: boolean;
+  approvedAt?: number;
+  rounds: number;
 }
 
 export interface ChatView {

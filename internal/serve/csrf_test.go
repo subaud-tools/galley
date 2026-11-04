@@ -35,6 +35,14 @@ func editEndpoints() []mutatingEndpoint {
 	}
 }
 
+// hostEndpoints are the Host's routes a page posts to with its cookie.
+func hostEndpoints() []mutatingEndpoint {
+	return []mutatingEndpoint{
+		{"reviews-open", "/api/reviews/open", `{"key":"nothing"}`, false},
+		{"reviews-remove", "/api/reviews/remove", `{"key":"nothing"}`, false},
+	}
+}
+
 // everyEndpoint hands each mutating endpoint to fn along with the handler
 // that serves it.
 func everyEndpoint(t *testing.T, fn func(t *testing.T, h http.Handler, e mutatingEndpoint)) {
@@ -45,6 +53,10 @@ func everyEndpoint(t *testing.T, fn func(t *testing.T, h http.Handler, e mutatin
 	eh := edit.Handler()
 	for _, e := range editEndpoints() {
 		t.Run("edit/"+e.name, func(t *testing.T) { fn(t, eh, e) })
+	}
+	hh := NewHost().Handler()
+	for _, e := range hostEndpoints() {
+		t.Run("host/"+e.name, func(t *testing.T) { fn(t, hh, e) })
 	}
 }
 

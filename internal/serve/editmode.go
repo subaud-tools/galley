@@ -104,6 +104,10 @@ type EditServer struct {
 	// is what stops it.
 	OnApprove func()
 
+	// OnRound, when set, hears each round cut: its reason and number. It is
+	// called with mu held, so it must not call back into this server.
+	OnRound func(reason string, n int)
+
 	// Ledger, when set, is where this server's decisions are remembered.
 	// Nil means the process-wide ledger.DefaultRecorder, which is what every
 	// real caller wants; the field exists so a test can supply a recorder whose

@@ -24,6 +24,7 @@ import (
 	"github.com/subaud-tools/galley/internal/docmodel"
 	"github.com/subaud-tools/galley/internal/htmlpage"
 	"github.com/subaud-tools/galley/internal/markdown"
+	"github.com/subaud-tools/galley/internal/versions"
 	tools "github.com/subaud-tools/tools-common"
 	"github.com/subaud-tools/tools-common/localweb"
 	"github.com/subaud-tools/tools-common/pageserve"
@@ -73,6 +74,12 @@ type PageView struct {
 	Name   string `json:"name"`   // the file's name
 	Folder string `json:"folder"` // the name of the folder it is in
 	State  string `json:"state"`  // PageWithYou, PageWithAgent or PageApproved
+	// Key names the review to /api/reviews/*: the id its document has when open.
+	Key  string `json:"key"`
+	Open bool   `json:"open"` // its document is open; a kept approved one may not be
+	// ApprovedAt is when it was approved, in Unix milliseconds.
+	ApprovedAt int64 `json:"approvedAt,omitempty"`
+	Rounds     int   `json:"rounds"` // how many Revise rounds it has had
 }
 
 // Where a review stands.
@@ -134,12 +141,14 @@ type Host struct {
 	announced []PageView     // the list the pages last heard of; the watch's own
 
 	agents *agents // the sessions waiting on their documents
+
+	reviews *reviews // the reviews kept in reviews.json
 }
 
 // NewHost returns a Host with nothing open.
 func NewHost() *Host {
 	return &Host{docs: map[string]hostedDoc{}, misses: map[string]int{}, log: io.Discard, agents: newAgents(),
-		tabs: localweb.NewTabs(nil), events: pageserve.NewEvents()}
+		reviews: loadReviews("", io.Discard), tabs: localweb.NewTabs(nil), events: pageserve.NewEvents()}
 }
 
 // Open serves the document at path and returns its id, the same for the same
@@ -149,7 +158,7 @@ func NewHost() *Host {
 func (h *Host) Open(path string, o DocOptions) (string, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	id, added, err := h.openLocked(path, o)
+	id, added, err := h.openLocked(path, o, false)
 	if err != nil || !added {
 		return id, err
 	}
@@ -161,8 +170,11 @@ func (h *Host) Open(path string, o DocOptions) (string, error) {
 	return id, nil
 }
 
-// openLocked opens the document unless it is open already. h.mu is held.
-func (h *Host) openLocked(path string, o DocOptions) (id string, added bool, err error) {
+// openLocked opens the document unless it is open already. A new open begins a
+// new review in the kept list; again (a restart, or a kept review opened from
+// the list) carries on the kept one, sealed again if it was approved. h.mu is
+// held.
+func (h *Host) openLocked(path string, o DocOptions, again bool) (id string, added bool, err error) {
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return "", false, err
@@ -182,6 +194,15 @@ func (h *Host) openLocked(path string, o DocOptions) (id string, added bool, err
 	s.Log = func(line string) { _, _ = fmt.Fprintf(h.log, "%s: %s\n", abs, line) }
 	s.OnRevise = o.OnRevise
 	s.HookDir = o.Dir
+	// Sealed before the document is listed, so a waiting session never sees it
+	// open and unsealed.
+	switch k, kept := h.reviews.get(abs); {
+	case !again || !kept:
+		h.reviews.begin(abs)
+	case k.State == PageApproved:
+		s.restoreSeal(VerdictApproved, k.ApprovedAt)
+	}
+	h.keepReview(abs, s)
 	// The bar's Done closes the document, and only it.
 	s.OnStop = func() {
 		if err := h.Close(id); err != nil {
@@ -190,6 +211,28 @@ func (h *Host) openLocked(path string, o DocOptions) (id string, added bool, err
 	}
 	h.docs[id] = hostedDoc{path: abs, options: o, server: s, handler: http.StripPrefix(s.Base, s.Handler())}
 	return id, true, nil
+}
+
+// keepReview has the kept list follow the review's rounds and its approval.
+func (h *Host) keepReview(abs string, s *EditServer) {
+	s.OnRound = func(reason string, _ int) {
+		switch reason {
+		case versions.ReasonRevise:
+			h.reviews.update(abs, func(k *keptReview) { k.Rounds++; k.State = PageWithAgent })
+		case versions.ReasonLanded, versions.ReasonCouldNot:
+			h.reviews.update(abs, func(k *keptReview) { k.State = PageWithYou })
+		}
+	}
+	s.OnApprove = func() {
+		n, at := s.lastCut(), s.sealState().VerdictAt
+		var digest string
+		if r, ok, err := s.Versions().Get(n); err == nil && ok {
+			digest = r.Digest
+		}
+		h.reviews.update(abs, func(k *keptReview) {
+			k.State, k.ApprovedAt, k.VerdictN, k.Digest = PageApproved, at, n, digest
+		})
+	}
 }
 
 // openIDLocked is the id for the file at abs, and whether it is open already:
@@ -279,6 +322,10 @@ func (h *Host) Close(id string) error {
 	// then never will.
 	err := errors.Join(saved, d.server.Flush(), d.server.Close())
 	h.tellClosed(id, d, noteStopped)
+	// An approved review stays listed; one closed before its verdict is over.
+	if !d.server.Sealed() {
+		h.reviews.forget(d.path)
+	}
 	return err
 }
 
@@ -312,15 +359,34 @@ func (h *Host) List() []DocView {
 	return views
 }
 
-// Pages reports the open reviews, by folder and then name.
+// Pages reports the open reviews and the kept approved ones, by folder and then
+// name.
 func (h *Host) Pages() []PageView {
 	h.mu.Lock()
 	docs := maps.Clone(h.docs)
 	h.mu.Unlock()
 	views := make([]PageView, 0, len(docs))
+	open := map[string]bool{}
 	for id, d := range docs {
+		k, _ := h.reviews.get(d.path)
+		v := PageView{
+			ID: id, Key: id, Name: filepath.Base(d.path), Folder: filepath.Base(filepath.Dir(d.path)),
+			State: d.server.standing(), Open: true, Rounds: k.Rounds,
+		}
+		if v.State == PageApproved {
+			v.ApprovedAt = d.server.sealState().VerdictAt.UnixMilli()
+		}
+		open[d.path] = true
+		views = append(views, v)
+	}
+	for _, k := range h.reviews.list() {
+		if k.State != PageApproved || open[k.Path] {
+			continue
+		}
+		key := reviewKey(k.Path)
 		views = append(views, PageView{
-			ID: id, Name: filepath.Base(d.path), Folder: filepath.Base(filepath.Dir(d.path)), State: d.server.standing(),
+			ID: key, Key: key, Name: k.Name, Folder: k.Folder, State: PageApproved,
+			ApprovedAt: k.ApprovedAt.UnixMilli(), Rounds: k.Rounds,
 		})
 	}
 	slices.SortFunc(views, func(a, b PageView) int {
@@ -386,7 +452,7 @@ func (h *Host) reopenSaved() {
 			}
 			d.Owner, d.Adopted = "", false
 		}
-		if _, _, err := h.openLocked(d.Path, d.DocOptions); err != nil {
+		if _, _, err := h.openLocked(d.Path, d.DocOptions, true); err != nil {
 			_, _ = fmt.Fprintf(h.log, "galley serve: not reopening %s: %v\n", d.Path, err)
 			h.tellNotReopened(d, err)
 		}
@@ -676,6 +742,10 @@ func (h *Host) Handler() http.Handler {
 	// Not a control route: the front page and the switcher read it with the
 	// cookie. PageView says why that is safe.
 	mux.HandleFunc("GET /api/pages", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, h.Pages()) })
+	// The left panel's: the cookie and the same-site guard, as a document's
+	// routes. They name a review by its key, never a path or a command.
+	mux.HandleFunc("/api/reviews/open", h.handleReviewOpen)
+	mux.HandleFunc("/api/reviews/remove", h.handleReviewRemove)
 	mux.HandleFunc(docsPrefix+"{id}/{rest...}", func(w http.ResponseWriter, r *http.Request) {
 		d, open := h.doc(r.PathValue("id"))
 		if !open {
