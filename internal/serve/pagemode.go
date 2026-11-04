@@ -589,9 +589,8 @@ func (r *pageRenderer) restructured(projected []byte, gen int) {
 // page whose author cut those words — the round carries no content edits of its
 // own (projected == converged), so no merge happens and the reload takes the
 // stale page's words. Telling the two apart needs a 3-way markdown merge, which
-// is not built; the keystrokes are recoverable from the round's version IN LIVE
-// MODE, where a settle wakes the agent and cuts a version — in on-ask mode
-// there is no wake to cut one, so there may be no version to recover from.
+// is not built; the keystrokes are recoverable only from a round's version, and
+// with no Revise since they were typed there may be no version to recover from.
 //
 // When both layers moved it is a genuine conflict and the words win, which is
 // the only choice that cannot lose work — but it can pour back prose the agent

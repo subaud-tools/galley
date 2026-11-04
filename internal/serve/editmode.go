@@ -69,18 +69,12 @@ type EditServer struct {
 	// HookDir is where OnRevise runs; "": this process's directory.
 	HookDir string
 
-	// Notify, when set, fires after the document settles. It exists so the
-	// reviewer never has to tell the agent to go and look.
-	Notify *Notifier
-
 	// OnRevise is the shell command POST /_galley/revise runs: the editor's
 	// "hand this to the agent" button, wired by the CLI from --on-revise. A
 	// command string rather than a func so the CLI can pass one straight from
-	// a flag, and for the same reason Notifier.Command is one — "tell someone"
-	// is exactly the seam where setups differ.
+	// a flag: "tell someone" is exactly the seam where setups differ.
 	//
-	// It runs IMMEDIATELY and asynchronously, unlike Notifier's debounced,
-	// fingerprinted firing: revise is an explicit request, so it must not be
+	// It runs IMMEDIATELY and asynchronously: revise is an explicit request, so it must not be
 	// coalesced or suppressed as "nothing changed" — and it typically starts
 	// an agent, which can run for minutes, so the request returns 204 rather
 	// than holding the browser open for the whole run. With no command
@@ -249,18 +243,6 @@ type EditServer struct {
 	noticeMu   sync.Mutex
 	notice     string
 	noticeKind string
-
-	// mode is "ask" or "live" — whether the agent is woken when the document
-	// settles, or only when the reviewer asks. The zero value reads as "ask",
-	// which is what makes realtime opt-in: a document that has never been told
-	// to go live behaves exactly as it did in phase 1.
-	//
-	// Its own mutex, NOT mu. mu is held across a whole projection, and the
-	// projection is what reads this to decide whether to notify — sharing the
-	// lock would mean the mode endpoint blocking behind a disk write, or
-	// worse, a re-entrant take.
-	modeMu sync.Mutex
-	mode   string
 
 	// reviseDone is non-nil exactly while a revise command is running, and is
 	// closed when it exits — the single-flight latch and the "wait for it"
@@ -543,13 +525,6 @@ func NewEdit(mdPath string) (*EditServer, error) {
 		// on the process ending (the 2026-08-15 trail spec — review-long,
 		// verdict-cleared). The epoch starts at 1 so the zero value — an
 		// epochless save — is stale by construction.
-		// ALWAYS a notifier, even with no command to run. It is not only the
-		// thing that runs --on-settle any more: it holds the one "has the
-		// document moved since the agent last saw it" decision, and a blocked
-		// `galley wait` rides that decision. Leaving it nil until a flag
-		// supplied a command would make pull — which needs no command at all —
-		// depend on push being configured.
-		Notify: &Notifier{},
 
 		canShare: localweb.CanShare(),
 		putFile:  localweb.PutFile,
@@ -662,7 +637,6 @@ func (s *EditServer) Close() error {
 		<-done
 	}
 	s.debounce.stop()
-	s.Notify.Stop()
 	// Before the websocket shutdown, and unconditionally: a blocked reader
 	// that outlived its server is a `galley wait` hanging past the editor it
 	// was watching, with nothing left that could ever release it.
@@ -682,29 +656,6 @@ func (s *EditServer) Close() error {
 // projection rather than being scheduled here — see project.
 func (s *EditServer) touch() {
 	s.debounce.touch(exportDebounce, s.Project)
-}
-
-// SeedNotify records the document's current pending set as already-announced,
-// so opening a file whose suggestions were there yesterday does not read as a
-// document full of new work.
-//
-// Two callers, both saying the same thing in different words. The CLI calls it
-// at startup: what the file arrived carrying is not news. mutate calls it after
-// a write the AGENT asked for: what the agent itself just did, and was handed
-// back in that request's response, is not news either. See mutate.
-func (s *EditServer) SeedNotify() {
-	if s.Notify == nil {
-		return
-	}
-	model, err := s.readLive()
-	if err != nil {
-		// Nothing to seed with, so seed with nothing: the first projection
-		// after this will compute a real fingerprint and, if it differs,
-		// legitimately wake the agent. Better a spurious first notification
-		// than a permanently mis-seeded one.
-		return
-	}
-	s.Notify.Seed(s.editFingerprint(model))
 }
 
 // LastExport is when the projection last reached disk.
@@ -820,7 +771,7 @@ func (s *EditServer) project() error { return s.projectAs("") }
 // unchanged bytes and is still a round, and page mode forces a projection to
 // re-render a page that moved while the document did not (pageBoundary).
 func (s *EditServer) projectAs(overwrite string) error {
-	model, out, onDisk, err := s.saveLocked(overwrite)
+	_, out, onDisk, err := s.saveLocked(overwrite)
 	if err != nil {
 		return err
 	}
@@ -830,7 +781,6 @@ func (s *EditServer) projectAs(overwrite string) error {
 		s.exported.mark()
 	}
 
-	fp := s.editFingerprint(model)
 	// AND THIS IS WHERE A VERSION IS CUT, with mu held and with the very bytes
 	// that now stand on the author's file. Nowhere else in the server reads the
 	// document to make a version: doing so would be a second answer to "what
@@ -839,36 +789,6 @@ func (s *EditServer) projectAs(overwrite string) error {
 	s.cutOutside(out)
 	s.cutIfSending(out, false, 0)
 
-	// The notification rides on the projection, and this is the one place in
-	// the server that already holds both halves of what a reviewer could be
-	// waiting on: the pending suggestions and the threads, read from one
-	// validated snapshot.
-	//
-	// NOT in touch() and NOT in applyModel, and the reason is the whole point
-	// of realtime mode. touch() runs inside doc.OnUpdate, on the goroutine
-	// that just landed a keystroke, so computing a pending set there would
-	// mean a full ydoc.ReadLive per character. applyModel only ever sees
-	// SERVER-side mutations — the agent's own suggest/accept/reject — and the
-	// change this phase exists to notice is the REVIEWER typing, which arrives
-	// over the websocket and never touches applyModel at all.
-	//
-	// Every mutation reaches here, because every mutation fires doc.OnUpdate
-	// and every OnUpdate schedules a projection. Touching unconditionally is
-	// deliberate: the notifier's own fingerprint check is what decides whether
-	// to fire, and deciding it again here would be a second implementation of
-	// the same rule.
-	//
-	// That includes the mutations the AGENT asked for, and they are quiet
-	// without any exception here: mutate seeds the notifier with what the agent
-	// saw, so the fingerprint this hands over matches and the check declines.
-	// A reviewer keystroke that landed in the same debounce window still fires,
-	// because it moves the fingerprint past that seed — which is why the seed
-	// lives there and not a "skip this one" flag here.
-	//
-	// Firing AFTER the file is on disk is also the honest order. The command
-	// typically starts an agent that reads the document, and an agent woken
-	// before the projection lands would read the previous revision.
-	s.notifyFingerprint(fp)
 	// THE PAGE-MODE SEAM, and the one place a projection reaches outside itself.
 	// It runs AFTER the save decision and the version cut, and with mu
 	// released — page mode's render routes refusals through recordCannot, which
@@ -1203,27 +1123,6 @@ func (s *EditServer) diskNotice() string {
 	return s.notice
 }
 
-// notifyFingerprint hands the just-projected fingerprint to the notifier, if
-// this session is live. Callers hold mu.
-//
-// `on ask` returns without touching, and does NOT discard the notifier: the
-// command stays configured so a reviewer can toggle back and forth without
-// restarting the server with a flag. The seed is deliberately left alone too —
-// going live after a stretch of ask means the next settle compares against
-// whatever was last announced, which is exactly the question "is there
-// anything new since the agent last looked".
-func (s *EditServer) notifyFingerprint(fp string) {
-	if s.Mode() != ModeLive {
-		return
-	}
-	// Re-attached here, at the one call site, rather than wired once in
-	// NewEdit: Notify is an exported field, and a caller that assigns a fresh
-	// Notifier would otherwise detach every blocked reader silently. Cheap,
-	// idempotent, and it makes the wake impossible to lose.
-	s.Notify.SetWake(s.wakeSettle)
-	s.Notify.Touch(fp)
-}
-
 // ReviseWatch reports whether the reviewer is still waiting on a revision they
 // asked for, and when they asked. See reviseWatch for why this is a different
 // question from ReviseInFlight's.
@@ -1247,70 +1146,6 @@ func (s *EditServer) watchRound() int {
 		return 0
 	}
 	return s.watch.round
-}
-
-// The two modes a session can be in. `on ask` is the default and means the
-// agent hears nothing until the reviewer presses Revise; `● live` means the
-// document wakes it whenever it settles.
-const (
-	ModeAsk  = "ask"
-	ModeLive = "live"
-)
-
-// Mode reports whether this session is live or on ask.
-func (s *EditServer) Mode() string {
-	s.modeMu.Lock()
-	defer s.modeMu.Unlock()
-	if s.mode == "" {
-		return ModeAsk
-	}
-	return s.mode
-}
-
-// SetMode switches between `on ask` and `● live`, refusing anything else.
-//
-// It does not check that a notifier is configured. Going live with nothing to
-// wake is a real state — the CLI says so at startup — and refusing the toggle
-// would leave the reviewer unable to see the surface at all. The mode is the
-// reviewer's intent; whether anyone is listening is the operator's problem.
-func (s *EditServer) SetMode(mode string) error {
-	if mode != ModeAsk && mode != ModeLive {
-		return fmt.Errorf("unknown mode %q — want %q or %q", mode, ModeAsk, ModeLive)
-	}
-	s.modeMu.Lock()
-	defer s.modeMu.Unlock()
-	s.mode = mode
-	return nil
-}
-
-// handleMode reads or sets the session's mode.
-//
-// GET is open like every other read here. POST goes through decode — and so
-// through guard — exactly as accept and reject do: this one changes server
-// BEHAVIOUR, and a page on another site putting a document into live mode
-// would start running the configured command on the reviewer's machine.
-//
-// The payload carries "mode" and nothing else. The design sketch also listed
-// "hold" and "queued", but hold is a browser-side queue over what the rail
-// displays — the suggestions are in the CRDT either way — so the server has no
-// honest value for either field, and emitting a constant false would advertise
-// state it does not keep.
-func (s *EditServer) handleMode(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodGet {
-		writeJSON(w, map[string]string{"mode": s.Mode()})
-		return
-	}
-	var in struct {
-		Mode string `json:"mode"`
-	}
-	if !decode(w, r, &in) {
-		return
-	}
-	if err := s.SetMode(in.Mode); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	writeJSON(w, map[string]string{"mode": s.Mode()})
 }
 
 // trailChanges reads the trail under its own lock, copied so a caller can
@@ -1356,7 +1191,6 @@ func (s *EditServer) Handler() http.Handler {
 	// The one case the agent's revision has no answer for. The revision
 	// itself lands by editing the .md under the handoff — see handoff.go.
 	mux.HandleFunc("/_galley/cannot", s.handleCannot)
-	mux.HandleFunc("/_galley/mode", s.handleMode)
 	mux.HandleFunc("/_galley/revise", s.handleRevise)
 	// How many pages hold the room: galley_open opens no second tab. See pages.go.
 	mux.HandleFunc("/_galley/pages", s.handlePages)
@@ -1736,32 +1570,8 @@ func (s *EditServer) mutateLocked(by requester, fn func(docmodel.Doc) (docmodel.
 	if err := s.applyModel(before, updated, extra); err != nil {
 		return http.StatusInternalServerError, err
 	}
-	// THE AGENT HAS JUST LOOKED. Every mutating endpoint answers with the whole
-	// pending view (writePending), so an agent that wrote here has already been
-	// handed everything pending as of its own write — including anything the
-	// reviewer did that it had not yet heard about. Recording that state as
-	// already-announced is therefore not a suppression, it is the truth the
-	// notifier's fingerprint is there to express: "has the document moved since
-	// the agent last saw it".
-	//
-	// Seeding rather than skipping the notify, and the difference is the whole
-	// correctness argument. The notification rides on a DEBOUNCED projection
-	// (see project), so one projection can cover this write and a reviewer
-	// keystroke that landed alongside it. A skipped notify would swallow the
-	// reviewer's half; a seed cannot — the projected fingerprint includes the
-	// keystroke, so it differs from what was seeded here and fires. It also
-	// leaves the notifier's own fingerprint check the single decider of whether
-	// to fire, which is the rule project's comment states and this must not
-	// duplicate.
-	//
-	// Not gated on live mode. The seed says what the agent has seen, which is
-	// true whether or not anyone is listening right now, and making the baseline
-	// depend on a toggle the agent never sees would mean a stretch of `on ask`
-	// ending with the agent's own suggestions read as news the moment the
-	// reviewer goes live.
 	switch by {
 	case byAgent:
-		s.SeedNotify()
 		// AND THE ROUND NOW CARRIES THE AGENT. This is the one place that knows
 		// it exactly — see versions.go's roundAuthors, which asks about the
 		// reviewer two other ways because neither of those is exact.
@@ -2147,17 +1957,15 @@ func headingForAnchor(model docmodel.Doc, a suggest.Anchor) string {
 }
 
 // reviewerRound is one reviewer-to-agent handoff after its working-copy
-// affordances have been removed. Revise and live settle deliberately share
-// this value and the function that builds it: the trigger may differ, but what
-// the agent receives and what History records may not.
+// affordances have been removed: what the agent receives and what History
+// records.
 type reviewerRound struct {
 	pending     PendingView
 	round       int
 	fingerprint string
 }
 
-// sendReviewerRound performs the common half of an explicit Revise and an
-// automatic live settle.
+// sendReviewerRound performs the send half of a Revise.
 //
 // Capture first, then clean, then cut. The captured pending view is the work
 // order the agent receives; the clean projection is the document version the
@@ -2222,9 +2030,9 @@ func (s *EditServer) sendReviewerRound(reason string, resend []versions.Ask, hol
 		// map before the cut (a comment filed in this window, a save from
 		// inside project) would drop it. See saveUnsentLocked.
 		//
-		// MERGED, NEVER ASSIGNED, and released by this send's own keys: a
-		// Revise press and a live settle can be in here at once, and either
-		// one assigning or nil-ing the whole map would drop the other's round.
+		// MERGED, NEVER ASSIGNED, and released by this send's own keys: two
+		// sends can be in here at once, and either one assigning or nil-ing the
+		// whole map would drop the other's round.
 		if s.sending == nil {
 			s.sending = map[string]unsent.Comment{}
 		}
@@ -2259,11 +2067,6 @@ func (s *EditServer) sendReviewerRound(reason string, resend []versions.Ask, hol
 		s.mu.Unlock()
 		return reviewerRound{}, code, err
 	}
-
-	// Clearing the working-copy carriers is part of THIS send, not a new live
-	// edit. Seed the cleaned pending state so the cleanup cannot wake the agent
-	// a second time after the handoff that caused it.
-	s.SeedNotify()
 
 	if testHookAfterInstructionsCleared != nil {
 		testHookAfterInstructionsCleared()
@@ -2343,9 +2146,8 @@ func newReportToken() string {
 }
 
 // openResponseWindow says which reviewer round the next agent return answers.
-// A Revise press and a live settle both send work, so both open this same
-// window. approveOnAnswer is the one intentional trigger-level difference:
-// only the explicit Revise & Approve choice can set it.
+// A Revise press opens it; approveOnAnswer is set only by the explicit Revise &
+// Approve choice.
 //
 // Each opening is a new message in sent with a fresh token. A second press
 // mid-window replaces the first message: it is a new message, so it asks
@@ -2544,9 +2346,9 @@ func (s *EditServer) handleRevise(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The button chooses WHEN to send. Everything after that choice is the same
-	// handoff live mode performs: capture, clean, cut, and open one response
-	// window pointing at the round the agent is answering.
+	// The button chooses WHEN to send. Everything after that choice is the
+	// handoff: capture, clean, cut, and open one response window pointing at
+	// the round the agent is answering.
 	sent, code, err := s.sendReviewerRound(versions.ReasonRevise, s.unansweredAsks(), s.agentHasRevise())
 	if errors.Is(err, errNothingNew) {
 		// Revise & Approve then sends nothing either, but its approve rides
@@ -2600,15 +2402,15 @@ func (s *EditServer) handleRevise(w http.ResponseWriter, r *http.Request) {
 	}
 	// The window the button counts against opens HERE and is deliberately not
 	// closed by the deferred cleanup below: the command exiting is not the
-	// revision landing. See reviseWatch. One opener for the press and the live
-	// settle alike — it resets the ack (a fresh ask must not wear the last
-	// review's answer) and opens the file handoff with the window.
+	// revision landing. See reviseWatch. It resets the ack (a fresh ask must
+	// not wear the last review's answer) and opens the file handoff with the
+	// window.
 	token := s.openResponseWindow(sent.round, sent.fingerprint, req.ApproveOnAnswer)
 
 	// THE VERDICT THAT DOES NOT END THE REVIEW, and the count that says how
 	// many rounds a document took. The trail is deliberately NOT swept up here:
 	// revise leaves it standing, because the review is still on and the trail
-	// is part of its record — the settle rule is what records those entries.
+	// is part of its record.
 	s.remember(verdictRecord(ledger.KindVerdictRevise, ""))
 
 	// AFTER reviseMu is released. The waiter registry has its own lock and
@@ -2639,7 +2441,6 @@ func (s *EditServer) clearHooks() {
 	s.reviseMu.Lock()
 	s.OnRevise, s.HookDir = "", ""
 	s.reviseMu.Unlock()
-	s.Notify.clearCommand()
 }
 
 // approveReview seals the current document and publishes the ending to every
@@ -3117,19 +2918,15 @@ func runRevise(cmd, dir string, logf func(string)) {
 
 // --- the blocking read: GET /_galley/wait ---
 //
-// galley's other verbs PUSH: --on-revise and --on-settle wake someone who is
-// not here. This is the PULL half — the session already holding the branch,
+// galley's other verb PUSHES: --on-revise wakes someone who is not here. This is the PULL half — the session already holding the branch,
 // the discussion and the hours of context blocks on the document and is woken
 // when the reviewer asks. See docs/superpowers/specs/2026-08-09-the-agent-hook.md.
 //
-// Nothing here decides whether the document has moved. Both release paths ride
-// a decision that already exists: the notifier's fire (which carries mutate's
-// self-wake seed) for a settle, and handleRevise's press for a revise. A
-// second implementation of "has anything changed" would work, pass, and drift
-// the first time either side was touched.
+// Nothing here decides whether the document has moved: a save wakes nobody. A
+// reader is released by a press (Revise, Approve), a chat message, or a cursor
+// that is behind.
 
-// The eight things a poll can report. revise, settle, approve, discard,
-// reopen and changed are wakes; the other two are how the caller learns to
+// The things a poll can report. revise, chat, approve and changed are wakes; the other two are how the caller learns to
 // re-arm or to stop. Each terminal ending carries its own reason so a waiter
 // (and the CLI's exit path) can tell it apart from an ordinary ask for another
 // pass — and reopen is the one wake that says the review is LIVE again, which
@@ -3139,18 +2936,12 @@ func runRevise(cmd, dir string, logf func(string)) {
 // `changed` IS THE HONEST ONE, AND IT IS THE CATCH-UP'S. Every other reason
 // names an EVENT the server watched happen; the catch-up watched nothing — it
 // found the caller's cursor behind and the document moved, which says THAT
-// something happened and never WHAT. It answered `settle` unconditionally, and
-// `settle` is a specific claim: the document settled and the live-mode
-// notifier fired. On a session `on ask` — the default — nothing settles a
-// waiter at all, so the word named an event that could not have occurred; and
-// an approve or a discard missed in the same gap arrived under it too, sending
-// an agent to answer a review that had ended. A terminal ending is replayed
+// something happened and never WHAT. A terminal ending is replayed
 // from the seal, because the server still holds it and it is still TRUE; for
 // everything else `changed` says the whole of what is known — re-read
 // everything.
 const (
 	waitRevise  = "revise"
-	waitSettle  = "settle"
 	waitApprove = "approve"
 	waitChanged = "changed"
 	waitTimeout = "timeout"
@@ -3182,7 +2973,7 @@ type waitEvent struct {
 }
 
 // waitReply is GET /_galley/wait's JSON body. Report is the message's report
-// token on a revise or settle wake: the channel sets it as
+// token on a revise wake: the channel sets it as
 // channelmcp.MetaReport, and the harness names it when it reports the wake
 // held or landed (POST /_galley/report).
 type waitReply struct {
@@ -3355,49 +3146,6 @@ func (s *EditServer) wakeRound(reason, fp string, pending *PendingView, report s
 	}
 }
 
-// wakeSettle is the notifier's hook, so a settle releases readers on exactly
-// the decision that would have run a --on-settle command — self-wake guard and
-// all. See Notifier.SetWake.
-//
-// AND IT IS WHERE A LIVE ROUND IS CUT, because this is the moment the document
-// is actually SENT. Live mode has no press, so the spec's "a version is cut per
-// exchange" needs something that knows an exchange happened, and the notifier
-// already holds that one decision: it fires when the pending set has moved
-// since the agent last saw it, and declines when it has not — including the
-// self-wake guard mutate seeds, so the agent cannot wake itself and cannot
-// commit a round for having answered.
-//
-// HANGING OFF THE DECISION RATHER THAN RE-MAKING IT is this hook's own rule,
-// and it is why the version cut used to be wrong: cutIfSending asked "is this
-// live and did the digest move", which is a save, not a send. A reviewer typing
-// prose moves the digest every 400ms export debounce and moves no fingerprint
-// at all, so it committed a full copy of the document per keystroke burst while
-// waking nobody. Two conditions for one question is exactly the second
-// implementation SetWake exists to refuse.
-//
-// THE VERSION FIRST, THEN THE READERS. A released `galley wait` is an agent
-// about to read the document, and the round it is reading must already be on
-// disk when it does. requestCut projects synchronously, so the cut is against
-// bytes that have settled — the notifier's quiet window is precisely the
-// promise that nothing has moved since.
-func (s *EditServer) wakeSettle(fp string) {
-	// Live chooses WHEN to send; it does not define a second kind of handoff.
-	// Capture and clean through the same path as Revise, open the same response
-	// window, and carry the same immutable work order to blocked readers.
-	sent, _, err := s.sendReviewerRound(versions.ReasonSettled, nil, false)
-	if err != nil {
-		if s.Log != nil {
-			s.Log("could not send the settled reviewer round: " + err.Error())
-		}
-		return
-	}
-	token := s.openResponseWindow(sent.round, sent.fingerprint, false)
-	// The cursor is the fingerprint that CAUSED this wake. Cleanup deliberately
-	// moved the current pending set again; returning that post-clean value can
-	// equal the caller's old cursor and make a real wake look like nothing moved.
-	s.wakeRound(waitSettle, fp, &sent.pending, token)
-}
-
 // ReleaseWaiters ends every blocked GET /_galley/wait and refuses new ones, so
 // `galley wait` exits rather than hanging past the editor it was watching.
 //
@@ -3552,8 +3300,7 @@ func (s *EditServer) waitOnce(ctx context.Context, since string, poll time.Durat
 	// has already happened and will not happen again — answer now rather than
 	// blocking for an event that is in the past.
 	//
-	// `changed` AND NOT `settle`: see the reason vocabulary above. What is
-	// known here is that the document moved past the caller's cursor, and the
+	// `changed`: see the reason vocabulary above. What is known here is that the document moved past the caller's cursor, and the
 	// reason it moved was never recorded — the reasons this endpoint reports
 	// all ride a decision that happened elsewhere, and a decision that has
 	// already been taken has nothing left in the server to be read back out of

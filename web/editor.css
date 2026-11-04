@@ -440,10 +440,6 @@
     animation: none;
     box-shadow: 0 0 0 4px var(--gly-flash);
   }
-  /* The switch still moves — it has to, the position IS the state — it just
-     arrives rather than travels. */
-  .gly-switch,
-  .gly-switch-knob { transition: none; }
 }
 
 /* --- figures (§6, R4) ---
@@ -1401,94 +1397,6 @@ body:not(.gly-page) .kit-card-body > main {
 }
 
 
-/* --- the mode toggle ---
-   `on ask` is the resting state and reads as muted chrome; `● live` is the
-   one that changes what the machine does on its own, so it wears the accent
-   the same way hold's ON state does. */
-/* THE MODE IS A SWITCH, NOT A BADGE. It used to read `on ask` / `● live` —
-   two nouns, neither of which says "this is a control", and one of which is a
-   riddle unless you have read the spec. One label and a position says both
-   things at once, and the position is read from aria-checked so the picture
-   and the accessibility tree cannot disagree. */
-/* NO `font-family` HERE, AND ITS ABSENCE IS A MEASUREMENT rather than an
-   oversight. This rule declared `font-family: var(--gly-mono)` and it was
-   DEAD: `.gly-bar button` is (0,1,1) and declares `font: inherit`, the
-   shorthand, so it sets font-family too — and `.gly-mode` is (0,1,0), the
-   per-element class this stylesheet loses to its own container with, four
-   entries deep in CLAUDE.md. It happened to MATCH, because `.gly-bar` is mono
-   and `inherit` therefore lands on mono, which is the worse half: a reader
-   cannot tell it from a live one and will maintain it as though editing it
-   would change a pixel. Shown dead before it was deleted — the declaration was
-   set to `cursive`, the bundle rebuilt, and the button read back
-   `"SF Mono", ui-monospace, …` off a real page, unmoved. The same deletion is
-   made on `.gly-hold` and on the seal's two verbs, which are the same shape.
-   Anything in this bar that genuinely needs a different family has to say so
-   at (0,1,1) or better. */
-.gly-mode {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  white-space: nowrap;
-}
-/* ON, and the class says so. It was `.gly-amber` — a state named for a paint
-   value — and when the paint moved to the action colour the name became a rule
-   that lies to the next reader. Renamed with its three writers in entry.js. */
-.gly-mode.gly-on { color: var(--gly-signal); border-color: var(--gly-signal); }
-.gly-switch {
-  position: relative;
-  flex: none;
-  width: 26px;
-  height: 14px;
-  border: 1px solid var(--gly-line);
-  border-radius: 999px;
-  transition: border-color 0.12s ease;
-}
-.gly-switch-knob {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--gly-muted);
-  transition: transform 0.12s ease, background 0.12s ease;
-}
-.gly-mode[aria-checked="true"] .gly-switch { border-color: var(--gly-signal); }
-.gly-mode[aria-checked="true"] .gly-switch-knob {
-  transform: translateX(12px);
-  background: var(--gly-signal);
-}
-/* THE BAR MAY NOT MOVE WHEN IT IS CLICKED, so hold RESERVES ITS SPACE and
-   only its visibility changes.
-
-   It used to be `display: none` on ask. Turning live on therefore INSERTED a
-   button into a flex row, and every neighbour slid: measured on a 2000px
-   window, the mode switch moved 92.97px left and hold landed exactly under
-   the cursor that had just clicked it. The user's rule, and it is about the bar
-   rather than about this one button: "we shouldn't have jumps like that on
-   clicks. it leads to misclicks."
-
-   `visibility: hidden` is what keeps the box. It is also what keeps the
-   button out of the tab order and out of hit testing — the counterpart of
-   this codebase's other trap, where a card hidden in CSS was still a button
-   to the keyboard. paintMode sets `disabled` alongside it, so neither claim
-   rests on the stylesheet alone.
-
-   The two labels are stacked in ONE grid cell so the button is always as wide
-   as the wider of them. Hold's own click swaps `⏸ hold` for `▶ release · 0`,
-   which is wider — the same jump arriving through the label rather than
-   through the layout, and a reserved magic number would only have bounded it. */
-/* Its `font-family` is gone for `.gly-mode`'s measured reason — a per-element
-   class in this bar loses to `.gly-bar button`'s `font: inherit`, and this one
-   was dead-but-matching. */
-.gly-hold {
-  display: inline-grid;
-  grid-template-areas: "label";
-  place-items: center;
-  white-space: nowrap;
-}
-.gly-hold-label { grid-area: label; white-space: nowrap; }
-.gly-hold.gly-on { color: var(--gly-signal); border-color: var(--gly-signal); }
 /* Laid out, not drawn. Visibility is inherited, so the button carrying this
    hides its labels with it, and a label carrying it hides alone. */
 .gly-reserved { visibility: hidden; }
@@ -2553,9 +2461,9 @@ body.gly-history-mode .kit-sendbar { display: none; }
 /* A notice takes the status slot whole. */
 .kit-sendbar:has(.gly-notice:not([hidden])) #gly-drafts,
 .kit-sendbar:has(.gly-notice:not([hidden])) .gly-msg:not(.gly-notice) { display: none; }
-/* Beside History: what isn't about sending. Hold shows only while live. */
+/* Beside History: what isn't about sending. */
 .gly-doc-tools { display: inline-flex; align-items: center; gap: 8px; }
-.gly-doc-tools .gly-mode, .gly-doc-tools .gly-hold, .gly-doc-tools .gly-preview-open {
+.gly-doc-tools .gly-preview-open {
   font: 12px/18px var(--kit-mono);
   color: var(--kit-fg);
   background: transparent;
@@ -2565,7 +2473,6 @@ body.gly-history-mode .kit-sendbar { display: none; }
   cursor: pointer;
   white-space: nowrap;
 }
-.gly-doc-tools .gly-hold.gly-reserved { display: none; }
 /* Labels that change on a press or a tick keep their box. */
 #gly-revise { min-width: 22ch; }
 /* Revise's ▾ is one control with it: no gap between them (the kit's 8px, taken

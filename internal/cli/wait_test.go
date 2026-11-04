@@ -72,33 +72,14 @@ func waitAsync(baseURL, since string, timeout time.Duration) <-chan waitOutcome 
 	return out
 }
 
-// liveWaitServer is a real EditServer behind httptest, in ● live mode with a
-// quiet window a test can outlast.
-//
-// ● live and not `on ask`, deliberately: a settle only reaches the notifier in
-// live mode, so `on ask` is a document where nothing but a Revise press can
-// ever wake a waiter. That is the intended behaviour, and it is the wrong
-// fixture for the settle cases.
-func liveWaitServer(t *testing.T, content string) (*serve.EditServer, *httptest.Server) {
+// waitServer is a real EditServer behind httptest.
+func waitServer(t *testing.T, content string) (*serve.EditServer, *httptest.Server) {
 	t.Helper()
 	doc := writeDoc(t, t.TempDir(), "doc.md", content)
 	srv, err := serve.NewEdit(doc)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// A waiter rides the notifier's settle decision rather than making its own,
-	// so the fixture needs a notifier with a test-length quiet window.
-	// CONFIGURED, NOT REPLACED — the same thing runEdit does, and for the same
-	// reason: NewEdit always supplies one (pull needs no command), and
-	// assigning a fresh Notifier is the shape that quietly detaches the wake.
-	srv.Notify.Quiet = 50 * time.Millisecond
-	if err := srv.SetMode(serve.ModeLive); err != nil {
-		t.Fatal(err)
-	}
-	// What the document arrived carrying is not news — the same thing the CLI
-	// says at startup.
-	srv.SeedNotify()
-
 	ts := httptest.NewServer(srv.Handler())
 	// ORDER MATTERS, AND GETTING IT WRONG HANGS THE WHOLE PACKAGE.
 	//
@@ -151,18 +132,22 @@ func instructAs(t *testing.T, baseURL, target, instruction string) {
 	}
 }
 
-// 1. A WAKE ARRIVES. The reviewer moves the document while a waiter is
-// blocked; the waiter returns with the reason and the fingerprint it woke at.
-func TestWaitWakesWhenTheReviewerMoves(t *testing.T) {
-	_, ts := liveWaitServer(t, "# Title\n\nHello world.\n")
+// 1. A WAKE ARRIVES. The reviewer presses Revise while a waiter is blocked;
+// the waiter returns with the reason and the captured round.
+func TestWaitWakesWhenTheReviewerPressesRevise(t *testing.T) {
+	srv, ts := waitServer(t, "# Title\n\nHello world.\n")
+	instructAs(t, ts.URL, "world", "Use galley here.")
 	since := armed(t, ts.URL)
 
 	done := waitAsync(ts.URL, since, 10*time.Second)
-	// Registered before the mutation lands, so this is a genuine wake and not
+	// Registered before the press lands, so this is a genuine wake and not
 	// the catch-up path wearing its name.
-	time.Sleep(100 * time.Millisecond)
-
-	instructAs(t, ts.URL, "world", "Use galley here.")
+	waitUntilWaiting(t, srv)
+	resp, err := serverClient.Post(ts.URL+"/_galley/revise", "application/json", strings.NewReader("{}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
 
 	select {
 	case got := <-done:
@@ -172,17 +157,14 @@ func TestWaitWakesWhenTheReviewerMoves(t *testing.T) {
 		if got.code != http.StatusOK {
 			t.Fatalf("wait: HTTP %d", got.code)
 		}
-		if got.reply.Reason != "settle" {
-			t.Errorf("reason = %q, want %q", got.reply.Reason, "settle")
-		}
-		if got.reply.Fingerprint == since {
-			t.Error("woke on the fingerprint it was already holding — nothing to re-arm past")
+		if got.reply.Reason != "revise" {
+			t.Errorf("reason = %q, want %q", got.reply.Reason, "revise")
 		}
 		if len(got.reply.Pending.Instructions) == 0 {
 			t.Error("woke with an empty pending payload — the caller has to ask again to learn what changed")
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("the waiter never woke — a reviewer's edit settled and nothing was released")
+		t.Fatal("the waiter never woke — the reviewer pressed Revise and nothing was released")
 	}
 }
 
@@ -207,10 +189,9 @@ func TestWaitPrintsTheCapturedInstructionInsteadOfPointingAtClearedPending(t *te
 
 // 2. --since CATCHES UP. A fingerprint the document has already moved past
 // returns AT ONCE. This is the re-arm gap: between a waiter exiting and being
-// re-armed, an event has nobody to deliver to, and in live mode that window is
-// hit constantly.
+// re-armed, an event has nobody to deliver to.
 func TestWaitCatchesUpOnAStaleSince(t *testing.T) {
-	_, ts := liveWaitServer(t, "# Title\n\nHello world.\n")
+	_, ts := waitServer(t, "# Title\n\nHello world.\n")
 
 	const stale = "0000000000000000"
 	start := time.Now()
@@ -238,11 +219,11 @@ func TestWaitCatchesUpOnAStaleSince(t *testing.T) {
 // TestWaitIgnoresTheAgentsOwnWrite's first half asserts precisely that, and is
 // one deleted second half away from being this test.
 //
-// Flip liveWaitServer's cleanup order and this deadlocks the entire package on
+// Flip waitServer's cleanup order and this deadlocks the entire package on
 // teardown, reported as a bare `panic: test timed out` naming handleWait's
 // select. It is here so the hazard is executable rather than only a comment.
 func TestTeardownSurvivesAStillBlockedWaiter(t *testing.T) {
-	srv, ts := liveWaitServer(t, "# Title\n\nHello world.\n")
+	srv, ts := waitServer(t, "# Title\n\nHello world.\n")
 
 	// Deliberately never awaited. Teardown is what has to unwedge it.
 	waitAsync(ts.URL, "", time.Hour)
@@ -328,7 +309,7 @@ func TestWaitReportsAnApprove(t *testing.T) {
 // DIFFERENT: a loop re-arms after one and gives up after the other, and it can
 // only tell them apart by the exit code main.go derives from these sentinels.
 func TestWaitDistinguishesTimeoutFromAStoppedEditor(t *testing.T) {
-	srv, ts := liveWaitServer(t, "# Title\n\nHello world.\n")
+	srv, ts := waitServer(t, "# Title\n\nHello world.\n")
 
 	_, err := waitFor(ts.URL, "", 400*time.Millisecond)
 	if !errors.Is(err, errWaitTimeout) {

@@ -107,17 +107,7 @@ import {
   sharedLine,
   shareItems,
 } from './share.ts';
-import {
-  MODE_ASK,
-  MODE_LIVE,
-  modeLabel,
-  modeOn,
-  modeTitle,
-  nextMode,
-  roundPhrase,
-  PHASE_DRAFT,
-  PHASE_AGENT,
-} from './bar.ts';
+import { roundPhrase, PHASE_DRAFT, PHASE_AGENT } from './bar.ts';
 // composerPlacement moved to web/composer.ts with its one caller,
 // placeComposerButton — see that module's header.
 // coerceLevel moved to web/heading.ts — shared between TolerantHeading
@@ -6739,59 +6729,6 @@ function bindsContentField(src) {
       // check below asserts their ABSENCE instead, which is a claim that can go red.
     }
 
-    // THE MODE IS A SWITCH WITH ONE LABEL, not a badge with two.
-    //
-    // It used to read `on ask` / `● live`, and this block used to assert both
-    // strings — "the toggle names the state it is in, both ways". Two nouns,
-    // neither of which says "this is a control", and "on ask" a riddle to anyone
-    // who has not read the spec. The mode is the one control whose whole job is to
-    // say which world you are in, and it was not doing it.
-    //
-    // Nothing is lost by naming only the on state: the mode's entire effect is
-    // whether `⏸ hold` is on screen, and Revise is visible in both states, so the
-    // thing you would do instead of going live is in front of you either way.
-    {
-      check(
-        'the switch has ONE label, whatever the mode',
-        modeLabel() === 'live',
-      );
-      check(
-        'and the mode decides its POSITION, not its words',
-        modeOn(MODE_LIVE) === true && modeOn(MODE_ASK) === false,
-      );
-      // The old badge's most important property survives the redesign: an
-      // unrecognised mode must never read as live. A reviewer who believes the
-      // agent is not listening while it is has been told the opposite of the
-      // truth about the one thing this control exists to report.
-      check(
-        'an unknown mode is never shown as live',
-        modeOn('') === false && modeOn('sideways') === false,
-      );
-      check(
-        'the switch asks for the other mode',
-        nextMode(MODE_ASK) === MODE_LIVE && nextMode(MODE_LIVE) === MODE_ASK,
-      );
-      // A switch's label is its state, so the verb has to live in the hover text —
-      // and both facts have to be there: what is happening now, and what a click
-      // does about it.
-      check(
-        'the hover text says what is happening now, both ways',
-        modeTitle(MODE_LIVE).includes('woken whenever the document settles') &&
-          modeTitle(MODE_ASK).includes('hears nothing until you press Revise'),
-      );
-      check(
-        'and what a click will do about it, both ways',
-        modeTitle(MODE_LIVE).includes('click to stop') &&
-          modeTitle(MODE_ASK).includes('click to go live'),
-      );
-      check(
-        'no state of the switch says "on ask" any more',
-        !modeTitle(MODE_ASK).includes('on ask') &&
-          !modeTitle(MODE_LIVE).includes('on ask') &&
-          !modeLabel().includes('ask'),
-      );
-    }
-
     // AND NOT ONE OF THE FIVE MECHANISMS THAT MANAGED ITS OVERFLOW. Dimming was
     // struck from this design once, came back bounded by a cap, and is now gone
     // with the fixed column that made it necessary — along with the clusters it
@@ -6997,26 +6934,6 @@ function bindsContentField(src) {
     );
 
     check(
-      'the built bundle carries hold and release',
-      src.includes('gly-hold') &&
-        src.includes('⏸ hold') &&
-        src.includes('▶ release · '),
-    );
-
-    // This used to assert both of the old badge's labels — `on ask` and
-    // `● live`. There is one label now, and a POSITION carried by
-    // aria-checked, so what the bundle has to contain is the switch's parts
-    // and its endpoint. The absence of "on ask" is asserted too: the copy that
-    // failed a real reviewer must not survive anywhere in the shipped bundle.
-    check(
-      'the built bundle carries the mode switch, its label and its endpoint',
-      src.includes('gly-mode') &&
-        src.includes('gly-switch') &&
-        src.includes('"switch"') &&
-        src.includes('aria-checked') &&
-        src.includes('/_galley/mode'),
-    );
-    check(
       'and the copy that failed a reviewer is gone from it',
       !src.includes('on ask'),
     );
@@ -7129,37 +7046,9 @@ function bindsContentField(src) {
       css.includes('user-select:none'),
     );
 
-    // --- the bar does not move when you click it ---
-    //
-    // The browser pass is what proves the pixels; these are the two facts that
-    // pass rests on, and they are the two a later edit would quietly undo.
-    // `display:none` on hold is what made turning live on insert a button and
-    // slide the switch 92.97px out from under the cursor, so its ABSENCE is
-    // asserted as well as the reserve that replaced it.
-    check(
-      'hold reserves its space rather than being taken out of the bar',
-      css.includes('.gly-reserved{visibility:hidden}') &&
-        !/\.gly-hold\[hidden\]/.test(css),
-    );
-    // A reserved box is not a button. `visibility:hidden` is what takes it out
-    // of the tab order and out of hit testing; paintMode's `disabled` is the
-    // other half, and neither is allowed to be the only one. Read here rather
-    // than borrowed from the block above: the two esbuild outputs are separate
-    // files and this pair of claims spans both.
     const bundle = readFileSync(
       new URL('../internal/serve/assets/editor.js', import.meta.url),
       'utf8',
-    );
-    check(
-      'and the button is disabled as well as invisible while it is reserved',
-      bundle.includes('gly-reserved') && /\.disabled=!/.test(bundle),
-    );
-    // Hold's own click swaps its label for a wider one. Two labels in one grid
-    // cell is what makes the button as wide as the wider of them at all times.
-    check(
-      'hold’s two labels share one cell, so swapping them cannot resize it',
-      css.includes('.gly-hold-label{grid-area:label') &&
-        css.includes('grid-template-areas:"label"'),
     );
     // THE COUNT'S RESERVE MOVED TO THE BUTTON THAT SENDS WHAT IT COUNTS.
     // `Instructions · N` is `display: none` at every width now — the number is
@@ -7283,8 +7172,8 @@ function bindsContentField(src) {
   // This is an ORDER fact about the shell's markup, so it is read from the
   // shell rather than from the bundle. `#gly-status` sat after `.gly-spacer`,
   // so the one word it prints in reply to a click grew the right-hand group
-  // and slid every control left — measured at 59px for `.gly-mode` and
-  // `.gly-hold` on a single press of Revise. A readout that pushes a button
+  // and slid every control left — measured at 59px for the controls beside
+  // it on a single press of Revise. A readout that pushes a button
   // is the same defect as a button that pushes its neighbour.
   const shell = readFileSync(
     new URL('../internal/serve/edit.html', import.meta.url),

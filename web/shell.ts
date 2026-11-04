@@ -513,8 +513,8 @@ export function mountShell(verdict: () => void): void {
     right: { panel: 'thread', label: 'Instructions and chat' },
   });
   const crumb = h('span', { class: 'kit-card-crumb' }, name);
-  // Live, hold and the preview: beside History, kept across each redraw of the
-  // track. bar.ts and share.ts put them in.
+  // The preview: beside History, kept across each redraw of the track.
+  // share.ts puts it in.
   const docTools = h('span', { class: 'gly-doc-tools', id: 'gly-doc-tools' });
   const stages = h('div', { class: 'gly-stages' }, docTools);
   const b: BarHandle = connect({

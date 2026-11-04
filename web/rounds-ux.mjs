@@ -678,10 +678,10 @@ try {
 
   await measureBar(page, 'idle');
   check(
-    'live, hold and the HTML preview are beside History, not on the bar',
+    'the HTML preview is beside History, not on the bar',
     await page.evaluate(() => {
       const row = document.querySelector('.gly-stages');
-      return ['.gly-mode', '.gly-hold', '.gly-preview-open'].every(
+      return ['.gly-preview-open'].every(
         (sel) =>
           row.querySelector(sel) &&
           !document.querySelector(`.kit-sendbar ${sel}`),

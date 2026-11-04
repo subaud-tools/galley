@@ -402,7 +402,7 @@ func TestHostWritesRestOnTheTokenNotTheSameSiteGuard(t *testing.T) {
 	token := strings.SplitN(f.cookie, "=", 2)[1]
 	post := func(contentType string, set func(*http.Request)) int {
 		t.Helper()
-		req, err := http.NewRequest(http.MethodPost, f.base+"/api/docs/"+id+"/_galley/mode", strings.NewReader(`{"mode":"live"}`))
+		req, err := http.NewRequest(http.MethodPost, f.base+"/api/docs/"+id+"/_galley/chat", strings.NewReader(`{"text":"hello"}`))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -463,7 +463,7 @@ func TestPagesHoldNoOwnerHookOrPath(t *testing.T) {
 	t.Setenv("GALLEY_HOME", t.TempDir())
 	r := startServe(t, Options{Sessions: presence(t, "session-secret"), Every: time.Hour})
 	doc := writeDoc(t, "doc.md", "# T\n\nHello.\n")
-	a := r.open(t, doc, DocOptions{Owner: "session-secret", OnRevise: "hook-secret", OnSettle: "settle-secret", Dir: filepath.Dir(doc)})
+	a := r.open(t, doc, DocOptions{Owner: "session-secret", OnRevise: "hook-secret", Dir: filepath.Dir(doc)})
 
 	code, body, views := pagesOf(t, signIn(t, r))
 	if code != http.StatusOK {
@@ -473,7 +473,7 @@ func TestPagesHoldNoOwnerHookOrPath(t *testing.T) {
 	if !slices.Equal(views, want) {
 		t.Fatalf("pages = %+v, want %+v", views, want)
 	}
-	for _, secret := range []string{"session-secret", "hook-secret", "settle-secret", filepath.Dir(filepath.Dir(doc))} {
+	for _, secret := range []string{"session-secret", "hook-secret", filepath.Dir(filepath.Dir(doc))} {
 		if strings.Contains(body, secret) {
 			t.Errorf("the pages view holds %q: %s", secret, body)
 		}

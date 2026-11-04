@@ -44,7 +44,7 @@ import (
 // V8 rewrites agentprompt.go next against the SAME protocol, so keep this
 // wording portable — its implementer reads this diff.
 const channelInstructions = `You are paired with galley, a browser review surface for documents this session produces.
-Events arrive as <channel source="galley" doc="…" reason="…"> or as a turn whose first line is galley event doc=… reason=…. On "revise", "settle" and "chat", the event carries its answering rules: read them, not only this.
+Events arrive as <channel source="galley" doc="…" reason="…"> or as a turn whose first line is galley event doc=… reason=…. On "revise" and "chat", the event carries the rules for answering it: read them, not only this.
 Whenever you write to answer a round, on any event: make targeted, in-place edits to the .md file and never rewrite the whole file — the reviewer may be editing it at the same time, and a whole-file write can silently erase what they just wrote.
 Between rounds, galley loads your edits to an open document. If you and the reviewer change it at the same time, the reviewer's copy is kept and yours is saved in .galley/recovery. Stop the review before moving or deleting the file.
 If you have LOST the round — your context was compacted, or this session restarted mid-review — run galley round <doc> to read it again, with the same instructions and the same keys you were given. A sent round is no longer pending, so do not reach for galley pending instead.
@@ -52,8 +52,8 @@ On "approve", the reviewer approved the document as it stands and the review is 
 If you expect a review and hear nothing, call galley_channel_status. It reports which open documents this session is attached to and why any others are not.
 To review a file, call galley_open with its path: it starts this session's review, opens it in the reviewer's browser and returns the URL in case they close it; rounds arrive here. Never run galley edit from a shell while this channel is present; an editor opened that way belongs to no session and any channel whose scope covers it may claim it.`
 
-// reviseGuidance is the rule set that governs answering a "revise" or
-// "settle" event — see reasonGuidance below.
+// reviseGuidance is the rule set that governs answering a "revise" event — see
+// reasonGuidance below.
 const reviseGuidance = `The rules for answering this round. Revise the document by editing the .md file directly with your normal file tools — while you hold the round, galley watches the file and streams every save into the reviewer's browser, so save as often as you like. MAKE TARGETED EDITS AND NEVER REWRITE THE WHOLE FILE: the reviewer is editing that same file at the same time, so your copy is stale from the moment you read it, and one whole-file write silently destroys everything they typed since — including passages they deliberately deleted, which reappear because they are still in your copy. This has happened, and it cost a reviewer a section. A write your tools reject with "file has been modified since read" is that guard firing correctly; re-reading one line to satisfy it and writing the whole file anyway defeats the guard rather than answering it. Ordinary Markdown expresses everything: formatting, links, headings, lists, tables. Do not use raw HTML, footnotes, reference-style links, autolinks, definition lists, ::: directives, or [!NOTE] callouts; galley refuses those dialects and holds a save that will not parse until your next save fixes it.
 When the whole revision is in the file, call galley_ack once with state "answered" and a one-sentence note; that commits your round — exactly once, for the whole revision, never per save. Pass "changes" with that call: one entry per change you made, each quoting a few words of what you WROTE so galley can find it, and naming in "answers" which instruction it answers by the key the round handed you. Every instruction in the round is printed with its key — the quoted words followed by [key cm-0fe4404...], or the key alone on its line for a whole-document instruction — and that key is what "answers" takes; without it the reviewer sees a change card with no ask beside it. Galley owns the list of what changed and computes it from the two documents; your entries only annotate it, so a quote it cannot place in exactly one changed passage is ignored, and so is a key it never sent you — the change still reaches the reviewer with no sentence beside it and nobody is shown an error. Quote text you actually wrote; omit "answers" when a change answers no instruction in particular. An instruction is the reviewer's guidance, not text to paste. Work out what they are asking for and write the change in the document's own voice. Do not copy their words into the prose, unless the instruction is itself the replacement wording (for example "declared not pinned"). A reviewer who wanted their exact words in the document would have typed them there. The revision itself is the answer: not a reply, and not a proposal the reviewer must accept.
 On a round that takes more than a moment, your first move is galley_ack with state "working" and a one line note saying what you are doing; the reviewer reads it under the round's pill. "declined" (you will not do it) and "failed" (you tried and could not) settle the round instead of "answered", with why in the note. If you genuinely cannot do an instruction, run galley cannot <doc> --why "what stopped you". That records an unchanged exception round for the reviewer and shows the round as failed with your reason; it is a report, not an argument or retry.`
@@ -75,7 +75,7 @@ const chatGuidance = `The reviewer sent a chat message. Answer it with galley_re
 // to do next, and must not disagree with it.
 func reasonGuidance(reason string) string {
 	switch reason {
-	case reasonRevise, reasonSettle:
+	case reasonRevise:
 		return reviseGuidance
 	case reasonChat:
 		return chatGuidance
@@ -96,7 +96,7 @@ func reasonGuidance(reason string) string {
 // batch; clients that do not render it as a readable rule.
 func composeWake(reason, envelope string, paged bool) string {
 	g := reasonGuidance(reason)
-	// A page-backed revise/settle carries the same page-mode guidance the pull
+	// A page-backed revise carries the same page-mode guidance the pull
 	// carrier appends (pageBacked): edit content.md for wording or the original
 	// .html for structure, and never galley's derived files. It rides HERE, not
 	// in reasonGuidance, because it depends on the DOCUMENT (is it a page?), not
@@ -104,7 +104,7 @@ func composeWake(reason, envelope string, paged bool) string {
 	// guidance half after the one separator, so a client that splits on "---"
 	// still sees exactly one. Without it a channel-woken agent had no page-mode
 	// guidance at all and reached into template.json to answer a structural ask.
-	if paged && (reason == reasonRevise || reason == reasonSettle) {
+	if paged && reason == reasonRevise {
 		g += "\n" + pageBacked
 	}
 	if g == "" {
@@ -428,12 +428,7 @@ func renderWake(w serve.AgentWake) (string, map[string]string) {
 		content = fmt.Sprintf("The reviewer sent a chat message on %s (message %d):\n\n%s", w.Page, w.Chat.ID, w.Chat.Text)
 	}
 	if content == "" {
-		switch reason {
-		case reasonSettle:
-			content = fmt.Sprintf("%s settled in live mode — %d instruction(s).", w.Page, instructions)
-		default:
-			content = fmt.Sprintf("Revision requested on %s — %d instruction(s).", w.Page, instructions)
-		}
+		content = fmt.Sprintf("Revision requested on %s — %d instruction(s).", w.Page, instructions)
 		if len(pending.Instructions) > 0 {
 			// THE REVIEWER'S OWN EDITS LEAD THE ROUND. An agent reads in
 			// order and acts in order; "do not undo these" arriving after
@@ -532,7 +527,7 @@ func channelCommand() tools.Command {
 		"its galley_open tool, starting the server if needed, and serves galley's other\n" +
 		"tools. Under pi it also waits on the server for every document this session owns,\n" +
 		"plus any under --scope that no session owns at all, and pushes each Revise,\n" +
-		"settle, chat message, Approve — and a document going away — into the session as an event.\n" +
+		"chat message, Approve — and a document going away — into the session as an event.\n" +
 		"The galley_channel_status tool says why any other open document does not reach it.\n" +
 		"Under Claude Code it serves the tools only: `galley watch`, which the galley plugin\n" +
 		"runs, delivers the events.\n"
@@ -548,7 +543,7 @@ func channelCommand() tools.Command {
 // watchCommand is `galley watch`: the channel's wait loop, printing each wake as
 // one JSON line on stdout for the Claude Code plugin's mod.
 func watchCommand() tools.Command {
-	const help = "Waits on the server for this session and prints each Revise, settle, chat message, Approve — and\n" +
+	const help = "Waits on the server for this session and prints each Revise, chat message, Approve — and\n" +
 		"its document going away — as one JSON line {\"text\": ..., \"content\": ..., \"meta\":\n" +
 		"{...}} on stdout. The galley plugin's mod runs it for a Claude Code session and starts a\n" +
 		"turn with each line's text. Diagnostics go to stderr. Runs until signalled. It never\n" +

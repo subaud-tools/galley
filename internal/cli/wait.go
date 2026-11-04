@@ -1,6 +1,6 @@
 // wait.go is galley's PULL half.
 //
-// Every other hook here pushes: --on-revise and --on-settle run a shell command
+// The other hook here pushes: --on-revise runs a shell command
 // to wake someone who is not here. That is right for a persistent agent with an
 // inbox and wrong for paired review, where the valuable participant is the
 // session that is ALREADY here — holding the branch, the discussion and the
@@ -84,24 +84,15 @@ import (
 	tools "github.com/subaud-tools/tools-common"
 )
 
-// The eight things a poll can report. Mirrors the endpoint's vocabulary in
-// internal/serve; revise, settle, approve, discard, reopen and changed are
-// wakes.
-//
-// discard is TERMINAL like approve — the review ended, it just ended without
-// the markup being applied — so it exits 0 and does not tell the caller to
-// re-arm. reopen is the opposite of terminal: the review is live again, and
-// the caller re-arms on it exactly as it would on a revise.
+// The things a poll can report. Mirrors the endpoint's vocabulary in
+// internal/serve; revise, chat, approve and changed are wakes.
 //
 // changed is the CATCH-UP's, and it is the one wake that names no event: the
 // cursor this caller sent is behind, so the document moved while it was away
-// and the server does not keep why. It used to answer `settle` there, which
-// says the document settled in ● live mode — a claim, and one that is simply
-// false on a session `on ask`. Re-read everything is the whole of what it
-// means, which is also what a settle asks for, so a loop treats the two alike.
+// and the server does not keep why. Re-read everything is the whole of what it
+// means.
 const (
 	reasonRevise  = "revise"
-	reasonSettle  = "settle"
 	reasonApprove = "approve"
 	reasonChanged = "changed"
 	reasonTimeout = "timeout"
@@ -374,16 +365,15 @@ func waitFor(baseURL, since string, timeout time.Duration) (waitResult, error) {
 		}
 
 		switch res.Reason {
-		case reasonRevise, reasonSettle, reasonChanged, reasonApprove, reasonChat:
+		case reasonRevise, reasonChanged, reasonApprove, reasonChat:
 			return res, nil
 		case reasonClosed:
 			return waitResult{}, errWaitStopped
 		case reasonTimeout:
 			// Re-arm on what the SERVER just saw, never on the cursor we sent.
-			// An expiry means the settle decision declined — usually because
-			// the only writes were the agent's own — and carrying the old
-			// cursor forward would turn that decline into a wake on the very
-			// next poll.
+			// The writes since are usually the agent's own, and carrying the
+			// old cursor forward would turn them into a wake on the very next
+			// poll.
 			since = res.Fingerprint
 			seen = res.Fingerprint
 		default:

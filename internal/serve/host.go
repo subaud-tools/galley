@@ -45,14 +45,12 @@ type DocOptions struct {
 	Owner string `json:"owner,omitempty"`
 	// Adopted is an Owner that took up a document opened with none: when that
 	// session ends the document goes back to having none, rather than leaving.
-	Adopted  bool          `json:"adopted,omitempty"`
-	OnRevise string        `json:"on_revise,omitempty"` // the command a Revise runs
-	OnSettle string        `json:"on_settle,omitempty"` // the command a settle in live mode runs
-	Quiet    time.Duration `json:"quiet,omitempty"`     // how long before a settle; 0: the default
+	Adopted  bool   `json:"adopted,omitempty"`
+	OnRevise string `json:"on_revise,omitempty"` // the command a Revise runs
 	// Root is a page's site root, its preview's assets served from there; "":
 	// the page's own directory. An error on anything but a page.
 	Root string `json:"root,omitempty"`
-	// Dir is where OnRevise and OnSettle run: the directory the document was
+	// Dir is where OnRevise runs: the directory the document was
 	// opened from, since the server runs in its own. "": the server's.
 	Dir string `json:"dir,omitempty"`
 }
@@ -184,16 +182,6 @@ func (h *Host) openLocked(path string, o DocOptions) (id string, added bool, err
 	s.Log = func(line string) { _, _ = fmt.Fprintf(h.log, "%s: %s\n", abs, line) }
 	s.OnRevise = o.OnRevise
 	s.HookDir = o.Dir
-	s.Notify.Dir = o.Dir
-	if o.Quiet > 0 {
-		s.Notify.Quiet = o.Quiet
-	}
-	if o.OnSettle != "" {
-		s.Notify.Command = o.OnSettle
-		s.Notify.Log = s.Log
-	}
-	// What the document arrived carrying is not news.
-	s.SeedNotify()
 	// The bar's Done closes the document, and only it.
 	s.OnStop = func() {
 		if err := h.Close(id); err != nil {
@@ -620,7 +608,7 @@ func (h *Host) openFor(in OpenRequest) (string, error) {
 		case !d.options.Adopted:
 			// The gone session's commands: an adopted document's are the
 			// terminal's that opened it.
-			d.options.OnRevise, d.options.OnSettle, d.options.Dir = "", "", ""
+			d.options.OnRevise, d.options.Dir = "", ""
 			d.server.clearHooks()
 		}
 		d.options.Owner = in.Owner

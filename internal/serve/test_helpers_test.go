@@ -78,9 +78,8 @@ func newEditServer(t *testing.T, dir, name, content string) *EditServer {
 	return s
 }
 
-// waitFor blocks until at least want notifications have landed. AT LEAST: a
-// caller asserting an exact count must count again after a settling window of
-// its own — see TestNotifierFiresOnceTouchesSettle.
+// waitFor blocks until at least want hook runs have landed. AT LEAST: a caller
+// asserting an exact count must count again after a settling window of its own.
 func waitFor(t *testing.T, marker string, want int) {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)

@@ -84,7 +84,7 @@ func TestTheWakeCountsInstructions(t *testing.T) {
 // destroyed a real reviewer's section, and a future edit that tidies it out of
 // the guidance must fail here rather than ship.
 func TestReviseGuidanceCarriesTheWriteRule(t *testing.T) {
-	for _, reason := range []string{reasonRevise, reasonSettle} {
+	for _, reason := range []string{reasonRevise} {
 		lower := strings.ToLower(reasonGuidance(reason))
 		for _, want := range []string{"targeted", "whole file", "stale", "galley_ack", "answered"} {
 			if !strings.Contains(lower, want) {

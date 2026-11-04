@@ -1,7 +1,7 @@
 // web/pending.ts owns the poll-and-refresh loop that keeps the reviewer's
 // screen matching the server's `/_galley` state: `tick` watches for a saved
 // projection and a moved revision, `refreshPending` re-reads the pending view
-// and repaints census/revise/hold/rail from it, `noticeArrivals` decides
+// and repaints census/revise/rail from it, `noticeArrivals` decides
 // whether a fresh arrival gets a strip or an on-screen ring, and
 // `refreshVersions` keeps History's own count in step. It is a MIXIN — an
 // object of methods `Object.assign`ed onto `App.prototype` in entry.ts — not
@@ -143,27 +143,20 @@ export const pendingMethods = {
         // `pendingView` is `{instructions, blocks}`. `adoptTrail` and
         // `applyServerTrail` are deleted with the save that was their only
         // reason for existing.
-        // Withholding happens BEFORE the rail is painted, or a held card would
-        // flash onto the screen and be removed on the next poll.
-        const arrived = this.holding
-          ? this.withhold(change.arrived)
-          : change.arrived;
+        const arrived = change.arrived;
         this.reconcileRunSets(arrived, change.resolved);
         // Before the rail, not after: the count is not waiting on the rail to
         // render, because it does not come from the rail. It counts the
-        // SERVER's projection, so it keeps telling the truth about held
-        // arrivals while the rail is holding its tongue.
+        // SERVER's projection.
         //
-        // The verdict reads the VIEW, not the rail, for the same reason: a
-        // held arrival is markup pending whatever the rail shows, and the
-        // server would refuse an approve over it with 409. paintRevise flips
+        // The verdict reads the VIEW, not the rail, for the same reason: the
+        // server would refuse an approve over pending markup with 409. paintRevise flips
         // the label here rather than on its own 1s beat, so the button and the
         // census it reads can never disagree for a tick.
         this.verdict = verdictLabel(view);
         this.pendingCount = (view.instructions || []).length;
         this.editCount = (view.changes || []).length;
         this.paintRevise();
-        this.paintHold();
         this.paintTabs();
         // An OPEN conversation is redrawn from the same fresh list every other
         // surface was just painted from — otherwise a reply the reviewer sent
@@ -179,18 +172,17 @@ export const pendingMethods = {
       .catch(() => {});
   },
 
-  // reconcileRunSets is refreshPending's held-arrival bookkeeping, pulled out
-  // because it is `this`-bound (`this.newRuns`, `this.held`,
-  // `this.heldArrivals`) rather than because it is a second component: the
-  // same two loops, called from the one place that ever called them, now
-  // named for what they do together.
+  // reconcileRunSets is refreshPending's arrival bookkeeping, pulled out
+  // because it is `this`-bound (`this.newRuns`) rather than because it is a
+  // second component: the same two loops, called from the one place that ever
+  // called them, now named for what they do together.
   reconcileRunSets(
     this: AppShell,
     arrived: ArrivalItem[],
     resolved: (string | undefined)[],
   ) {
     for (const a of arrived) {
-      // A held/arrived entry always carries a run in practice (arrivals
+      // An arrived entry always carries a run in practice (arrivals
       // are mark-derived and the run is minted server-side); the guard is
       // the honest narrowing the field's own optionality asks for, same
       // reasoning as stepOrder's.
@@ -208,11 +200,6 @@ export const pendingMethods = {
         continue;
       }
       this.newRuns.delete(run);
-      // A held arrival decided from the CLI is no longer waiting for a
-      // card, so it must leave the queue too — otherwise release would
-      // announce work that is already gone.
-      this.held.delete(run);
-      this.heldArrivals = this.heldArrivals.filter((a) => a.run !== run);
     }
   },
 
@@ -223,11 +210,9 @@ export const pendingMethods = {
   // their own, and only a `show me` click scrolls. That is the entire
   // difference between a co-author and an interruption.
   //
-  // It runs in BOTH modes. Live mode is about whether the agent is woken
-  // without being asked; an arrival is an arrival either way — the agent's
-  // saves, or the results of a Revise — and a reviewer who was
-  // not told what landed is in the same position regardless of how it got
-  // there.
+  // An arrival is an arrival whatever brought it — the agent's saves, or the
+  // results of a Revise — and a reviewer who was not told what landed is in
+  // the same position regardless of how it got there.
   noticeArrivals(this: AppShell, arrived: ArrivalItem[]) {
     const runs = this.runsNow();
     const viewport = {

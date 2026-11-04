@@ -217,19 +217,6 @@ export function queueArrivals(
 }
 
 /**
- * holdLabel is what the ⏸ button says. Handoff §4: hold queues arrivals and
- * the button becomes "▶ release · n".
- *
- * WHILE HOLDING, THIS COUNT IS THE ONLY NOTICE AN ARRIVAL GETS. No strip, no
- * pulse, no badge — the reviewer just said they did not want to be told, and a
- * number on the button they pressed is the smallest thing that can still be
- * honest about what is waiting.
- */
-export function holdLabel(holding: boolean, n: number): string {
-  return holding ? `▶ release · ${n}` : '⏸ hold';
-}
-
-/**
  * nextArrival is one `show me` click: the first queued arrival that is still
  * pending, and the queue with it removed.
  *

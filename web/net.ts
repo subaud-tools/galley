@@ -14,7 +14,6 @@ const routes = {
   instruct: '/_galley/instruct',
   instructionDelete: '/_galley/instruction/delete',
   mermaid: '/_galley/mermaid.js',
-  mode: '/_galley/mode',
   pending: '/_galley/pending',
   render: '/_galley/render',
   rev: '/_galley/rev',
