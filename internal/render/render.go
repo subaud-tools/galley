@@ -8,10 +8,14 @@
 package render
 
 import (
+	"bytes"
+
 	"github.com/subaud-tools/galley/internal/docmodel"
 	"github.com/subaud-tools/galley/internal/markdown"
 	"github.com/subaud-tools/galley/internal/suggest"
 	"github.com/subaud-tools/tools-common/mermaidkit"
+	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/extension"
 )
 
 // mermaidGlobal is the name web/package.json's build:mermaid gives the
@@ -45,4 +49,15 @@ func dropFrontMatter(blocks []docmodel.Block) []docmodel.Block {
 		}
 	}
 	return out
+}
+
+// Fragment renders a short piece of markdown, an agent's chat reply, as HTML for
+// the page to put in a thread: GFM, as the page Render makes, with raw HTML left
+// out and dangerous link targets dropped (goldmark's defaults).
+func Fragment(md []byte) (string, error) {
+	var b bytes.Buffer
+	if err := goldmark.New(goldmark.WithExtensions(extension.GFM)).Convert(md, &b); err != nil {
+		return "", err
+	}
+	return b.String(), nil
 }

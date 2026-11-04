@@ -393,6 +393,11 @@ type EditServer struct {
 	// and waiting for them would turn a genuinely unheard press into a
 	// slower, still-unheard press.
 	waitWoke time.Time
+
+	// chat is the review's conversation with the agent, opened on first use.
+	// See chat.go: it has its own lock and touches nothing of the round's.
+	chatOnce sync.Once
+	chat     *chatStore
 }
 
 // reviseWatch is what the editor's "revising · Ns" counts against.
@@ -1361,6 +1366,8 @@ func (s *EditServer) Handler() http.Handler {
 	// The reviewer taking the document back mid-window — see handoff.go.
 	mux.HandleFunc("/_galley/handoff/cancel", s.handleHandoffCancel)
 	mux.HandleFunc("/_galley/wait", s.handleWait)
+	mux.HandleFunc("/_galley/chat", s.handleChat)
+	mux.HandleFunc("/_galley/chat/reply", s.handleChatReply)
 	// History list and rendered views are reads. Restore is deliberately a
 	// separate guarded mutation: it copies a version into the working draft and
 	// never rewrites the version store.
@@ -3148,6 +3155,10 @@ const (
 	waitChanged = "changed"
 	waitTimeout = "timeout"
 	waitClosedR = "closed"
+	// waitChat is a reviewer's chat message, carried in waitReply.Chat. See
+	// chat.go: it is delivered once, before a read blocks or on the store's
+	// bell, and it is not a round.
+	waitChat = "chat"
 )
 
 // endingReason maps a sealed review's verdict onto the wake that announces it,
@@ -3179,6 +3190,7 @@ type waitReply struct {
 	Fingerprint string       `json:"fingerprint"`
 	Pending     *PendingView `json:"pending"`
 	Report      string       `json:"report,omitempty"`
+	Chat        *ChatWake    `json:"chat,omitempty"`
 }
 
 // How long ONE poll is held open. The caller names its own bound with
@@ -3492,6 +3504,9 @@ func (s *EditServer) waitOnce(ctx context.Context, since string, poll time.Durat
 		return waitReply{Reason: waitClosedR}, nil
 	}
 	defer s.unregisterWaiter(ch)
+	// The bell before the claim below, for registerWaiter's reason: a message
+	// posted between the two still rings it.
+	bell := s.chatLog().bell()
 
 	fp, view, err := s.waitFingerprint()
 	if err != nil {
@@ -3521,6 +3536,17 @@ func (s *EditServer) waitOnce(ctx context.Context, since string, poll time.Durat
 			s.unregisterWaiter(ch)
 			return waitReply{Reason: reason, Fingerprint: fp, Pending: &view}, nil
 		}
+	}
+	// A chat message nobody has read yet is delivered now: posted while no
+	// reader was attached, or between two reads. It names the caller's own
+	// cursor, so a catch-up it came before still happens on the next read.
+	if m, ok := s.claimChat(); ok {
+		s.unregisterWaiter(ch)
+		cursor := fp
+		if since != "" {
+			cursor = since
+		}
+		return waitReply{Reason: waitChat, Fingerprint: cursor, Pending: &view, Chat: m}, nil
 	}
 	// The catch-up. The caller's cursor is behind, so what it is waiting for
 	// has already happened and will not happen again — answer now rather than
@@ -3563,40 +3589,56 @@ func (s *EditServer) waitOnce(ctx context.Context, since string, poll time.Durat
 	//
 	// The defer stays: unregisterWaiter is a map delete, idempotent, and the
 	// r.Context().Done() branch and every early return still need it.
-	select {
-	case ev := <-ch:
-		// RELEASED BY AN EVENT, so this reader owes the server another poll and
-		// the gap between the two is the server's to wait out — see awaitReArm.
-		// Stamped here and only here: an expiry, a hung-up client and the
-		// shutdown release below all promise nothing, and waiting on a reader
-		// that is never coming back would make an honest refusal a slow one.
-		s.releasedWaiter(ch, ev.reason != waitClosedR)
-		if ev.reason == waitClosedR {
-			return waitReply{Reason: waitClosedR, Fingerprint: fp}, nil
-		}
-		// Revise carries the immutable round captured before its pending marks
-		// were cleared. Other wakes still report the latest visible state.
-		if ev.pending != nil {
-			fp, view = ev.fp, *ev.pending
-		} else {
-			fp, view, err = s.waitFingerprint()
+	for {
+		select {
+		case <-bell:
+			// A new chat message. Another reader may have taken it first; then
+			// this one listens for the next.
+			m, ok := s.claimChat()
+			if !ok {
+				bell = s.chatLog().bell()
+				continue
+			}
+			s.releasedWaiter(ch, true)
+			fp, view, err := s.waitFingerprint()
 			if err != nil {
 				return waitReply{}, err
 			}
+			return waitReply{Reason: waitChat, Fingerprint: fp, Pending: &view, Chat: m}, nil
+		case ev := <-ch:
+			// RELEASED BY AN EVENT, so this reader owes the server another poll and
+			// the gap between the two is the server's to wait out — see awaitReArm.
+			// Stamped here and only here: an expiry, a hung-up client and the
+			// shutdown release below all promise nothing, and waiting on a reader
+			// that is never coming back would make an honest refusal a slow one.
+			s.releasedWaiter(ch, ev.reason != waitClosedR)
+			if ev.reason == waitClosedR {
+				return waitReply{Reason: waitClosedR, Fingerprint: fp}, nil
+			}
+			// Revise carries the immutable round captured before its pending marks
+			// were cleared. Other wakes still report the latest visible state.
+			if ev.pending != nil {
+				fp, view = ev.fp, *ev.pending
+			} else {
+				fp, view, err = s.waitFingerprint()
+				if err != nil {
+					return waitReply{}, err
+				}
+			}
+			return waitReply{Reason: ev.reason, Fingerprint: fp, Pending: &view, Report: ev.report}, nil
+		case <-timer.C:
+			s.unregisterWaiter(ch)
+			fp, view, err := s.waitFingerprint()
+			if err != nil {
+				return waitReply{}, err
+			}
+			// The CURRENT fingerprint, never the one the caller sent. An expiry is
+			// how a wait with no deadline renews its cursor, and handing back a
+			// stale one would make the next poll catch up on a change this one
+			// already declined — the agent's own write, most often.
+			return waitReply{Reason: waitTimeout, Fingerprint: fp, Pending: &view}, nil
+		case <-ctx.Done():
+			return waitReply{}, ctx.Err()
 		}
-		return waitReply{Reason: ev.reason, Fingerprint: fp, Pending: &view, Report: ev.report}, nil
-	case <-timer.C:
-		s.unregisterWaiter(ch)
-		fp, view, err := s.waitFingerprint()
-		if err != nil {
-			return waitReply{}, err
-		}
-		// The CURRENT fingerprint, never the one the caller sent. An expiry is
-		// how a wait with no deadline renews its cursor, and handing back a
-		// stale one would make the next poll catch up on a change this one
-		// already declined — the agent's own write, most often.
-		return waitReply{Reason: waitTimeout, Fingerprint: fp, Pending: &view}, nil
-	case <-ctx.Done():
-		return waitReply{}, ctx.Err()
 	}
 }
