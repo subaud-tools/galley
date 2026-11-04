@@ -10,7 +10,8 @@
 //     switch navigates. The left index lists the same reviews.
 //   · Opening what a tab shows reuses it, and a tab on the front page moves to
 //     a review that opens.
-//   · Approve on the bar leaves the bar, and the lists say approved.
+//   · Approve on the bar leaves the bar, and the lists say approved; the
+//     switcher leaves an approved review out.
 //   · A tab counts from its first moment, with its stream not up yet.
 //   · The reader's words outlast a failed request, a Revise pressed before their
 //     save came back, and a press that would leave them behind.
@@ -132,7 +133,10 @@ await page.waitForTimeout(2500);
 const report = await open(place('beta', 'report.md'));
 check(
   'a third review reaches the index by the events, with no reload',
-  await until(async () => (await count('.kit-left-col .kit-index-row')) === 3),
+  await until(
+    async () =>
+      (await count('.kit-left-col .kit-group-rows .kit-index-row')) === 3,
+  ),
 );
 check(
   'and it does not take the tab over',
@@ -176,10 +180,13 @@ await page.waitForSelector('.ProseMirror');
 check(
   'the left index lists the same three, with this one on',
   (await until(
-    async () => (await count('.kit-left-col .kit-index-row')) === 3,
+    async () =>
+      (await count('.kit-left-col .kit-group-rows .kit-index-row')) === 3,
   )) &&
     (
-      await page.locator('.kit-left-col .kit-index-row.on').innerText()
+      await page
+        .locator('.kit-left-col .kit-group-rows .kit-index-row.on')
+        .innerText()
     ).includes('plan.md'),
 );
 
@@ -223,11 +230,24 @@ check(
 check(
   'and the index says approved',
   await until(async () =>
+    // Approved is folded at first, so its rows are read, not seen.
     (
-      await page.locator('.kit-left-col .kit-index-row.on').innerText()
+      await page
+        .locator('.kit-left-col .kit-group-rows .kit-index-row.on')
+        .textContent()
     ).includes('approved'),
   ),
 );
+await pressed.click();
+{
+  const menu = await page.locator('.kit-also-row').allInnerTexts();
+  check(
+    'and the switcher leaves the approved review out',
+    menu.length > 0 && !menu.some((t) => t.includes('report.md')),
+    menu,
+  );
+}
+await page.keyboard.press('Escape');
 
 const front = await context.newPage();
 front.on('pageerror', (e) => errors.push(e.message));

@@ -9,6 +9,10 @@
 //     the document, the editor holds the approved text, and Download Markdown
 //     hands over the approved text.
 //   · `galley serve --stop` and a fresh start: still listed, still opens.
+//   · The left panel at 1440×900: three sections, Approved folded at first and
+//     its fold remembered across a reload, the search box and the folder
+//     filter narrowing the rows, and each row's ⋯ with Remove from list, which
+//     asks first on a review still under way and leaves the file.
 //
 // Running it:
 //
@@ -17,7 +21,13 @@
 
 import { served } from './gateserve.mjs';
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -35,6 +45,8 @@ onCleanup(() => rmSync(dir, { recursive: true, force: true }));
 const APPROVED_TEXT = 'The approved paragraph.';
 const EDITED_TEXT = 'A paragraph edited after approval.';
 const MOVED_ON = 'The file has changed since it was approved.';
+const REMOVE_OPEN =
+  'Remove from list? This ends the review and tells the agent.';
 
 const place = (folder, name, body) => {
   mkdirSync(join(dir, folder), { recursive: true });
@@ -113,14 +125,83 @@ check(
   await until(async () => !(await isOpen(plan))),
 );
 
-// The approved row, in the left panel of the other review.
-const keptRow = (page) =>
-  page.locator('.kit-left-col .kit-index-row', { hasText: 'plan.md' });
+// The left panel's review rows, and the approved one among them.
+const ROWS = '.kit-left-col .kit-group-rows .kit-index-row';
+const rowNamed = (page, name) => page.locator(ROWS, { hasText: name });
+const keptRow = (page) => rowNamed(page, 'plan.md');
+const approvedFolded = (page) =>
+  page
+    .locator('.kit-left-col .kit-group[data-group="approved"]')
+    .evaluate((el) => el.classList.contains('kit-folded'));
+const unfoldApproved = async (page) => {
+  await page.waitForSelector('.kit-left-col .kit-group[data-group="approved"]');
+  if (await approvedFolded(page)) {
+    await page
+      .locator(
+        '.kit-left-col .kit-group[data-group="approved"] .kit-group-head',
+      )
+      .click();
+  }
+};
 const reopen = async () => {
   const page = await tab(notes.url);
+  await unfoldApproved(page);
   await keptRow(page).waitFor({ timeout: 10000 });
   return page;
 };
+
+// --- the left panel -----------------------------------------------------------
+{
+  const page = await tab(notes.url);
+  await page.waitForSelector('.kit-left-col .kit-group-head');
+  const heads = await page
+    .locator('.kit-left-col .kit-group-head')
+    .allTextContents();
+  check(
+    'the left panel has three sections: Waiting on you, Revising, Approved',
+    heads.length === 3 &&
+      heads[0].startsWith('Waiting on you') &&
+      heads[1].startsWith('Revising') &&
+      heads[2].startsWith('Approved'),
+    heads,
+  );
+  check('Approved starts folded', await approvedFolded(page));
+  await unfoldApproved(page);
+  await page.reload();
+  await page.waitForSelector('.kit-left-col .kit-group[data-group="approved"]');
+  check(
+    'unfolded, it stays unfolded after a reload',
+    !(await approvedFolded(page)),
+  );
+  const visible = async () =>
+    (await page.locator(ROWS).allInnerTexts()).filter((t) => t.trim());
+  await page.fill('.gly-find', 'NOTES');
+  check(
+    'typing in Find a review narrows the rows to the file name',
+    await until(async () => {
+      const r = await visible();
+      return r.length === 1 && r[0].includes('notes.md');
+    }, 5000),
+    await visible(),
+  );
+  check(
+    'the search box says Find a review',
+    (await page.locator('.gly-find').getAttribute('placeholder')) ===
+      'Find a review',
+  );
+  await page.fill('.gly-find', '');
+  await page.locator('.kit-left-col .kit-filter[data-value="alpha"]').click();
+  check(
+    'choosing a folder narrows the rows',
+    await until(async () => {
+      const r = await visible();
+      return r.length === 1 && r[0].includes('plan.md');
+    }, 5000),
+    await visible(),
+  );
+  await page.locator('.kit-left-col .kit-filter[data-value=""]').click();
+  await page.close();
+}
 
 // What a reopened approved review shows.
 const sealedPage = async (page, when) => {
@@ -230,10 +311,56 @@ spawnSync(GALLEY, ['serve', '--stop'], { stdio: 'ignore', timeout: 20000 });
 const again = await open(place('beta', 'later.md', 'After the restart.'));
 {
   const page = await tab(again.url);
+  await unfoldApproved(page);
   await keptRow(page).waitFor({ timeout: 10000 });
   check('after a restart the approved review is still listed', true);
   await keptRow(page).locator('.kit-index-main').click();
   await sealedPage(page, 'after a restart');
+  await page.close();
+}
+
+// --- Remove from list -----------------------------------------------------------
+await new Promise((r) => setTimeout(r, 8000));
+await until(async () => !(await isOpen(plan)));
+{
+  const page = await tab(again.url);
+  await unfoldApproved(page);
+  await keptRow(page).waitFor({ timeout: 10000 });
+  const MENU = '.kit-share-menu:not([hidden])';
+  await keptRow(page).locator('.gly-row-more').click();
+  await page.locator(`${MENU} button`, { hasText: 'Remove from list' }).click();
+  check(
+    'Remove from list takes the approved row out',
+    await until(async () => (await keptRow(page).count()) === 0, 5000),
+  );
+  check('and leaves the file', existsSync(planPath));
+
+  const waiting = rowNamed(page, 'notes.md');
+  await waiting.locator('.gly-row-more').click();
+  await page.locator(`${MENU} button`, { hasText: 'Remove from list' }).click();
+  check(
+    'on a review still under way it asks first',
+    await until(
+      async () =>
+        (
+          (await page
+            .locator(`${MENU} .kit-share-heading`)
+            .textContent()
+            .catch(() => '')) || ''
+        ).includes(REMOVE_OPEN),
+      5000,
+    ),
+  );
+  check('and the row is still there', (await waiting.count()) === 1);
+  await page.locator(`${MENU} button`, { hasText: 'Remove from list' }).click();
+  check(
+    'confirmed, the review leaves the list',
+    await until(async () => (await waiting.count()) === 0, 5000),
+  );
+  check(
+    'and it is closed',
+    await until(async () => !(await isOpen(notes)), 5000),
+  );
   await page.close();
 }
 

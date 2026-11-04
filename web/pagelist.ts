@@ -39,19 +39,22 @@ export function pageIdOf(pathname: string): string {
   return m ? decodeURIComponent(m[1]) : '';
 }
 
-/** The bar's list: what needs the reader first, the rest in the list's order. */
+/** The bar's list: what needs the reader first, the rest in the list's order.
+ * Approved reviews are the left panel's, not the switcher's. */
 export function switcherItems(
   pages: PageView[],
   current: string,
   go: (id: string) => void,
 ): SwitcherItem[] {
-  const rows = pages.map((p) => ({
-    label: p.name,
-    detail: `${p.folder} · ${stateWords(p.state)}`,
-    tone: TONES[p.state] ?? 'idle',
-    current: p.id === current,
-    onClick: () => go(p.id),
-  }));
+  const rows = pages
+    .filter((p) => p.state !== 'approved')
+    .map((p) => ({
+      label: p.name,
+      detail: `${p.folder} · ${stateWords(p.state)}`,
+      tone: TONES[p.state] ?? 'idle',
+      current: p.id === current,
+      onClick: () => go(p.id),
+    }));
   return rows.sort(
     (a, b) => Number(b.tone === 'you') - Number(a.tone === 'you'),
   );
@@ -109,4 +112,43 @@ export function folderGroups(
     pages: held,
     edge: held.some((p) => p.state === 'you') ? 'signal' : '',
   }));
+}
+
+/** The left panel's sections, by where each review stands. */
+export function stateGroups(
+  pages: PageView[],
+): { key: string; title: string; pages: PageView[] }[] {
+  return [
+    { key: 'you', title: 'Waiting on you' },
+    { key: 'agent', title: 'Revising' },
+    { key: 'approved', title: 'Approved' },
+  ].map((g) => ({ ...g, pages: pages.filter((p) => p.state === g.key) }));
+}
+
+/** The reviews whose file name holds words, in any case; no words, all. */
+export function findReviews(pages: PageView[], words: string): PageView[] {
+  const want = words.trim().toLowerCase();
+  return pages.filter((p) => p.name.toLowerCase().includes(want));
+}
+
+const MONTHS = 'Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec'.split(' ');
+
+/** An approved row's line: when (today HH:MM, yesterday, else Mon D) and how
+ * many rounds. */
+export function approvedMeta(
+  p: Pick<PageView, 'approvedAt' | 'rounds'>,
+  now: Date,
+): string {
+  const at = new Date(p.approvedAt ?? 0);
+  const day = (d: Date) =>
+    new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.round((day(now) - day(at)) / 86400000);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const when =
+    days === 0
+      ? `${pad(at.getHours())}:${pad(at.getMinutes())}`
+      : days === 1
+        ? 'yesterday'
+        : `${MONTHS[at.getMonth()]} ${at.getDate()}`;
+  return `approved ${when} · ${p.rounds} round${p.rounds === 1 ? '' : 's'}`;
 }

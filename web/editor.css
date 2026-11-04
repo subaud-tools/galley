@@ -2571,3 +2571,10 @@ body.gly-sealed .gly-chat-hint { display: none; }
   font: 13px/1.5 var(--kit-sans);
   color: var(--kit-muted);
 }
+
+/* --- the left panel ---
+   The search box over the folder filter and the sections; each row's ⋯ sits
+   beside its button, centred on it, as the attention dot does. */
+.gly-find { margin: 12px 12px 4px; width: calc(100% - 24px); }
+.gly-index { padding: 0 12px 12px; }
+.gly-row-more { flex: none; align-self: center; }
