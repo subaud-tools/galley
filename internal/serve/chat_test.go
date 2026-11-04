@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -186,4 +187,47 @@ func TestChatIsReadOnlyOnceSealed(t *testing.T) {
 		t.Fatalf("chat after approve answered %d: %s", rec.Code, rec.Body.String())
 	}
 	chatMessage(t, chatRead(t, h), id)
+}
+
+// A Revise pressed at the moment a read delivers a chat message must not be
+// lost: both wakes arrive, the Revise first and the chat on the next read. The
+// hook presses Revise while the reader is still registered, which is when a
+// press is told 204 and its event goes into the reader's buffer.
+func TestAChatWakeNeverDropsARevise(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		blocked bool
+	}{{"queued before the read", false}, {"posted while the read blocks", true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newEditServer(t, t.TempDir(), "doc.md", "# Title\n\nHello world.\n")
+			t.Cleanup(func() { _ = s.Close() })
+			h := s.Handler()
+			commentAs(t, s, "world", "Say galley.")
+			var once sync.Once
+			s.testChatTake = func() { once.Do(func() { press(t, s, "{}") }) }
+
+			first := make(chan waitReply, 1)
+			if tc.blocked {
+				go func() {
+					r, _ := s.waitOnce(context.Background(), "", 5*time.Second)
+					first <- r
+				}()
+				waitersRegistered(t, s, 1)
+				chatSend(t, h, "A question.")
+			} else {
+				chatSend(t, h, "A question.")
+				r, _ := s.waitOnce(context.Background(), "", 5*time.Second)
+				first <- r
+			}
+			got := []string{(<-first).Reason}
+			r, err := s.waitOnce(context.Background(), "", time.Second)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got = append(got, r.Reason)
+			if got[0] != waitRevise || got[1] != waitChat {
+				t.Fatalf("reads = %v, want [revise chat]: a wake was dropped", got)
+			}
+		})
+	}
 }

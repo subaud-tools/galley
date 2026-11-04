@@ -177,6 +177,21 @@ func (c *chatStore) send(text string) (int64, error) {
 	return m.ID, nil
 }
 
+// waiting reports whether a message is still sent, for a read to claim.
+func (c *chatStore) waiting() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.loadLocked() != nil {
+		return false
+	}
+	for _, m := range c.msgs {
+		if m.Who == review.AuthorUser && m.State == msgstate.Sent {
+			return true
+		}
+	}
+	return false
+}
+
 // claim takes the oldest message still sent and moves it to with_agent: the
 // one read that delivers it. ok is false when there is none.
 func (c *chatStore) claim() (*ChatWake, bool, error) {

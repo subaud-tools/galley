@@ -27,6 +27,7 @@ func editEndpoints() []mutatingEndpoint {
 		{"cannot", "/_galley/cannot", `{"why":"the source is unavailable"}`, false},
 		{"revise", "/_galley/revise", "", true},
 		{"chat", "/_galley/chat", `{"text":"hello"}`, true},
+		{"chat-reply", "/_galley/chat/reply", `{"message":1,"state":"answered","text":"hi"}`, false},
 		{"ack", "/_galley/ack", `{"state":"working"}`, false},
 		{"stop", "/_galley/stop", "", false},
 		{"share", "/_galley/share/html", "", false},

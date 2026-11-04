@@ -380,6 +380,9 @@ type EditServer struct {
 	// See chat.go: it has its own lock and touches nothing of the round's.
 	chatOnce sync.Once
 	chat     *chatStore
+	// testChatTake runs when a read is about to deliver a chat message, before
+	// it leaves the registry. Tests only.
+	testChatTake func()
 }
 
 // reviseWatch is what the editor's "revising · Ns" counts against.
@@ -3146,6 +3149,58 @@ func (s *EditServer) wakeRound(reason, fp string, pending *PendingView, report s
 	}
 }
 
+// eventReply is a released reader's answer to the event it was handed. Revise
+// carries the immutable round captured before its pending marks were cleared;
+// other wakes report the latest visible state.
+func (s *EditServer) eventReply(ev waitEvent, fp string, view PendingView) (waitReply, error) {
+	if ev.reason == waitClosedR {
+		return waitReply{Reason: waitClosedR, Fingerprint: fp}, nil
+	}
+	if ev.pending != nil {
+		fp, view = ev.fp, *ev.pending
+	} else {
+		var err error
+		if fp, view, err = s.waitFingerprint(); err != nil {
+			return waitReply{}, err
+		}
+	}
+	return waitReply{Reason: ev.reason, Fingerprint: fp, Pending: &view, Report: ev.report}, nil
+}
+
+// What takeChat did.
+type chatTook int
+
+const (
+	tookNone    chatTook = iota // no chat waits; the reader is still registered
+	tookEvent                   // an event was in the reader's slot: answer it, the chat waits
+	tookChat                    // the chat is delivered
+	tookNothing                 // another reader took the chat; the reader is off the registry
+)
+
+// takeChat delivers a waiting chat message without stranding a press. The
+// reader leaves the registry FIRST, as every release here does: while it is
+// counted, a Revise is told 204 and its event goes into this reader's slot.
+// Then the slot is read: an event there is answered and the chat stays sent,
+// for the next read. Only an empty slot claims the chat.
+func (s *EditServer) takeChat(ch chan waitEvent) (chatTook, waitEvent, *ChatWake) {
+	if !s.chatLog().waiting() {
+		return tookNone, waitEvent{}, nil
+	}
+	if s.testChatTake != nil {
+		s.testChatTake()
+	}
+	s.releasedWaiter(ch, true)
+	select {
+	case ev := <-ch:
+		return tookEvent, ev, nil
+	default:
+	}
+	if m, ok := s.claimChat(); ok {
+		return tookChat, waitEvent{}, m
+	}
+	return tookNothing, waitEvent{}, nil
+}
+
 // ReleaseWaiters ends every blocked GET /_galley/wait and refuses new ones, so
 // `galley wait` exits rather than hanging past the editor it was watching.
 //
@@ -3251,7 +3306,9 @@ func (s *EditServer) waitOnce(ctx context.Context, since string, poll time.Durat
 	if !ok {
 		return waitReply{Reason: waitClosedR}, nil
 	}
-	defer s.unregisterWaiter(ch)
+	// A closure, because a read that lost a chat to another reader registers
+	// again under a new channel (see takeChat).
+	defer func() { s.unregisterWaiter(ch) }()
 	// The bell before the claim below, for registerWaiter's reason: a message
 	// posted between the two still rings it.
 	bell := s.chatLog().bell()
@@ -3288,13 +3345,19 @@ func (s *EditServer) waitOnce(ctx context.Context, since string, poll time.Durat
 	// A chat message nobody has read yet is delivered now: posted while no
 	// reader was attached, or between two reads. It names the caller's own
 	// cursor, so a catch-up it came before still happens on the next read.
-	if m, ok := s.claimChat(); ok {
-		s.unregisterWaiter(ch)
+	switch took, ev, m := s.takeChat(ch); took {
+	case tookEvent:
+		return s.eventReply(ev, fp, view)
+	case tookChat:
 		cursor := fp
 		if since != "" {
 			cursor = since
 		}
 		return waitReply{Reason: waitChat, Fingerprint: cursor, Pending: &view, Chat: m}, nil
+	case tookNothing:
+		if ch, ok = s.registerWaiter(); !ok {
+			return waitReply{Reason: waitClosedR}, nil
+		}
 	}
 	// The catch-up. The caller's cursor is behind, so what it is waiting for
 	// has already happened and will not happen again — answer now rather than
@@ -3341,17 +3404,22 @@ func (s *EditServer) waitOnce(ctx context.Context, since string, poll time.Durat
 		case <-bell:
 			// A new chat message. Another reader may have taken it first; then
 			// this one listens for the next.
-			m, ok := s.claimChat()
-			if !ok {
-				bell = s.chatLog().bell()
-				continue
+			bell = s.chatLog().bell()
+			switch took, ev, m := s.takeChat(ch); took {
+			case tookEvent:
+				return s.eventReply(ev, fp, view)
+			case tookChat:
+				fp, view, err := s.waitFingerprint()
+				if err != nil {
+					return waitReply{}, err
+				}
+				return waitReply{Reason: waitChat, Fingerprint: fp, Pending: &view, Chat: m}, nil
+			case tookNothing:
+				if ch, ok = s.registerWaiter(); !ok {
+					return waitReply{Reason: waitClosedR}, nil
+				}
 			}
-			s.releasedWaiter(ch, true)
-			fp, view, err := s.waitFingerprint()
-			if err != nil {
-				return waitReply{}, err
-			}
-			return waitReply{Reason: waitChat, Fingerprint: fp, Pending: &view, Chat: m}, nil
+			continue
 		case ev := <-ch:
 			// RELEASED BY AN EVENT, so this reader owes the server another poll and
 			// the gap between the two is the server's to wait out — see awaitReArm.
@@ -3359,20 +3427,7 @@ func (s *EditServer) waitOnce(ctx context.Context, since string, poll time.Durat
 			// shutdown release below all promise nothing, and waiting on a reader
 			// that is never coming back would make an honest refusal a slow one.
 			s.releasedWaiter(ch, ev.reason != waitClosedR)
-			if ev.reason == waitClosedR {
-				return waitReply{Reason: waitClosedR, Fingerprint: fp}, nil
-			}
-			// Revise carries the immutable round captured before its pending marks
-			// were cleared. Other wakes still report the latest visible state.
-			if ev.pending != nil {
-				fp, view = ev.fp, *ev.pending
-			} else {
-				fp, view, err = s.waitFingerprint()
-				if err != nil {
-					return waitReply{}, err
-				}
-			}
-			return waitReply{Reason: ev.reason, Fingerprint: fp, Pending: &view, Report: ev.report}, nil
+			return s.eventReply(ev, fp, view)
 		case <-timer.C:
 			s.unregisterWaiter(ch)
 			fp, view, err := s.waitFingerprint()
