@@ -42,6 +42,7 @@ var wireRoots = []any{
 	diffView{},
 	changeView{},
 	PageView{},
+	ReviewOpenView{},
 	chatView{},
 }
 

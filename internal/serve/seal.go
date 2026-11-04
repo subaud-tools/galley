@@ -34,6 +34,16 @@ func (s *EditServer) seal(verdict string, _ int) {
 	s.sealMu.Unlock()
 }
 
+// restoreSeal seals a review approved before this server opened it, at the
+// time it was approved: a kept review opened again.
+func (s *EditServer) restoreSeal(verdict string, at time.Time) {
+	s.sealMu.Lock()
+	s.sealed = true
+	s.verdict = verdict
+	s.verdictAt = at
+	s.sealMu.Unlock()
+}
+
 type sealedVerb int
 
 const verbReview sealedVerb = 0

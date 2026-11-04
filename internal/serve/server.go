@@ -75,6 +75,7 @@ func Run(ctx context.Context, o Options) error {
 	}
 	h := NewHost()
 	h.sessions, h.log, h.savePath = o.Sessions, o.Log, DocsPath()
+	h.reviews = loadReviews(ReviewsPath(), o.Log)
 	var watching sync.WaitGroup
 	closed := make(chan error, 1)
 	err := pageserve.Run(ctx, pageserve.Options{

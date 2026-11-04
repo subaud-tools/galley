@@ -35,10 +35,13 @@ import { ReplaceStep } from '@tiptap/pm/transform';
 import { Slice } from '@tiptap/pm/model';
 import { ySyncPluginKey } from 'y-prosemirror';
 import {
+  approvedMeta,
   docHref,
+  findReviews,
   folderGroups,
   pageFilters,
   pageIdOf,
+  stateGroups,
   statePills,
   stateWords,
   switcherItems,
@@ -5911,8 +5914,8 @@ function bindsContentField(src) {
   const went = [];
   const items = switcherItems(pages, 'a', (id) => went.push(id));
   check(
-    'the switcher lists what needs you first, and marks the page you are on',
-    items.map((i) => i.label).join() === 'privacy.md,shopify.md,master.md' &&
+    'the switcher lists what needs you first, marks the page you are on, and leaves approved reviews out',
+    items.map((i) => i.label).join() === 'privacy.md,shopify.md' &&
       items[1].current === true &&
       items[0].current === false,
     items,
@@ -5920,8 +5923,35 @@ function bindsContentField(src) {
   check(
     'each switcher row says where its review stands, by who it waits on',
     items.map((i) => `${i.tone} ${i.detail}`).join() ===
-      'you counterbell · waiting on you,working counterbell · with the agent,idle resume · approved',
+      'you counterbell · waiting on you,working counterbell · with the agent',
     items,
+  );
+  const sections = stateGroups(pages);
+  check(
+    'the left panel has three sections by where each review stands',
+    sections.map((g) => `${g.key}:${g.title}:${g.pages.length}`).join() ===
+      'you:Waiting on you:1,agent:Revising:1,approved:Approved:1',
+    sections,
+  );
+  check(
+    'the search matches the file name, in any case',
+    findReviews(pages, 'PRIV')
+      .map((p) => p.id)
+      .join() === 'b' && findReviews(pages, '').length === 3,
+  );
+  const now = new Date(2026, 10, 3, 18, 0);
+  const at = (d, h, m) =>
+    new Date(2026, 9 + (d > 3 ? 0 : 1), d, h, m).getTime();
+  const metas = [
+    approvedMeta({ approvedAt: at(3, 14, 2), rounds: 3 }, now),
+    approvedMeta({ approvedAt: at(2, 9, 0), rounds: 1 }, now),
+    approvedMeta({ approvedAt: at(30, 9, 0), rounds: 2 }, now),
+  ];
+  check(
+    'an approved row says when and how many rounds',
+    metas.join('|') ===
+      'approved 14:02 · 3 rounds|approved yesterday · 1 round|approved Oct 30 · 2 rounds',
+    metas,
   );
   items[0].onClick();
   check('a switcher row goes to its review', went.join() === 'b', went);

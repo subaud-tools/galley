@@ -2,6 +2,13 @@
 
 Newest first. Notes for releases up to 0.10.2 are on the GitHub releases page: https://github.com/subaud-tools/galley/releases
 
+## 0.31.0
+
+- galley keeps a list of its reviews in `reviews.json`, in its state folder beside `docs.json`. An approved review stays listed after its tab closes and across a restart of `galley serve`, and opens again read-only: `Approved HH:MM` and Share in the bar, History and Chat's thread to read, and no agent woken or handed it.
+- A review whose file has changed since it was approved opens at the text as approved, with `The file has changed since it was approved.` above the document; Download and Share hand over the approved text, and nothing is written over the edited file.
+- The left panel lists reviews in three sections, Waiting on you, Revising and Approved (folded at first; each fold is remembered), under a `Find a review` box and a Folder filter. Approved rows say when and how many rounds (`approved 14:02 · 3 rounds`). Each row's `⋯` has Remove from list: an approved review is forgotten; one still under way asks first, then ends (its agent is told) and is forgotten. The file and its `.galley` versions stay on disk.
+- Approved reviews leave the top bar's also-open list.
+
 ## 0.30.0
 
 - Chat is a conversation with the agent. Its box (`Message the agent…`, then `Send` or Enter) reaches the agent's session at once as a `chat` wake; the message shows sent, with the agent, working with the agent's line, then answered with the agent's reply under it (rendered from markdown), or declined or failed. A message sent while no agent is attached is delivered when one attaches. Chat never changes the document or files an instruction; the Revise rounds still show in the same thread. The thread is kept in `.galley` beside the versions (`chat.jsonl`), survives reloads and restarts, and an approved review shows it read-only with no box (tools-common 0.63.0).
