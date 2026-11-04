@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/subaud-tools/galley/internal/render"
+	"github.com/subaud-tools/tools-common/mermaidkit"
 )
 
 // The branded page Share hands over and the preview tab shows. One renderer
@@ -36,8 +37,23 @@ func previewRefresh(base string) string {
 `
 }
 
-// renderDoc renders the document as it stands on disk in its project's theme.
-func (s *EditServer) renderDoc() ([]byte, error) { return RenderDoc(s.MdPath) }
+// renderDoc renders the document as it stands on disk in its project's theme,
+// or its text as approved when the file has moved on since.
+func (s *EditServer) renderDoc() ([]byte, error) {
+	if s.approvedText != nil {
+		return renderMarkdown(s.MdPath, s.approvedText)
+	}
+	return RenderDoc(s.MdPath)
+}
+
+// markdownBytes is what Download and Share Markdown hand over: the .md on
+// disk, or the text as approved when the file has moved on since.
+func (s *EditServer) markdownBytes() ([]byte, error) {
+	if s.approvedText != nil {
+		return s.approvedText, nil
+	}
+	return os.ReadFile(s.MdPath)
+}
 
 // RenderDoc renders the markdown document at mdPath, as it stands on disk, in
 // its project's theme with galley's embedded mermaid.js: the page Download
@@ -51,6 +67,19 @@ func RenderDoc(mdPath string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	return renderWith(mdPath, md, theme)
+}
+
+// renderMarkdown renders md as the document at mdPath, in its project's theme.
+func renderMarkdown(mdPath string, md []byte) ([]byte, error) {
+	theme, err := render.ThemeFor(mdPath)
+	if err != nil {
+		return nil, err
+	}
+	return renderWith(mdPath, md, theme)
+}
+
+func renderWith(mdPath string, md []byte, theme mermaidkit.Theme) ([]byte, error) {
 	mermaid, _ := assets.ReadFile("assets/mermaid.js")
 	return render.Render(md, theme, mermaid, filepath.Dir(mdPath))
 }
@@ -98,7 +127,7 @@ func (s *EditServer) handleDownloadMD(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	raw, err := os.ReadFile(s.MdPath)
+	raw, err := s.markdownBytes()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -177,6 +206,19 @@ func (s *EditServer) handleShareMD(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+	// The file has moved on: the text as approved goes on the clipboard, from
+	// a copy of its own under the same name.
+	if s.approvedText != nil {
+		abs = filepath.Join(os.TempDir(), "galley-approved-"+fileDigest(s.approvedText)[:16], filepath.Base(abs))
+		if err := os.MkdirAll(filepath.Dir(abs), 0o700); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if err := writeFileAtomic(abs, s.approvedText); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 	s.shareFile(w, abs)
 }

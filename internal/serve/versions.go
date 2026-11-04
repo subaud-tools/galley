@@ -114,6 +114,13 @@ func (s *EditServer) requestCutIntent(in *cutIntent) int {
 	return n
 }
 
+// lastCut is the round last cut. Callers must NOT hold mu.
+func (s *EditServer) lastCut() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lastCutN
+}
+
 // markMovedByAgent records that the agent moved the document in this round.
 // Callers hold mu.
 func (s *EditServer) markMovedByAgent() { s.movedByAgent = true }
@@ -327,6 +334,9 @@ func (s *EditServer) cutIfSending(out []byte, landed bool, asked int) {
 		s.movedByAgent = false
 		s.movedByReviewer.Store(false)
 		s.lastCutN = r.N
+		if s.OnRound != nil {
+			s.OnRound(r.Reason, r.N)
+		}
 		if s.Log != nil {
 			who := versions.Authors(r.Authors)
 			if who == "" {

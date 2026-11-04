@@ -32,6 +32,16 @@ requesting a revision… · round 3 · draft · saved just now
 
 `Instructions · N` counts the instructions you have written and not yet sent. Pressing it opens the list. `History` opens the record of rounds; it turns amber when something has arrived that you have not read.
 
+## The left panel
+
+The left panel lists your reviews in three sections: **Waiting on you**, **Revising** (the agent has the round) and **Approved**. Approved starts folded; each section remembers whether you folded it. Above them, `Find a review` matches the file name, and the Folder filter narrows the list to the folders you pick. An approved row says when and after how many rounds: `approved 14:02 · 3 rounds`, `approved yesterday · 1 round`, `approved Oct 30 · 2 rounds`.
+
+An approved review stays in the list after you close its tab and after `galley serve` restarts. Clicking it opens it read-only: `Approved HH:MM` and Share in the bar, History to read the rounds, Chat's thread with no box. It never goes back to an agent. If the file has changed since you approved it, the page shows the text as approved, with `The file has changed since it was approved.` above it, and Share and Download hand over that text, not the edited file.
+
+Each row's `⋯` holds **Remove from list**. On an approved review it forgets the entry. On a review still waiting on you or revising it asks first (`Remove from list? This ends the review and tells the agent.`), and a second press ends the review, tells the agent it closed, and forgets it. Either way the file and its `.galley` versions stay on disk.
+
+Approved reviews are not in the bar's list of other open reviews.
+
 ## Direct edits and instructions
 
 There are two things you can do to the document, and they are not the same thing.

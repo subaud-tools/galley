@@ -94,7 +94,7 @@ A `chat` event is the reviewer talking to you: a question, a discussion, a "why 
 
 - **`approve`** — the reviewer approved the document as it stands. The review is over.
 - **`changed`** — re-read the document before doing anything else.
-- **`closed`** — the document left the server; nobody is waiting. A server restart is not this: every open document comes back by itself, with its unsent work, and no event is sent.
+- **`closed`** — the document left the server; nobody is waiting. The reviewer's Remove from list, on a review still under way, sends this too. A server restart is not this: every open document comes back by itself, with its unsent work, and no event is sent.
 - **Silence when you expect a round** — call `galley_channel_status`. It lists which open documents reach this session, whether anything of this session is waiting on them, and why any others do not.
 
 ## Sharing an approved document
@@ -107,6 +107,8 @@ After approval, the bar at the foot of the document holds a `Share ▾` button. 
 - **`Share Markdown`** puts the `.md` file on the clipboard the same way. The status line says `<name>.md copied · paste to attach`.
 
 The two Share items appear only on macOS. If the clipboard refuses the file, the status line shows the error.
+
+An approved review stays in the left panel of galley's page after its tab closes and across a restart; the reviewer can open it again read-only to Share it, and nothing reaches you when they do. If the file changed after approval, that page shows, downloads and shares the text as approved.
 
 An HTML page under review offers `Download HTML` and `Share HTML`, both for the page itself, and no Markdown items.
 

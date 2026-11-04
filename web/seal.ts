@@ -28,6 +28,28 @@ import type { ReviseWatchView } from './verdict.ts';
 
 const CANCEL_HANDOFF = '✕ cancel';
 
+/** The line above the document of a kept review whose file has changed since
+ * it was approved: the page shows the text as approved. */
+const MOVED_ON = 'The file has changed since it was approved.';
+
+function paintMovedOn(on: boolean): void {
+  const line = document.getElementById('gly-moved-on');
+  if (!on) {
+    line?.remove();
+    return;
+  }
+  const main = document.querySelector('main');
+  if (line || !main) {
+    return;
+  }
+  const p = document.createElement('p');
+  p.id = 'gly-moved-on';
+  p.className = 'gly-moved-on';
+  p.setAttribute('role', 'note');
+  p.textContent = MOVED_ON;
+  main.before(p);
+}
+
 /* --- the seal: a review that has ended says so ---
  *
  * THE PAGE USED TO LIE. After Approve the server kept serving and this editor
@@ -439,6 +461,10 @@ export const sealMethods = {
     this.sealLanding = d.landing || 0;
     if (now !== was) {
       this.applySeal(was, d);
+    }
+    // The page's own: a shell with no seal readout (probe.mjs's) has no page.
+    if (this.sealUI) {
+      paintMovedOn(now && !!d.movedOn);
     }
     this.paintSeal();
   },

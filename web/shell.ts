@@ -12,23 +12,36 @@ import {
   createApi,
   createDrafts,
   draftList,
+  filterRow,
   frame,
+  groupList,
   h,
   indexRow,
-  indexSection,
   keepElsewhere,
   live,
   railTabs,
   sendBar,
+  shareMenu,
   stageTrack,
   submitOnEnter,
   thread,
   threadMessage,
   type BarHandle,
   type Frame,
+  type ShareMenu,
   type ThreadMessageValue,
 } from '/_kit/kit.js';
-import { docHref, pageIdOf, stateWords, switcherItems } from './pagelist.ts';
+import {
+  approvedMeta,
+  docHref,
+  findReviews,
+  folderItems,
+  pageFilters,
+  pageIdOf,
+  stateGroups,
+  stateWords,
+  switcherItems,
+} from './pagelist.ts';
 import type { GalleyChrome, TabActions } from './roundbar.ts';
 import {
   afterFiled,
@@ -36,7 +49,7 @@ import {
   type DraftRowValue,
   type EditRowValue,
 } from './tabs.ts';
-import type { PageView } from './wire.d.ts';
+import type { PageView, ReviewOpenView } from './wire.d.ts';
 
 // The tool's name, for the bar and for what the frame remembers.
 const NAME = 'galley';
@@ -50,17 +63,156 @@ function go(id: string): void {
   location.assign(id ? docHref(id) : '/');
 }
 
-/** A row for one review, in the index or on the front page. */
-export function reviewRow(p: PageView, on: boolean): HTMLElement {
+/** Opens a kept approved review whose document isn't open, and goes to it. */
+async function openKept(key: string): Promise<void> {
+  const opened = await createApi().post<ReviewOpenView>('/reviews/open', {
+    key,
+  });
+  go(opened.id);
+}
+
+/** A row for one review, in the index or on the front page. extra: nodes
+ * after its button, the index's ⋯. */
+export function reviewRow(
+  p: PageView,
+  on: boolean,
+  extra?: Node[],
+): HTMLElement {
   return indexRow({
     id: p.id,
     title: p.name,
-    meta: stateWords(p.state),
+    meta:
+      p.state === 'approved' && p.approvedAt
+        ? approvedMeta(p, new Date())
+        : stateWords(p.state),
     on,
+    extra,
     attention: p.state === 'you' && !on,
     waits: p.state === 'agent',
-    select: go,
+    select: p.open ? go : () => void openKept(p.key),
   });
+}
+
+const REMOVE = 'Remove from list';
+const REMOVE_OPEN =
+  'Remove from list? This ends the review and tells the agent.';
+
+/** Remove from list: the entry forgotten, and an open review ended first (its
+ * agent is told). The file and its versions stay. here is the review this page
+ * shows, which goes to the front page once it is removed. */
+async function removeFromList(p: PageView, here: string): Promise<void> {
+  await createApi().post('/reviews/remove', { key: p.key });
+  if (p.id === here) {
+    go('');
+  }
+}
+
+/** Where a section's fold is kept. */
+const foldKey = (key: string) => `galley.index.folded.${key}`;
+
+/** The sections folded now: Approved until the reader unfolds it. */
+function foldedSections(): string[] {
+  return stateGroups([])
+    .map((g) => g.key)
+    .filter(
+      (key) =>
+        (localStorage.getItem(foldKey(key)) ??
+          (key === 'approved' ? '1' : '0')) === '1',
+    );
+}
+
+/** The left panel's body: the search box, the folder filter and the reviews in
+ * their sections, each row with its ⋯. Returns the draw for each list. */
+function makeIndex(
+  body: HTMLElement,
+  here: string,
+): (pages: PageView[]) => void {
+  let held: PageView[] = [];
+  let words = '';
+  const folders: string[] = [];
+  let menus: ShareMenu[] = [];
+  const search = h('input', {
+    class: 'kit-search gly-find',
+    type: 'search',
+    placeholder: 'Find a review',
+    'aria-label': 'Find a review',
+  }) as HTMLInputElement;
+  search.addEventListener('input', () => {
+    words = search.value;
+    draw(held);
+  });
+  const list = h('div', { class: 'gly-index' });
+  body.replaceChildren(search, list);
+  const more = (p: PageView): HTMLElement => {
+    const b = h(
+      'button',
+      { class: 'kit-ctl gly-row-more', type: 'button', 'aria-label': 'More' },
+      '⋯',
+    );
+    // A review still under way asks first, in the menu itself: the second
+    // press is the confirmation, as a delete's arming is elsewhere on the page.
+    let first: ShareMenu | undefined;
+    const ask = (): void => {
+      first?.destroy();
+      const m = shareMenu(
+        b,
+        [
+          { label: REMOVE_OPEN, heading: true },
+          { label: REMOVE, act: 'remove' },
+        ],
+        () => void removeFromList(p, here),
+      );
+      menus.push(m);
+      m.open();
+    };
+    b.addEventListener(
+      'click',
+      () => {
+        first = shareMenu(b, [{ label: REMOVE, act: 'remove' }], () => {
+          if (p.state === 'approved') void removeFromList(p, here);
+          else setTimeout(ask);
+        });
+        menus.push(first);
+        first.open();
+      },
+      { once: true },
+    );
+    return b;
+  };
+  function draw(pages: PageView[]): void {
+    held = pages;
+    for (const m of menus) {
+      m.destroy();
+    }
+    menus = [];
+    const shown = pageFilters(findReviews(pages, words), [], folders);
+    list.replaceChildren(
+      filterRow({
+        label: 'Folder',
+        items: folderItems(pages),
+        chosen: folders,
+        onToggle: (v) => {
+          const at = folders.indexOf(v);
+          if (!v) folders.length = 0;
+          else if (at >= 0) folders.splice(at, 1);
+          else folders.push(v);
+          draw(held);
+        },
+      }),
+      groupList({
+        groups: stateGroups(shown).map((g) => ({
+          key: g.key,
+          title: g.title,
+          rows: g.pages.map((p) => reviewRow(p, p.id === here, [more(p)])),
+          empty: 'Nothing here.',
+          edge: g.key === 'you' && g.pages.length ? 'signal' : undefined,
+        })),
+        folded: foldedSections(),
+        onFold: (key, on) => localStorage.setItem(foldKey(key), on ? '1' : '0'),
+      }),
+    );
+  }
+  return draw;
 }
 
 /** The bar, on the page for one review or ("" as page) the front page, kept
@@ -517,6 +669,7 @@ export function mountShell(verdict: () => void): void {
   // share.ts puts it in.
   const docTools = h('span', { class: 'gly-doc-tools', id: 'gly-doc-tools' });
   const stages = h('div', { class: 'gly-stages' }, docTools);
+  const drawIndex = cols.leftBody ? makeIndex(cols.leftBody, id) : () => {};
   const b: BarHandle = connect({
     page: id,
     status: name,
@@ -525,13 +678,7 @@ export function mountShell(verdict: () => void): void {
     // says so itself the first time it can't reach the server.
     refused: () => {},
     draw(pages: PageView[]) {
-      cols.leftBody?.replaceChildren(
-        indexSection({
-          name: 'Reviews',
-          rows: pages.map((p) => reviewRow(p, p.id === id)),
-          empty: 'No reviews open.',
-        }),
-      );
+      drawIndex(pages);
       // A page's file under review is its content.md: the list's name is the
       // one it was opened by.
       const here = pages.find((p) => p.id === id);

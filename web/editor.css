@@ -2563,3 +2563,18 @@ body.gly-sealed .gly-chat-hint { display: none; }
    words the box stays, unseen. */
 .kit-bar .kit-primary { width: calc(16ch + 52px); padding-inline: 0; text-align: center; white-space: nowrap; }
 .kit-bar .kit-primary[hidden] { display: inline-block; visibility: hidden; }
+
+/* --- a kept review whose file has moved on ---
+   One line above the document: the page shows the text as approved. */
+.gly-moved-on {
+  margin: 0 0 12px;
+  font: 13px/1.5 var(--kit-sans);
+  color: var(--kit-muted);
+}
+
+/* --- the left panel ---
+   The search box over the folder filter and the sections; each row's ⋯ sits
+   beside its button, centred on it, as the attention dot does. */
+.gly-find { margin: 12px 12px 4px; width: calc(100% - 24px); }
+.gly-index { padding: 0 12px 12px; }
+.gly-row-more { flex: none; align-self: center; }
