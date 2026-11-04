@@ -201,9 +201,17 @@ export const verdictMethods = {
           });
         },
       );
-      // Revise & approve is a send too: Revise's filled button, the menu's width.
+      // Revise & approve is a send too: Revise's filled button, as wide as the
+      // top box (Revise and its ▾), which the kit's open sets right-aligned
+      // under the ▾. The box narrows with the window, so it is read on open.
       menu.el.classList.add('gly-revise-menu');
       menu.el.querySelector('button')?.classList.add('kit-btn', 'fill');
+      more.addEventListener('click', () => {
+        const box = more.parentElement;
+        if (menu.isOpen() && box) {
+          menu.el.style.width = `${box.getBoundingClientRect().width}px`;
+        }
+      });
     }
     return el;
   },

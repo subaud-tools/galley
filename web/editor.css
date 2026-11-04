@@ -2521,11 +2521,19 @@ body.gly-history-mode .kit-sendbar { display: none; }
 .gly-top-revise #gly-revise { flex: 1; min-width: 0; padding-inline: 0; text-align: center; }
 /* Revise sits in its tip box (web/tip.ts), the ▾ beside the box. */
 .gly-tip-at:has(~ #gly-revise-more:not([hidden])) > #gly-revise { border-top-right-radius: 0; border-bottom-right-radius: 0; }
-/* Its ▾'s one item, Revise & approve, is a send too: Revise's filled button
-   and face, across the menu. */
+/* Its ▾'s one item, Revise & approve, is a send too, so it is Revise again:
+   the menu draws no frame (no ground, hairline, padding or lift), and the
+   button takes the top box's face; verdict.ts gives it the box's width. */
+.kit-share-menu.gly-revise-menu {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
 .gly-revise-menu .kit-btn.fill {
   font: 700 13px var(--kit-mono);
-  padding: 7px 14px;
+  border: 0;
+  padding: 7px 0;
   text-align: center;
 }
 .gly-revise-menu .kit-btn.fill:hover { border-color: var(--kit-signal); filter: brightness(1.08); }

@@ -115,6 +115,15 @@ const WINDOW_SIZES = [
 // The narrow widths the top button is checked at, down to the smallest window
 // the page is laid out for.
 const NARROW_WIDTHS = [864, 700, 545, 500];
+// Every width Revise's ▾ menu is held to Revise's own box at.
+const MENU_SIZES = [
+  [1400, 900],
+  [1080, 700],
+  [864, 800],
+  [700, 800],
+  [545, 800],
+  [500, 800],
+];
 
 // The top-right button's box (`box`, a selector) inside the window, and
 // whether each part (the box, and `part` if given) is the element under a
@@ -680,7 +689,7 @@ try {
       );
     }),
   );
-  for (const [width, height] of WINDOW_SIZES) {
+  for (const [width, height] of MENU_SIZES) {
     await page.setViewportSize({ width, height });
     await page.waitForTimeout(200);
     await openReviseMore(page);
@@ -689,19 +698,46 @@ try {
       const r = el.getBoundingClientRect();
       const item = el.querySelector('button');
       const ir = item.getBoundingClientRect();
-      const pad = parseFloat(getComputedStyle(el).paddingLeft);
+      const box = document
+        .querySelector('#gly-top-revise')
+        .getBoundingClientRect();
+      const revise = getComputedStyle(document.querySelector('#gly-revise'));
+      const is = getComputedStyle(item);
+      const ms = getComputedStyle(el);
+      const face = (s) => ({
+        size: s.fontSize,
+        weight: s.fontWeight,
+        family: s.fontFamily,
+        bg: s.backgroundColor,
+        color: s.color,
+        radius: s.borderTopLeftRadius,
+        align: s.textAlign,
+      });
       return {
         items: [...el.querySelectorAll('button')].map((b) =>
           b.innerText.trim(),
         ),
-        itemClass: item.className,
-        reviseClass: document.querySelector('#gly-revise').className,
-        itemBg: getComputedStyle(item).backgroundColor,
-        reviseBg: getComputedStyle(document.querySelector('#gly-revise'))
-          .backgroundColor,
-        across:
-          Math.abs(ir.left - (r.left + pad + 1)) <= 1 &&
-          Math.abs(ir.right - (r.right - pad - 1)) <= 1,
+        item: { left: ir.left, right: ir.right, height: ir.height },
+        box: { left: box.left, right: box.right, height: box.height },
+        itemFace: face(is),
+        reviseFace: face(revise),
+        frame: {
+          bg: ms.backgroundColor,
+          border: [
+            ms.borderTopWidth,
+            ms.borderRightWidth,
+            ms.borderBottomWidth,
+            ms.borderLeftWidth,
+          ],
+          padding: [
+            ms.paddingTop,
+            ms.paddingRight,
+            ms.paddingBottom,
+            ms.paddingLeft,
+          ],
+          shadow: ms.boxShadow,
+          size: [r.width - ir.width, r.height - ir.height],
+        },
         top: r.top,
         left: r.left,
         right: r.right,
@@ -718,13 +754,21 @@ try {
       JSON.stringify(menu),
     );
     check(
-      `${width}×${height}: Revise & approve is a filled button of Revise's type, across the menu`,
-      menu.itemClass.split(' ').includes('kit-btn') &&
-        menu.itemClass.split(' ').includes('fill') &&
-        menu.reviseClass.split(' ').includes('fill') &&
-        menu.itemBg === menu.reviseBg &&
-        menu.across,
+      `${width}×${height}: Revise & approve is the top Revise box again, directly under it: same left, right and height, same face`,
+      Math.abs(menu.item.left - menu.box.left) <= 0.5 &&
+        Math.abs(menu.item.right - menu.box.right) <= 0.5 &&
+        Math.abs(menu.item.height - menu.box.height) <= 0.5 &&
+        JSON.stringify(menu.itemFace) === JSON.stringify(menu.reviseFace),
       JSON.stringify(menu),
+    );
+    check(
+      `${width}×${height}: the menu draws no frame of its own around it: no ground, border, padding or shadow`,
+      /^(transparent|rgba\(0, 0, 0, 0\))$/.test(menu.frame.bg) &&
+        menu.frame.border.every((w) => w === '0px') &&
+        menu.frame.padding.every((p) => p === '0px') &&
+        menu.frame.shadow === 'none' &&
+        menu.frame.size.every((d) => Math.abs(d) <= 0.5),
+      JSON.stringify(menu.frame),
     );
     await page.keyboard.press('Escape');
     await page
