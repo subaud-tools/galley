@@ -596,6 +596,54 @@ const pageHas = async (want, ms) => {
   );
 }
 
+// --- the view switch sticks clear of the round row ------------------------
+//
+// After a round, so the track holds more than one. Scrolled into the page, the round row sticks under the bar and the view
+// switch under the row. The row wraps on a narrow window, so the switch has
+// to follow the row's real height: every one of its buttons is the element
+// under a pointer at its centre.
+for (const width of [500, 864]) {
+  await page.setViewportSize({ width, height: 800 });
+  await page.waitForTimeout(300);
+  await page.evaluate(() =>
+    window.scrollTo(
+      0,
+      (document.documentElement.scrollHeight - window.innerHeight) / 2,
+    ),
+  );
+  await page.waitForTimeout(300);
+  const seat = await page.evaluate(() => {
+    const row = document.querySelector('.gly-stages').getBoundingClientRect();
+    const bar = document.querySelector('.gly-viewbar').getBoundingClientRect();
+    const buttons = [...document.querySelectorAll('.gly-view-btn')].map((b) => {
+      const r = b.getBoundingClientRect();
+      const at = document.elementFromPoint(
+        r.left + r.width / 2,
+        r.top + r.height / 2,
+      );
+      return !!at && b.contains(at);
+    });
+    return {
+      scrolled: window.scrollY,
+      rowHeight: row.height,
+      rowBottom: row.bottom,
+      switchTop: bar.top,
+      buttons,
+    };
+  });
+  check(
+    `at ${width} wide, scrolled into the page, the view switch sits under the round row and none of it is covered`,
+    seat.scrolled > 200 &&
+      seat.switchTop >= seat.rowBottom - 0.5 &&
+      seat.buttons.length > 0 &&
+      seat.buttons.every(Boolean),
+    seat,
+  );
+}
+await page.setViewportSize({ width: 1400, height: 1000 });
+await page.evaluate(() => window.scrollTo(0, 0));
+await page.waitForTimeout(300);
+
 await browser.close();
 
 // --- §6 THE DOCUMENT OF RECORD, WITH NOTHING RUNNING --------------------

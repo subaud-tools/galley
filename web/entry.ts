@@ -2040,16 +2040,29 @@ class App implements AppState {
     if (!bar) {
       return;
     }
+    // The round row sticks under the bar and wraps on a narrow window once the
+    // track holds a few rounds; page mode's view switch sticks under it, so
+    // its height is published the same way, as `--gly-stages-h`.
+    const row = document.querySelector('.gly-stages');
+    const seats = [
+      [bar, '--gly-bar-h'],
+      [row, '--gly-stages-h'],
+    ] as const;
     const publish = () => {
-      const h = bar.getBoundingClientRect().height;
-      if (h > 0) {
-        document.documentElement.style.setProperty('--gly-bar-h', `${h}px`);
+      for (const [el, name] of seats) {
+        const h = el?.getBoundingClientRect().height ?? 0;
+        if (h > 0) {
+          document.documentElement.style.setProperty(name, `${h}px`);
+        }
       }
     };
     publish();
     if (typeof window.ResizeObserver === 'function') {
       this.barSize = new window.ResizeObserver(publish);
       this.barSize.observe(bar);
+      if (row) {
+        this.barSize.observe(row);
+      }
       return;
     }
     // No ResizeObserver: a resize is the only thing left that changes the

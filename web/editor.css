@@ -2429,7 +2429,9 @@ body.gly-page .ProseMirror p.gly-shell-marker {
    hangs over it). Its gaps are its own padding, with the top one taken back
    out of the flow, so at rest it sits where it always did. */
 /* The stuck row's height: its 8px and 12px gaps around one 20px line of the
-   track. Page mode's view switch sticks just under it. */
+   track. Page mode's view switch sticks just under it. The row wraps on a
+   narrow window once there are a few rounds, so the editor measures it and
+   publishes the real height (entry.ts watchBar); this is the first paint's. */
 :root { --gly-stages-h: 40px; }
 .gly-stages {
   position: sticky;
@@ -2462,7 +2464,7 @@ body.gly-page .ProseMirror p.gly-shell-marker {
 }
 .kit-bar .gly-disk-notice[hidden] { display: none; }
 /* A clash's Dismiss, at the notice's end, in the notice's ink. */
-.kit-bar .gly-disk-notice:has(.gly-disk-dismiss) { display: flex; align-items: flex-start; gap: 10px; }
+.kit-bar .gly-disk-notice:not([hidden]):has(.gly-disk-dismiss) { display: flex; align-items: flex-start; gap: 10px; }
 .kit-bar .gly-disk-notice:has(.gly-disk-dismiss) > span { flex: 1; min-width: 0; }
 .gly-disk-dismiss { flex: none; color: inherit; border-color: currentColor; padding: 0 8px; }
 
@@ -2508,7 +2510,7 @@ body.gly-history-mode .kit-sendbar { display: none; }
    no gap between them, the shared edge squared, a hairline of the button's ink
    between. Revise grows to fill what the ▾ leaves, so the box never changes. */
 .kit-bar.gly-revise-on-top .kit-primary[hidden] { display: none; }
-.gly-top-revise { display: inline-flex; flex: none; width: calc(16ch + 52px); font: 700 13px var(--kit-mono); }
+.gly-top-revise { display: inline-flex; flex: 0 var(--gly-top-give) auto; min-width: max-content; width: calc(16ch + 52px); font: 700 13px var(--kit-mono); }
 .gly-top-revise[hidden] { display: none; }
 .gly-top-revise .kit-btn {
   font: 700 13px var(--kit-mono);
@@ -2602,7 +2604,15 @@ body.gly-sealed .gly-chat-hint { display: none; }
    characters of the 13px mono, given 16ch for the arrow's glyph, plus the kit's
    26px padding each side; Revise's longest, `Revise · send again`, is 19ch with
    no ▾. With no words the box stays, unseen. */
-.kit-bar .kit-primary { width: calc(16ch + 52px); padding-inline: 0; text-align: center; white-space: nowrap; }
+.kit-bar .kit-primary { flex-shrink: var(--gly-top-give); width: calc(16ch + 52px); padding-inline: 0; text-align: center; white-space: nowrap; }
+/* ON A NARROW WINDOW THE BOX GIVES WAY BEFORE IT RUNS OFF THE BAR. The narrow
+   page scrolls nothing sideways, so whatever passes the edge can't be reached.
+   The status shortens first (it gives way at full weight); once it is gone the
+   top button and the "also open" chip give up the rest together, the button no
+   narrower than its words (and its ▾). Where everything fits, nothing gives
+   and the box is the width above. */
+:root { --gly-top-give: 0.01; }
+.kit-bar .kit-also { flex-shrink: var(--gly-top-give); min-width: 0; }
 .kit-bar .kit-primary[hidden] { display: inline-block; visibility: hidden; }
 
 /* --- a kept review whose file has moved on ---

@@ -112,6 +112,38 @@ const WINDOW_SIZES = [
   [1440, 900],
   [1100, 700],
 ];
+// The narrow widths the top button is checked at, down to the smallest window
+// the page is laid out for.
+const NARROW_WIDTHS = [864, 700, 545, 500];
+
+// The top-right button's box (`box`, a selector) inside the window, and
+// whether each part (the box, and `part` if given) is the element under a
+// pointer at its centre. `more` is that part's centre, to press it there.
+function topButtonSeat(page, box, part) {
+  return page.evaluate(
+    ([box, part]) => {
+      const b = document.querySelector(box).getBoundingClientRect();
+      const hit = (el) => {
+        const r = el.getBoundingClientRect();
+        const x = r.left + r.width / 2;
+        const y = r.top + r.height / 2;
+        const at = document.elementFromPoint(x, y);
+        return { ok: !!at && el.contains(at), x, y };
+      };
+      const main = hit(document.querySelector(box));
+      const p = part ? hit(document.querySelector(part)) : null;
+      return {
+        left: b.left,
+        right: b.right,
+        window: innerWidth,
+        inside: b.left >= 0 && b.right <= innerWidth && b.width > 0,
+        pressable: main.ok && (!p || p.ok),
+        more: p,
+      };
+    },
+    [box, part],
+  );
+}
 
 // Where the selection's words, the button and the box are, in the window.
 function selectionSeat(page) {
@@ -679,6 +711,37 @@ try {
       .waitForSelector(MORE_MENU, { state: 'detached', timeout: 5000 })
       .catch(() => {});
   }
+  // Down to a phone-sized window the whole top button, ▾ included, is inside
+  // the window and pressable where a reader's pointer lands: the narrow page
+  // scrolls nothing sideways, so a ▾ past the edge is gone.
+  for (const width of NARROW_WIDTHS) {
+    await page.setViewportSize({ width, height: 800 });
+    await page.waitForTimeout(200);
+    const seat = await topButtonSeat(page, '#gly-top-revise', REVISE_MORE);
+    let items = [];
+    if (seat.more) {
+      await page.mouse.click(seat.more.x, seat.more.y);
+      await page
+        .waitForSelector(MORE_MENU, { state: 'visible', timeout: 3000 })
+        .catch(() => {});
+      items = await page.evaluate(
+        (sel) =>
+          [
+            ...(document.querySelector(sel)?.querySelectorAll('button') ?? []),
+          ].map((b) => b.innerText.trim()),
+        MORE_MENU,
+      );
+      await page.keyboard.press('Escape');
+      await page
+        .waitForSelector(MORE_MENU, { state: 'detached', timeout: 5000 })
+        .catch(() => {});
+    }
+    check(
+      `at ${width} wide Revise and its ▾ are wholly in the window, and pressing the ▾ offers Revise & approve`,
+      seat.inside && seat.pressable && items.includes('Revise & approve'),
+      JSON.stringify({ ...seat, items }),
+    );
+  }
   await page.setViewportSize({ width: 1440, height: 900 });
   await tabPress(page, 'Instructions');
   await page.click(`${INSTRUCTION_ROW} ${ROW_DELETE}`);
@@ -698,6 +761,33 @@ try {
       (await primarySeen(page)).visible &&
       (await page.locator(REVISE_MORE).isHidden()),
   );
+  // Approve keeps the same place at a narrow window, and so does its longest
+  // face, History's `← back to draft`.
+  await page.setViewportSize({ width: 500, height: 800 });
+  await page.waitForTimeout(200);
+  const approveNarrow = await topButtonSeat(page, '.kit-bar .kit-primary');
+  await page.click('.gly-versions-open');
+  await page.waitForFunction(
+    () =>
+      document.querySelector('.kit-primary')?.innerText.trim() ===
+      '← back to draft',
+  );
+  const backNarrow = await topButtonSeat(page, '.kit-bar .kit-primary');
+  await page.click('.kit-primary');
+  await page.waitForFunction(
+    () =>
+      document.querySelector('.kit-primary')?.innerText.trim() === 'Approve',
+  );
+  check(
+    'at 500 wide Approve, and ← back to draft in History, are wholly in the window and pressable',
+    approveNarrow.inside &&
+      approveNarrow.pressable &&
+      backNarrow.inside &&
+      backNarrow.pressable,
+    JSON.stringify({ approveNarrow, backNarrow }),
+  );
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.waitForTimeout(200);
 
   // THE EMPTY TAB SAYS HOW. A first-time reviewer doesn't know how to ask for
   // anything, and nothing else on a cold-open page tells them.
