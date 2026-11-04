@@ -36,7 +36,7 @@ import {
   type DraftRowValue,
   type EditRowValue,
 } from './tabs.ts';
-import type { PageView } from './wire.d.ts';
+import type { PageView, ReviewOpenView } from './wire.d.ts';
 
 // The tool's name, for the bar and for what the frame remembers.
 const NAME = 'galley';
@@ -50,6 +50,14 @@ function go(id: string): void {
   location.assign(id ? docHref(id) : '/');
 }
 
+/** Opens a kept approved review whose document isn't open, and goes to it. */
+async function openKept(key: string): Promise<void> {
+  const opened = await createApi().post<ReviewOpenView>('/reviews/open', {
+    key,
+  });
+  go(opened.id);
+}
+
 /** A row for one review, in the index or on the front page. */
 export function reviewRow(p: PageView, on: boolean): HTMLElement {
   return indexRow({
@@ -59,7 +67,7 @@ export function reviewRow(p: PageView, on: boolean): HTMLElement {
     on,
     attention: p.state === 'you' && !on,
     waits: p.state === 'agent',
-    select: go,
+    select: p.open ? go : () => void openKept(p.key),
   });
 }
 

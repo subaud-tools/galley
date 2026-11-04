@@ -551,6 +551,7 @@ gates: build
     GALLEY="$PWD/bin/galley" node web/share.mjs
     GALLEY="$PWD/bin/galley" node web/switcher.mjs
     GALLEY="$PWD/bin/galley" node web/chat.mjs
+    GALLEY="$PWD/bin/galley" node web/kept.mjs
     cd web && GALLEY="$PWD/../bin/galley" node ./undo.mjs
 
 # Unwrap markdown prose. NOT part of `verify` — that gate is the Go binary,

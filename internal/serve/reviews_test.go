@@ -3,10 +3,13 @@ package serve
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/subaud-tools/galley/internal/markdown"
 	"github.com/subaud-tools/galley/internal/versions"
 )
 
@@ -200,5 +203,58 @@ func TestTwoDocumentsWithOneName(t *testing.T) {
 	got := approvedPages(h)
 	if len(got) != 2 || got[0].Key == got[1].Key || got[0].Folder == got[1].Folder {
 		t.Fatalf("pages = %+v, want two entries", got)
+	}
+}
+
+// A file edited after its approval: the reopened review shows the text as
+// approved, says the file moved on, hands over the approved text, and writes
+// nothing over the edited file.
+func TestMovedOnReviewShowsTheApprovedText(t *testing.T) {
+	h := keptHost(t, t.TempDir())
+	path := writeDoc(t, "doc.md", "# T\n\nAs approved.\n")
+	id, err := h.Open(path, DocOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, _ := h.doc(id)
+	d.server.approveReview(false)
+	if err := h.Close(id); err != nil {
+		t.Fatal(err)
+	}
+	const edited = "# T\n\nEdited since.\n"
+	if err := os.WriteFile(path, []byte(edited), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if rec := post(t, h.Handler(), "/api/reviews/open", map[string]string{"key": id}); rec.Code != http.StatusOK {
+		t.Fatalf("open = %d: %s", rec.Code, rec.Body.String())
+	}
+	d, _ = h.doc(id)
+	get := func(route string) string {
+		rec := httptest.NewRecorder()
+		d.server.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, route, nil))
+		return rec.Body.String()
+	}
+	var st ReviseStateView
+	if err := json.Unmarshal([]byte(get("/_galley/revise")), &st); err != nil || !st.MovedOn || !st.Sealed {
+		t.Fatalf("revise state = %+v (%v), want sealed and moved on", st, err)
+	}
+	if md := get("/_galley/download/md"); !strings.Contains(md, "As approved.") {
+		t.Fatalf("Download Markdown = %q, want the approved text", md)
+	}
+	if page := get("/_galley/render?download=1"); !strings.Contains(page, "As approved.") || strings.Contains(page, "Edited since.") {
+		t.Fatal("Download HTML is not the approved text")
+	}
+	live, err := d.server.readLive()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(markdown.Serialize(live)); !strings.Contains(got, "As approved.") {
+		t.Fatalf("the page's document = %q, want the approved text", got)
+	}
+	if err := h.Close(id); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(path); string(got) != edited {
+		t.Fatalf("the edited file was written over: %q", got)
 	}
 }

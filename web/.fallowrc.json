@@ -23,6 +23,7 @@
     "layers.mjs",
     "switcher.mjs",
     "chat.mjs",
+    "kept.mjs",
     "schema.mjs",
     "schemacheck.mjs",
     "schemacorpus.mjs",

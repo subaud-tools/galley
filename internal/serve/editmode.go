@@ -108,6 +108,11 @@ type EditServer struct {
 	// called with mu held, so it must not call back into this server.
 	OnRound func(reason string, n int)
 
+	// approvedText, when set, is the text as approved of a kept review whose
+	// file has moved on since: the document this server shows, renders and
+	// hands over, and never writes. See newEditApproved.
+	approvedText []byte
+
 	// Ledger, when set, is where this server's decisions are remembered.
 	// Nil means the process-wide ledger.DefaultRecorder, which is what every
 	// real caller wants; the field exists so a test can supply a recorder whose
@@ -468,6 +473,23 @@ func NewEdit(mdPath string) (*EditServer, error) {
 		// report a problem with something the user never mentioned.
 		return nil, fmt.Errorf("document: %w", err)
 	}
+	return newEdit(abs, src)
+}
+
+// newEditApproved serves a kept review at its text as approved, when its file
+// has changed since: the page shows approved, and nothing is read from or
+// written to the file while it is open.
+func newEditApproved(abs string, approved []byte) (*EditServer, error) {
+	s, err := newEdit(abs, approved)
+	if err != nil {
+		return nil, err
+	}
+	s.approvedText = approved
+	return s, nil
+}
+
+// newEdit is NewEdit over src, the document's bytes.
+func newEdit(abs string, src []byte) (*EditServer, error) {
 	// THE INLINE NOTES THE PARSE LIFTS ARE DISCARDED, and that is a deletion:
 	// a hand-typed {>>words<<} inside a sentence leaves the .md at the first
 	// projection. Comments hand-typed into the .md are not imported, by
@@ -874,6 +896,11 @@ func (s *EditServer) saveOnce(overwrite string) (docmodel.Doc, []byte, bool, err
 	model, err := ydoc.ReadLive(s.doc)
 	if err != nil {
 		return docmodel.Doc{}, nil, false, err
+	}
+	// A review shown at its text as approved leaves the file that moved on
+	// alone: nothing loaded from it, nothing written to it.
+	if s.approvedText != nil {
+		return model, markdown.SerializeOnto(model, s.baseBytes), false, nil
 	}
 	raw, readErr := os.ReadFile(s.MdPath)
 	name := filepath.Base(s.MdPath)
@@ -2545,6 +2572,7 @@ func (s *EditServer) writeReviseState(w http.ResponseWriter) {
 		Sealed:     st.Sealed,
 		Verdict:    st.Verdict,
 		VerdictAt:  verdictAt,
+		MovedOn:    s.approvedText != nil,
 	})
 }
 
@@ -2600,6 +2628,9 @@ type ReviseStateView struct {
 	Sealed    bool   `json:"sealed"`
 	Verdict   string `json:"verdict"`
 	VerdictAt int64  `json:"verdictAt"`
+	// MovedOn says the file has changed since it was approved: the page shows
+	// the text as approved, and Share hands that over.
+	MovedOn bool `json:"movedOn"`
 }
 
 // MessageView is a Revise's message as the page shows it: the kit's pill for

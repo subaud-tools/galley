@@ -286,6 +286,14 @@ jobs:
         env:
           GALLEY: ${{ github.workspace }}/bin/galley
 
+      # AN APPROVED REVIEW STAYS LISTED. Approved and swept, it is still in the
+      # left panel, opens read-only at its approved text (and says so when the
+      # file moved on since), and survives a restart.
+      - name: Gate — approved reviews are kept
+        run: node web/kept.mjs
+        env:
+          GALLEY: ${{ github.workspace }}/bin/galley
+
       # `web/layers.mjs` IS DELIBERATELY NOT HERE YET, AND THAT IS NOT AN
       # OVERSIGHT — it is the one gate that measures PIXELS, and it is not
       # platform-stable. Two checks fail on a Linux runner and pass on a mac:

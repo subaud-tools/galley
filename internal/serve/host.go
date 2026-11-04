@@ -186,7 +186,14 @@ func (h *Host) openLocked(path string, o DocOptions, again bool) (id string, add
 	if err := refuseOlderEditor(abs); err != nil {
 		return "", false, err
 	}
-	s, err := newServerFor(abs, o.Root)
+	k, kept := h.reviews.get(abs)
+	restore := again && kept && k.State == PageApproved
+	var s *EditServer
+	if restore {
+		s, err = approvedServerFor(abs, o.Root, k)
+	} else {
+		s, err = newServerFor(abs, o.Root)
+	}
 	if err != nil {
 		return "", false, err
 	}
@@ -196,11 +203,11 @@ func (h *Host) openLocked(path string, o DocOptions, again bool) (id string, add
 	s.HookDir = o.Dir
 	// Sealed before the document is listed, so a waiting session never sees it
 	// open and unsealed.
-	switch k, kept := h.reviews.get(abs); {
+	switch {
+	case restore:
+		s.restoreSeal(VerdictApproved, k.ApprovedAt)
 	case !again || !kept:
 		h.reviews.begin(abs)
-	case k.State == PageApproved:
-		s.restoreSeal(VerdictApproved, k.ApprovedAt)
 	}
 	h.keepReview(abs, s)
 	// The bar's Done closes the document, and only it.
@@ -285,6 +292,19 @@ func refuseOlderEditor(abs string) error {
 		}
 	}
 	return nil
+}
+
+// approvedServerFor opens a kept approved review: at its file, or at its text
+// as approved when a markdown file has changed since (or gone).
+func approvedServerFor(abs, root string, k keptReview) (*EditServer, error) {
+	raw, err := os.ReadFile(abs)
+	moved := err != nil || fileDigest(raw) != k.Digest
+	if moved && k.VerdictN > 0 && k.Digest != "" && root == "" && !strings.EqualFold(filepath.Ext(abs), ".html") && !strings.EqualFold(filepath.Ext(abs), ".htm") {
+		if content, err := versions.Open(abs).Content(k.VerdictN); err == nil {
+			return newEditApproved(abs, []byte(historyDocument(content)))
+		}
+	}
+	return newServerFor(abs, root)
 }
 
 // newServerFor opens a page as a page and anything else as markdown.

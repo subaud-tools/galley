@@ -60,6 +60,7 @@ export interface ReviseStateView {
   sealed: boolean;
   verdict: string;
   verdictAt: number;
+  movedOn: boolean;
 }
 
 export interface VersionsView {
@@ -107,6 +108,10 @@ export interface PageView {
   open: boolean;
   approvedAt?: number;
   rounds: number;
+}
+
+export interface ReviewOpenView {
+  id: string;
 }
 
 export interface ChatView {
