@@ -483,16 +483,16 @@ func TestOpenRefusesADocumentAnOlderEditorHolds(t *testing.T) {
 }
 
 // A session taking up a gone session's document doesn't inherit what that session
-// configured: a Revise and a settle run nothing, here and across a restart.
+// configured: a Revise runs nothing, here and across a restart.
 func TestTakeUpDropsTheOldOwnersHooks(t *testing.T) {
 	f := startHost(t)
 	f.host.sessions = presence(t, "sess-a", "sess-b")
 	f.host.savePath = filepath.Join(t.TempDir(), "docs.json")
 	dir := t.TempDir()
 	doc := writeTestFile(t, filepath.Join(dir, "a.md"), "# A\n\nHi.\n")
-	revised, settled := filepath.Join(dir, "revised"), filepath.Join(dir, "settled")
+	revised := filepath.Join(dir, "revised")
 	id, err := f.host.openFor(OpenRequest{Path: doc, DocOptions: DocOptions{
-		Owner: "sess-a", OnRevise: "touch " + revised, OnSettle: "touch " + settled, Quiet: time.Millisecond, Dir: dir,
+		Owner: "sess-a", OnRevise: "touch " + revised, Dir: dir,
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -515,19 +515,15 @@ func TestTakeUpDropsTheOldOwnersHooks(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = resp.Body.Close()
-	d, _ := f.host.doc(id)
-	d.server.Notify.Touch("something new")
 	time.Sleep(200 * time.Millisecond)
-	for _, marker := range []string{revised, settled} {
-		if _, err := os.Stat(marker); err == nil {
-			t.Errorf("the old owner's hook ran: %s", filepath.Base(marker))
-		}
+	if _, err := os.Stat(revised); err == nil {
+		t.Errorf("the old owner's hook ran: %s", filepath.Base(revised))
 	}
 	saved, err := loadDocs(f.host.savePath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(saved) != 1 || saved[0].Owner != "sess-b" || saved[0].OnRevise != "" || saved[0].OnSettle != "" || saved[0].Dir != "" {
+	if len(saved) != 1 || saved[0].Owner != "sess-b" || saved[0].OnRevise != "" || saved[0].Dir != "" {
 		t.Errorf("docs.json holds %+v", saved)
 	}
 }

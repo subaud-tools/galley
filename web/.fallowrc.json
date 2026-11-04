@@ -22,6 +22,7 @@
     "undo.mjs",
     "layers.mjs",
     "switcher.mjs",
+    "chat.mjs",
     "schema.mjs",
     "schemacheck.mjs",
     "schemacorpus.mjs",

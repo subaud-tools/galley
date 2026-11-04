@@ -278,6 +278,14 @@ jobs:
         env:
           GALLEY: ${{ github.workspace }}/bin/galley
 
+      # CHAT TALKS TO THE AGENT, AND NEVER TO THE DOCUMENT. A message reaches a
+      # read of the wait as a chat wake, the agent's replies show under it with
+      # the kit's states, and an approved review keeps the thread with no box.
+      - name: Gate — Chat talks to the agent
+        run: node web/chat.mjs
+        env:
+          GALLEY: ${{ github.workspace }}/bin/galley
+
       # `web/layers.mjs` IS DELIBERATELY NOT HERE YET, AND THAT IS NOT AN
       # OVERSIGHT — it is the one gate that measures PIXELS, and it is not
       # platform-stable. Two checks fail on a Linux runner and pass on a mac:

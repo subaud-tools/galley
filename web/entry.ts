@@ -133,7 +133,7 @@ import { messagePill } from './kit/dom.js';
 import type { MessageState } from './kit/dom.js';
 import { figureMethods } from './figures.ts';
 import { historyMethods } from './history.ts';
-import { barMethods, MODE_ASK } from './bar.ts';
+import { barMethods } from './bar.ts';
 import { verdictMethods } from './verdict.ts';
 import { sealMethods } from './seal.ts';
 import { shareMethods, type ShareMenu } from './share.ts';
@@ -181,7 +181,6 @@ import { shellMarkerQuiet } from './marker.ts';
 import { headingAlign } from './headingalign.ts';
 import type { Arrival } from './versions.ts';
 import type { Composer } from './composer.ts';
-import type { Mode, ModeUI } from './bar.ts';
 import { makeMenu, openMenu, closeMenu, menuOpen } from './menu.ts';
 import type { DocMenu } from './menu.ts';
 import type { BlockRef, ReviewerChange } from './wire';
@@ -773,12 +772,9 @@ class App implements AppState {
     fade: HTMLElement;
   };
 
-  // --- arrivals: the queue, the hold, the strip's batch ---
+  // --- arrivals: the queue and the strip's batch ---
   arrivalQueue: ArrivalItem[];
   stripBatch: ArrivalItem[];
-  held: Set<string>;
-  heldArrivals: ArrivalItem[];
-  holding: boolean;
   newRuns: Set<string>;
   // Two timer handles private to this file's own strip/badge painters — not
   // shared with any mixin, so not in AppState. Both are direct, unconditional
@@ -842,7 +838,7 @@ class App implements AppState {
   refusalShownAt: number;
   blurDismiss: number | undefined;
 
-  // --- the bar's status readout and mode toggle (web/bar.ts) ---
+  // --- the bar's status readout (web/bar.ts) ---
   status: HTMLElement;
   said: string;
   connection: string;
@@ -852,8 +848,6 @@ class App implements AppState {
   draftError: string;
   diskNotice: string;
   reviseWaiting: boolean;
-  mode: Mode;
-  modeUI: ModeUI;
 
   // --- fields private to this file's own methods (lit-run highlighting,
   //     the caret-restoring rebuild, run memoisation) — no mixin reads any
@@ -1028,18 +1022,6 @@ class App implements AppState {
     this.seenRound = null;
     this.seenCannot = '';
     this.arrival = null;
-    // Realtime is opt-in and the server owns the answer. Assuming `ask` here
-    // and never asking would mean a reload silently dropping a live session
-    // back to ask on screen while the server kept notifying — the toggle and
-    // the behaviour disagreeing is worse than either state.
-    this.mode = MODE_ASK;
-    // Hold's state has to exist before makeMode paints the button.
-    this.holding = false;
-    this.held = new Set();
-    this.heldArrivals = [];
-    this.modeUI = this.makeMode();
-    this.paintMode();
-    this.readMode();
 
     // What arrived while the reviewer was reading. prevSuggestions is null
     // until the FIRST payload lands: with no baseline, every suggestion in the

@@ -130,7 +130,7 @@ func TestOneReviseReleasesEveryWaiter(t *testing.T) {
 	h := s.Handler()
 
 	// No waiters at all: a wake with an empty registry.
-	s.wakeWaiters(waitSettle, "whatever", nil)
+	s.wakeWaiters(waitRevise, "whatever", nil)
 
 	const waiters = 12
 	replies := make([]<-chan waitReply, waiters)
@@ -192,44 +192,6 @@ func TestReviseHandsWaiterTheCapturedDocumentInstruction(t *testing.T) {
 	// The waiter was handed the round, and the unsent round let go of it.
 	if left := loadUnsent(t, s); len(left) != 0 {
 		t.Fatalf("pending.json still holds the sent instruction: %+v", left)
-	}
-}
-
-func TestLiveHandsWaiterTheSameCapturedDocumentInstruction(t *testing.T) {
-	s := newEditServer(t, t.TempDir(), "doc.md", "# Title\n\nHello world.\n")
-	t.Cleanup(func() { _ = s.Close() })
-	h := s.Handler()
-
-	if rec := post(t, h, "/_galley/instruct", map[string]any{
-		"op": "comment_document", "text": "Remove my name.", "author": "user",
-	}); rec.Code != http.StatusOK {
-		t.Fatalf("document instruction: %d %s", rec.Code, rec.Body.String())
-	}
-	reply := blockedWait(h, "", time.Hour)
-	waitersRegistered(t, s, 1)
-	fp, _, err := s.waitFingerprint()
-	if err != nil {
-		t.Fatal(err)
-	}
-	s.wakeSettle(fp)
-
-	got := <-reply
-	if got.Reason != waitSettle || got.Pending == nil || len(got.Pending.Instructions) != 1 ||
-		got.Pending.Instructions[0].Text != "Remove my name." {
-		t.Fatalf("live wait payload = %+v, want captured document instruction", got)
-	}
-	current, err := s.pending()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(current.Instructions) != 0 {
-		t.Fatalf("browser pending was not cleared after live handoff: %+v", current.Instructions)
-	}
-	if left := loadUnsent(t, s); len(left) != 0 {
-		t.Fatalf("pending.json still holds the instruction a live settle sent: %+v", left)
-	}
-	if _, waiting := s.ReviseWatch(); !waiting {
-		t.Fatal("live handoff did not open the agent response window")
 	}
 }
 
@@ -416,7 +378,7 @@ func TestWaitStrandsNoGoroutines(t *testing.T) {
 		released[i] = blockedWait(h, "", time.Hour)
 	}
 	waitersRegistered(t, s, len(released))
-	s.wakeWaiters(waitSettle, "moved", nil)
+	s.wakeWaiters(waitRevise, "moved", nil)
 	for i, ch := range released {
 		select {
 		case <-ch:

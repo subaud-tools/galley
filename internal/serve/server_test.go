@@ -164,7 +164,7 @@ func TestRestartReloadsLiveDocuments(t *testing.T) {
 	o := Options{Sessions: sessions, Every: time.Hour}
 	first := startServe(t, o)
 
-	owned := first.open(t, writeDoc(t, "owned.md", "owned\n"), DocOptions{Owner: "alive", OnRevise: "true", Quiet: time.Minute})
+	owned := first.open(t, writeDoc(t, "owned.md", "owned\n"), DocOptions{Owner: "alive", OnRevise: "true"})
 	unowned := first.open(t, writeDoc(t, "unowned.md", "unowned\n"), DocOptions{})
 	orphan := first.open(t, writeDoc(t, "orphan.md", "orphan\n"), DocOptions{Owner: "gone"})
 	page := first.open(t, writeDoc(t, "page.html", "<!doctype html><html><body><h1>Page</h1></body></html>\n"), DocOptions{})
@@ -215,7 +215,7 @@ func TestRestartReloadsLiveDocuments(t *testing.T) {
 		t.Fatalf("docs.json holds %+v, want the three that came back", saved)
 	}
 	for _, d := range saved {
-		if d.Owner == "alive" && (d.OnRevise != "true" || d.Quiet != time.Minute) {
+		if d.Owner == "alive" && d.OnRevise != "true" {
 			t.Fatalf("the options did not survive: %+v", d)
 		}
 	}

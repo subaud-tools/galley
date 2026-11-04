@@ -18,7 +18,7 @@ Every round is a version. Nothing is a proposal you have to accept.
 
 ## The bar
 
-The bar across the top carries, left to right: the document's name, `Instructions · N`, `History`, the status readout, then the `live` switch, `⏸ hold`, and the primary button.
+The bar across the top carries, left to right: the document's name, `Instructions · N`, `History`, the status readout, and the primary button.
 
 The status readout is one line, composed newest-first, and it ellipsizes from the right:
 
@@ -181,13 +181,13 @@ It refuses, with the reason, when:
 - the review is sealed;
 - there is no such version.
 
-## Live mode
+## Chat
 
-The `live` switch decides whether the agent hears anything before you press Revise.
+The right-hand column's **Chat** tab is a conversation with the agent. Type in its box (`Message the agent…`) and press **Send** or Enter. Under the box: *The agent reads it now and answers here. It doesn't change the document; instructions and Revise do.*
 
-Off (the default), the agent hears nothing until you press Revise. On, the agent is woken whenever the document settles — you keep editing and it keeps working, without a press. The switch's tooltip says which state you are in and what a click does about it.
+The message reaches the agent's session at once and shows the kit's states as it goes: `sent`, `with the agent`, `working` with the agent's one line, then `answered` with the agent's reply under it, or `declined` or `failed`. A message sent while no agent is attached waits and is delivered when one is. You can chat while the agent holds a round; the round is not disturbed.
 
-In live mode a **`⏸ hold`** button appears beside it. Holding keeps new arrivals out of the rail; they still land in the document, they just wait for a card. The button then reads `▶ release · 2` with the number waiting, and releasing announces them in one batch. Hold is a queue over what the rail shows, never a gate on the document.
+Chat never edits the document and never files an instruction. Ask or discuss in Chat; to change the document, add an instruction and press Revise. Each Revise you send also appears in the thread, with the agent's note when the round settles. The thread is kept beside the document's versions in `.galley`, so it survives reloads and restarts, and an approved review shows it read-only, with no box.
 
 ## Keyboard
 

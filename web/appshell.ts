@@ -118,11 +118,11 @@ import type {
   ReviseStateView,
   ReviewerChange,
   MessageView,
+  ChatMessageView,
 } from './wire';
 import type { Composer } from './composer.ts';
 import type { MessageState } from './kit/dom.js';
 import type { GripTarget } from './grips.ts';
-import type { Mode, ModeUI } from './bar.ts';
 import type { DocMenu, MenuItem } from './menu.ts';
 import type { ReviseWatchView } from './verdict.ts';
 import type { ShareMenu } from './share.ts';
@@ -236,12 +236,9 @@ export interface AppState {
   bubble: SuggestionUI;
   strip: { root: HTMLElement };
 
-  // --- arrivals: the queue, the hold, the strip's batch ---
+  // --- arrivals: the queue and the strip's batch ---
   arrivalQueue: ArrivalItem[];
   stripBatch: ArrivalItem[];
-  held: Set<string>;
-  heldArrivals: ArrivalItem[];
-  holding: boolean;
   newRuns: Set<string>;
 
   // --- History: the door, the round, the reading state ---
@@ -273,6 +270,9 @@ export interface AppState {
   // none when the server has none).
   reviseMsg?: HTMLElement;
   reviseMessage?: MessageView | null;
+  // The Chat tab's conversation with the agent, as GET /_galley/chat last read
+  // it (none before the first poll).
+  chatThread?: ChatMessageView[];
   // R10's window: direct, unconditional constructor assignments
   // (`this.reviseWaiting = false; this.reviseRunning = false;
   // this.approveNotBefore = 0; this.reviseStartedAt = 0;`).
@@ -355,8 +355,6 @@ export interface AppState {
   draftError: string;
   diskNotice: string;
   reviseWaiting: boolean;
-  mode: Mode;
-  modeUI: ModeUI;
 }
 
 // THE METHODS ARRIVE AT RUNTIME, WHICH IS WHY THEY ARE A SEPARATE INTERFACE.
@@ -380,7 +378,6 @@ export interface AppMethods {
   stepOrder(): string[];
   clearNewLater(): void;
   noticeArrivals(arrived: ArrivalItem[]): void;
-  paintHold(): void;
   paintReadout(): void;
   paintRevise(): void;
   sendVerdict(
@@ -400,19 +397,11 @@ export interface AppMethods {
     arrival?: Arrival | null,
     pill?: MessageState | null,
   ): void;
-  // SUPERSEDES an earlier generic stub (`<T extends { run?: string }>`)
-  // written before this method's body existed. verdict.ts's withhold reads
-  // `kind`/`author` off every arrival to reconstruct a `SuggestionLike` for
-  // `runFor` — fields the generic bound never promised — and pending.ts's
-  // `change.arrived` (arrivals.ts's own `Arrival[]`) is its one caller, so
-  // the concrete shape is the honest one rather than a genericity nothing
-  // needs.
-  withhold(arrived: ArrivalItem[]): ArrivalItem[];
   say(text: string): void;
   toggleVersions(): void;
   showArrival(): void;
 
-  // --- Revise, its ▾, and hold/release (web/verdict.ts) ---
+  // --- Revise and its ▾ (web/verdict.ts) ---
   askRevise(): void;
   pressSend(): void;
   makeDiscard(): HTMLButtonElement | null;
@@ -451,6 +440,8 @@ export interface AppMethods {
   selectDraft(key: string): void;
   openDraft(key: string): void;
   fileChat(text: string): Promise<boolean>;
+  readChat(): Promise<void>;
+  sendChat(text: string): Promise<boolean>;
   chatHolds(): boolean;
   revertEdit(key: string): void;
   reveal(run: string): void;
@@ -491,13 +482,8 @@ export interface AppMethods {
   pulseFence(pos: number): void;
   sendComment(): void;
 
-  // --- the bar's mode toggle, and the light (web/bar.ts) ---
+  // --- the light (web/bar.ts) ---
   paintLit(): void;
-  paintMode(): void;
-  release(): void;
-  toggleHold(): void;
-  toggleMode(): void;
-  readMode(): void;
 
   // --- TASK 8 ADDITIONS. Every member below is a real mixin method (Tasks
   // 5-7 already gave each one `this: AppShell`) that only entry.ts's own
@@ -536,7 +522,6 @@ export interface AppMethods {
 
   // --- the bar's own builders (web/bar.ts) ---
   makeStatus(): HTMLElement;
-  makeMode(): ModeUI;
 
   // --- figures' own builder (web/figures.ts) ---
   makeGripLayer(): HTMLElement;

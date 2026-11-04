@@ -42,6 +42,7 @@ var wireRoots = []any{
 	diffView{},
 	changeView{},
 	PageView{},
+	chatView{},
 }
 
 const wirePath = "../../web/wire.d.ts"

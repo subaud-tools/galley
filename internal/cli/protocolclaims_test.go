@@ -257,7 +257,7 @@ func TestEveryCarrierTeachesTheProtocol(t *testing.T) {
 }
 
 // reviseDelivery is what an agent answering a round ACTUALLY receives on the
-// channel: the handshake core plus the revise/settle guidance, and nothing
+// channel: the handshake core plus the revise guidance, and nothing
 // else — no approve, changed or closed guidance rides a revise wake. Review
 // 2026-08-25, F3: channelDelivery (above) proves every claim rides some
 // reason's guidance, which passes even if a claim lives only in an ending's
@@ -326,7 +326,7 @@ func TestPluginSkillCarriersReadTheirOwnFile(t *testing.T) {
 // is the narrower, sufficient check.
 func channelDelivery() string {
 	parts := []string{channelInstructions}
-	for _, r := range []string{reasonRevise, reasonSettle, reasonApprove, reasonChanged, reasonClosed} {
+	for _, r := range []string{reasonRevise, reasonApprove, reasonChanged, reasonClosed, reasonChat} {
 		parts = append(parts, reasonGuidance(r))
 	}
 	return strings.Join(parts, "\n")
@@ -347,4 +347,15 @@ func TestTheAckSchemaOffersTheFourAcknowledgements(t *testing.T) {
 	if got := strings.Join(schema.Properties.State.Enum, ","); got != "working,answered,declined,failed" {
 		t.Fatalf("galley_ack state enum = %s, want working,answered,declined,failed", got)
 	}
+}
+
+// chatClaims is what a carrier that delivers chat must say: the tool that
+// answers a message, and that Chat never changes the document (instructions and
+// Revise do). The agent-prompt carrier is the pull loop's, which has no MCP
+// tool to answer with, so it is not held to these.
+var chatClaims = []string{"galley_reply", "never changes the document", "revise"}
+
+func TestChatCarriersTeachReplyAndNoEdit(t *testing.T) {
+	assertTeaches(t, "channel", channelDelivery(), chatClaims)
+	assertTeaches(t, "plugin-skill", pluginSkill(t), chatClaims)
 }

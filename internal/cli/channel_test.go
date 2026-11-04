@@ -84,7 +84,7 @@ func TestTheWakeCountsInstructions(t *testing.T) {
 // destroyed a real reviewer's section, and a future edit that tidies it out of
 // the guidance must fail here rather than ship.
 func TestReviseGuidanceCarriesTheWriteRule(t *testing.T) {
-	for _, reason := range []string{reasonRevise, reasonSettle} {
+	for _, reason := range []string{reasonRevise} {
 		lower := strings.ToLower(reasonGuidance(reason))
 		for _, want := range []string{"targeted", "whole file", "stale", "galley_ack", "answered"} {
 			if !strings.Contains(lower, want) {
@@ -235,5 +235,62 @@ func TestAckAndApproveWithoutADocSayTheyNeedThePath(t *testing.T) {
 				t.Errorf("%s %s: err = %v, want %q", tool, args, err, want)
 			}
 		}
+	}
+}
+
+// A chat wake hands the agent the reviewer's message, the id galley_reply
+// names, and the rule that chat never changes the document.
+func TestChatWakeCarriesTheMessage(t *testing.T) {
+	text, meta := renderWake(serve.AgentWake{
+		Page: "/tmp/doc.md", Reason: "chat", Fingerprint: "f1",
+		Pending: &serve.PendingView{}, Chat: &serve.ChatWake{ID: 7, Text: "Why this title?"},
+	})
+	if !strings.Contains(text, "Why this title?") {
+		t.Errorf("the wake does not carry the message:\n%s", text)
+	}
+	if !strings.Contains(text, "galley_reply") || !strings.Contains(text, "Chat never changes the document") {
+		t.Errorf("the wake's guidance does not name galley_reply and the rule:\n%s", text)
+	}
+	if meta["reason"] != "chat" || meta["message"] != "7" {
+		t.Errorf("meta = %v, want reason=chat message=7", meta)
+	}
+}
+
+// galley_reply posts the agent's answer to the document's server, which
+// settles the message.
+func TestReplyToolPostsTheAnswer(t *testing.T) {
+	dir := t.TempDir()
+	doc := writeDoc(t, dir, "doc.md", "# Title\n\nHello.\n")
+	base := openOnServer(t, doc, serve.DocOptions{}).URL
+	resp, err := serverClient.Post(base+"/_galley/chat", "application/json", strings.NewReader(`{"text":"Why?"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+
+	args, _ := json.Marshal(map[string]any{"doc": doc, "message": 1, "state": "answered", "text": "Because."})
+	got, err := callTool(context.Background(), sessionChannel("", dir), "galley_reply", args)
+	if err != nil {
+		t.Fatalf("galley_reply: %v", err)
+	}
+	if !strings.Contains(got, "answered") {
+		t.Errorf("galley_reply said %q", got)
+	}
+	resp, err = serverClient.Get(base + "/_galley/chat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	var v struct {
+		Messages []struct {
+			State string `json:"state"`
+			Text  string `json:"text"`
+		} `json:"messages"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&v); err != nil {
+		t.Fatal(err)
+	}
+	if len(v.Messages) != 2 || v.Messages[0].State != "answered" || v.Messages[1].Text != "Because." {
+		t.Fatalf("thread = %+v, want the message answered and the reply after it", v.Messages)
 	}
 }

@@ -2545,7 +2545,7 @@ const placeComposer = (nth = 0) =>
   // something.
   //
   const retired = await page.evaluate(() =>
-    ['#gly-revise', '.gly-mode', '.gly-hold'].map((sel) => {
+    ['#gly-revise'].map((sel) => {
       const el = document.querySelector(sel);
       return { sel, display: el ? getComputedStyle(el).display : 'absent' };
     }),

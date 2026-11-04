@@ -2,6 +2,12 @@
 
 Newest first. Notes for releases up to 0.10.2 are on the GitHub releases page: https://github.com/subaud-tools/galley/releases
 
+## 0.30.0
+
+- Chat is a conversation with the agent. Its box (`Message the agent…`, then `Send` or Enter) reaches the agent's session at once as a `chat` wake; the message shows sent, with the agent, working with the agent's line, then answered with the agent's reply under it (rendered from markdown), or declined or failed. A message sent while no agent is attached is delivered when one attaches. Chat never changes the document or files an instruction; the Revise rounds still show in the same thread. The thread is kept in `.galley` beside the versions (`chat.jsonl`), survives reloads and restarts, and an approved review shows it read-only with no box (tools-common 0.63.0).
+- `galley_reply` answers a chat message from the agent's session: the document, the message id, a state (working, answered, declined, failed) and the text. `galley wait` returns a chat message as reason `chat` with its words.
+- Live mode is retired: the live switch and hold button are gone from beside History, and the server drops the ask/live mode, its settle wake and `/_galley/mode`. `galley edit` no longer takes `--on-settle` or `--quiet`. The agent hears from the reviewer through Revise and Chat.
+
 ## 0.29.0
 
 - The top bar holds still. Its button has one width, so entering and leaving History moves nothing, and while drafts are pending, the agent revises or the review is approved its place stays, empty. With nothing pending it reads Approve.

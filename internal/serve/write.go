@@ -13,8 +13,7 @@ import (
 )
 
 // exportDebounce is short: the disk projection should trail the document
-// closely, because it is what the CLI reads. The notification debounce is a
-// separate, much longer window — see Notifier.
+// closely, because it is what the CLI reads.
 const exportDebounce = 400 * time.Millisecond
 
 // schemaVersion is stamped into the document so a future change to the thread

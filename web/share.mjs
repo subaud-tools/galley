@@ -255,16 +255,14 @@ async function statusSays(page, want) {
     return {
       text: b.textContent,
       shown: b.getBoundingClientRect().width > 0,
-      afterMode: before(document.querySelector('.gly-mode'), b),
       afterHistory: before(document.querySelector('.gly-versions-open'), b),
     };
   });
   check(
-    'the HTML preview button is beside History, after the mode toggle',
+    'the HTML preview button is beside History',
     !!preview &&
       preview.text === PREVIEW_LABEL &&
       preview.shown &&
-      preview.afterMode &&
       preview.afterHistory,
     preview,
   );

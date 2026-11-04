@@ -8,17 +8,26 @@
 // verb is Revert, and it is not sent as an instruction, but it does go with the
 // round, so the tab counts it.
 //
-// Chat reads the record, /_galley/versions: a round keeps what was asked and what
-// the agent said, so earlier answers are there. A message's state is the server's
-// only for the last Revise. Earlier ones are worked out from their round.
+// Chat is a conversation with the agent (/_galley/chat): the reviewer's messages
+// with the kit's states, and the agent's replies, which the server renders. The
+// rounds sit in the same thread, read from the record, /_galley/versions: a round
+// keeps what was asked and what the agent said, so earlier answers are there. A
+// Revise's state is the server's only for the last one. Earlier ones are worked
+// out from their round. Chat never edits the document or files an instruction.
 
-import { postJSON, routes } from './net.ts';
+import { getJSON, postJSON, routes } from './net.ts';
 import { COULD_NOT } from './versions.ts';
 import { asksOf, messageLine, trackCards } from './roundbar.ts';
 import { revealMark } from './card.ts';
 import { runFor, markElement } from './runs.ts';
 import type { AppShell, Thread } from './appshell.ts';
-import type { MessageView, ReviewerChange, RoundView } from './wire';
+import type {
+  ChatMessageView,
+  ChatView,
+  MessageView,
+  ReviewerChange,
+  RoundView,
+} from './wire';
 
 /** Who the reviewer is on the wire. The agent is always "agent". */
 export const AUTHOR = 'user';
@@ -231,17 +240,24 @@ export function editRows(
   }));
 }
 
-/** What each tab counts: Instructions every draft and hand edit; Chat has no drafts. */
+// A chat message the agent has not settled yet.
+const WAITING_ON_AGENT = new Set(['sent', 'with_agent', 'working']);
+
+/** What each tab counts: Instructions every draft and hand edit; Chat the
+ * messages waiting on the agent. */
 export function tabCounts(
   threads: Thread[] | null | undefined,
   changes: ReviewerChange[] | null | undefined,
+  chat?: ChatMessageView[] | null,
 ): { instructions: number; chat: number } {
   return {
     instructions:
       textThreads(threads).length +
       overallThreads(threads).length +
       (changes || []).length,
-    chat: 0,
+    chat: (chat || []).filter(
+      (m) => m.from === AUTHOR && WAITING_ON_AGENT.has(m.state ?? ''),
+    ).length,
   };
 }
 
@@ -257,6 +273,8 @@ export interface ChatMessage {
   state?: string;
   stateLine?: string;
   text: string;
+  // The agent's chat reply, as the server rendered it.
+  html?: string;
 }
 
 const COULD_NOT_PREFIX = /^could not:\s*/;
@@ -314,12 +332,51 @@ function agentMessage(
   };
 }
 
+/** One chat message as the thread draws it: the reviewer's words plain with
+ * their state (working shows the agent's line), the agent's rendered. */
+function chatEntry(m: ChatMessageView): ChatMessage {
+  if (m.from === AUTHOR) {
+    return {
+      id: `chat-${m.id}`,
+      from: 'user',
+      at: m.at,
+      words: '',
+      state: m.state,
+      stateLine: m.state === 'working' ? m.line : undefined,
+      text: m.text,
+    };
+  }
+  return {
+    id: `chat-${m.id}`,
+    from: 'agent',
+    at: m.at,
+    words: '',
+    text: m.text,
+    html: m.html,
+  };
+}
+
+const atMs = (m: ChatMessage) => Date.parse(m.at) || 0;
+
 /**
- * Each Revise and its answer, oldest first, numbered as the stage track numbers
- * them. message is the server's word on the last Revise, and that is the only one
- * it keeps: a round from before it says what its record can.
+ * The thread: each Revise and its answer, numbered as the stage track numbers
+ * them, and the chat, merged oldest first by time. message is the server's word
+ * on the last Revise, and that is the only one it keeps: a round from before it
+ * says what its record can.
  */
 export function chatMessages(
+  rounds: RoundView[] | null | undefined,
+  message: MessageView | null | undefined,
+  chat?: ChatMessageView[] | null,
+): ChatMessage[] {
+  const said = (chat || []).map(chatEntry);
+  // A stable sort: the rounds keep their order, and a reply its question's.
+  return [...roundMessages(rounds, message), ...said].sort(
+    (a, b) => atMs(a) - atMs(b),
+  );
+}
+
+function roundMessages(
   rounds: RoundView[] | null | undefined,
   message: MessageView | null | undefined,
 ): ChatMessage[] {
@@ -385,7 +442,7 @@ export const tabMethods = {
       chat: chatDrafts(this.comments),
       edits: editRows(this.changes, this.armedRevert),
       selected: this.selectedDraft,
-      counts: tabCounts(this.comments, this.changes),
+      counts: tabCounts(this.comments, this.changes, this.chatThread),
     });
     this.paintNoteWords();
     this.paintFigures();
@@ -396,8 +453,44 @@ export const tabMethods = {
 
   paintChat(this: AppShell) {
     window.galleyChrome?.paintChat(
-      chatMessages(this.versionsPanel?.rounds, this.reviseMessage),
+      chatMessages(
+        this.versionsPanel?.rounds,
+        this.reviseMessage,
+        this.chatThread,
+      ),
+      tabCounts(null, null, this.chatThread).chat,
     );
+  },
+
+  // Read on every poll: the agent's replies arrive on their own.
+  readChat(this: AppShell): Promise<void> {
+    return getJSON<ChatView>(routes.chat)
+      .then((v) => {
+        if (!v) {
+          return;
+        }
+        this.chatThread = v.messages || [];
+        this.paintChat();
+      })
+      .catch(() => {});
+  },
+
+  sendChat(this: AppShell, text: string): Promise<boolean> {
+    return postJSON(routes.chat, { text })
+      .then((res) => {
+        if (res.ok) {
+          void this.readChat();
+          return true;
+        }
+        return res.text().then((said) => {
+          this.say(said.trim() || `that message was not sent: ${res.status}`);
+          return false;
+        });
+      })
+      .catch((err) => {
+        this.say(`that message was not sent: ${err}`);
+        return false;
+      });
   },
 
   // Everything the kit's rows and box can ask for, which needs the App.
@@ -407,6 +500,7 @@ export const tabMethods = {
       remove: (key) => this.deleteDraft(key),
       select: (key) => this.selectDraft(key),
       file: (text) => this.fileChat(text),
+      chat: (text) => this.sendChat(text),
       revert: (key) => this.revertEdit(key),
       stranded: (words) => this.strandEdit(words),
     });

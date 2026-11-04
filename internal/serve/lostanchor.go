@@ -53,8 +53,8 @@ import (
 // keystroke. The comment
 // leaves every surface because it leaves THE PENDING VIEW. `liveInstructions`
 // hides a seen text comment that has no mark in the model it is reading, and
-// every reader goes through it: the rail, `galley wait`, the notify
-// fingerprint, SeedNotify and round capture. The thread stays in the review map
+// every reader goes through it: the rail, `galley wait`, the wait's
+// fingerprint and round capture. The thread stays in the review map
 // until the next send, whose clear deletes it with the threads it sent (see
 // sendReviewerRound). pending.json is the review map MINUS the retracted keys,
 // so a restart does not bring the comment back; `project` rewrites it, before
@@ -63,11 +63,8 @@ import (
 // WHY NO WRITE, measured on the eager version (6d03cfb), which deleted the
 // thread from inside `project`:
 //
-//   - IT CUT A ROUND NOBODY ASKED FOR. In live mode a settle is a send. An
-//     agent write that removed a comment's words was seeded into the notifier
-//     by mutate with the comment still counted (its thread was still there);
-//     the projection then deleted the thread and handed the notifier a
-//     different fingerprint. TestAnAgentWriteThatRemovesACommentsWordsCutsNoRound
+//   - IT CUT A ROUND NOBODY ASKED FOR, under the retired live mode, where a
+//     settle was a send. TestAnAgentWriteThatRemovesACommentsWordsCutsNoRound
 //     cut one round on 6d03cfb. The same window broke the fingerprint for any
 //     reader between the write and the projection
 //     (TestTheWaitPayloadAndTheRailAgree).
@@ -79,14 +76,13 @@ import (
 //     in pending.json.
 //   - WHAT THE GATE DID NOT SHOW. 6d03cfb's report re-ran `web/rounds-ux.mjs`
 //     with the write in place, 5 green of 6, and read that as the earlier
-//     spurious rounds gone. rounds-ux drives the retraction checks (§5.4) in
-//     ask mode only, where no settle sends, so it could not have seen a
-//     live-mode round. The Go test above is the measurement.
+//     spurious rounds gone. rounds-ux drove the retraction checks (§5.4) with
+//     no settle sending, so it could not have seen that round. The Go test
+//     above is the measurement.
 //
 // The earlier history, for the record: an eager deletion here was built first
 // and backed out once already, for spurious rounds in rounds-ux, and moving
-// the write to a goroutine through `mutate` made them worse. The structural
-// reason is unchanged: any document write in live mode can become a round.
+// the write to a goroutine through `mutate` made them worse.
 
 // noteAnchored records which text comments are placed in model: a thread whose
 // key is a comment ID on a highlight. Callers hold mu.
@@ -166,7 +162,7 @@ func (s *EditServer) noteRetracted(model docmodel.Doc) error {
 // placed, with no mark in the model being read, or one withdrawn across an
 // outside load. It is computed per read and not taken from the last
 // projection's set, so a reader between a write and the next projection
-// (SeedNotify after an agent's write, handleWait) sees what that projection
+// (handleWait after an agent's write) sees what that projection
 // will see. Readers need not hold mu; `pending` does not.
 func (s *EditServer) isRetracted(v InstructionView) bool {
 	if v.Anchor != "" {
