@@ -199,6 +199,86 @@ check(
     ).every((t) => !t.includes('waiting on you')),
 );
 
+// NARROW MODE: at 1080 wide or less the page opens on the document, both
+// panels strips; a strip's press gives it the frame and a second goes back.
+{
+  const app = '#app.kit-app';
+  const classes = () =>
+    page.locator(app).evaluate((el) => ({
+      narrow: el.classList.contains('kit-narrow'),
+      left: el.classList.contains('kit-narrow-left'),
+      right: el.classList.contains('kit-narrow-right'),
+    }));
+  const sideways = () =>
+    page.evaluate(
+      () => document.documentElement.scrollWidth > window.innerWidth + 1,
+    );
+  await page.setViewportSize({ width: 1000, height: 820 });
+  await page.reload();
+  await page.waitForSelector('.ProseMirror');
+  let c = await classes();
+  check(
+    'at 1000 wide the page opens on the document with both panels as strips',
+    c.narrow && !c.left && !c.right && !(await sideways()),
+    c,
+  );
+  check(
+    'and the send bar stays at the window foot, the window still the scroller',
+    await page.evaluate(() => {
+      const bar = document.querySelector('.kit-sendbar');
+      const b = bar?.getBoundingClientRect();
+      return (
+        !!b &&
+        b.bottom <= window.innerHeight + 1 &&
+        getComputedStyle(document.getElementById('app')).overflowY === 'visible'
+      );
+    }),
+  );
+  check(
+    'the left strip counts the reviews waiting on you',
+    await until(
+      async () =>
+        (await page
+          .locator('.kit-left-col > .kit-col-count')
+          .textContent()
+          .catch(() => '')) === '3',
+    ),
+  );
+  check(
+    'the right strip shows no count',
+    (await count('.kit-right-col > .kit-col-count')) === 0,
+  );
+  await page.locator('.kit-left-col > .kit-col-toggle').click();
+  c = await classes();
+  check(
+    'pressing the left strip gives the index the frame',
+    c.left && !c.right && (await page.locator('.gly-find').isVisible()),
+    c,
+  );
+  await page.locator('.kit-left-col > .kit-col-toggle').click();
+  c = await classes();
+  check(
+    'and pressing it again goes back to the document',
+    !c.left && !c.right,
+    c,
+  );
+  await page.locator('.kit-right-col > .kit-col-toggle').click();
+  c = await classes();
+  check(
+    'pressing the right strip gives the tabs the frame',
+    c.right && !c.left && !(await sideways()),
+    c,
+  );
+  await page.locator('.kit-right-col > .kit-col-toggle').click();
+  c = await classes();
+  check('and again goes back to the document', !c.left && !c.right, c);
+  await page.setViewportSize({ width: 1400, height: 820 });
+  check(
+    'above 1080 the page is wide again',
+    await until(async () => !(await classes()).narrow),
+  );
+}
+
 await pressed.click();
 const menu = await page.locator('.kit-also-row').allInnerTexts();
 check(

@@ -2391,6 +2391,10 @@ body.gly-page .ProseMirror p.gly-shell-marker {
 :root { --gly-kit-bar: 52px; }
 .kit-page, .kit-app { height: auto; min-height: 100vh; }
 .kit-app { overflow: visible; }
+/* The kit's narrow mode stops sideways scroll with overflow-x: hidden, which
+   would make the grid a scroll container and unstick the bar, the columns and
+   the send bar from the window. clip stops it the same way and scrolls nothing. */
+.kit-app.kit-narrow { overflow-x: clip; }
 .kit-app > .kit-bar {
   position: sticky;
   top: 0;

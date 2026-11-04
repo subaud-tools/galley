@@ -19,6 +19,7 @@ import {
   indexRow,
   keepElsewhere,
   live,
+  narrowMode,
   railTabs,
   remembered,
   sendBar,
@@ -119,10 +120,12 @@ function foldedSections(): string[] {
 }
 
 /** The left panel's body: the search box, the folder filter and the reviews in
- * their sections, each row with its ⋯. Returns the draw for each list. */
+ * their sections, each row with its ⋯. Returns the draw for each list. picked
+ * hears a review chosen from it. */
 function makeIndex(
   body: HTMLElement,
   here: string,
+  picked: () => void,
 ): (pages: PageView[]) => void {
   let held: PageView[] = [];
   let words = '';
@@ -139,6 +142,11 @@ function makeIndex(
     draw(held);
   });
   const list = h('div', { class: 'gly-index' });
+  list.addEventListener('click', (e) => {
+    if (e.target instanceof Element && e.target.closest('.kit-index-main')) {
+      picked();
+    }
+  });
   body.replaceChildren(search, list);
   const more = (p: PageView): HTMLElement => {
     const b = h(
@@ -668,7 +676,13 @@ export function mountShell(verdict: () => void): void {
   // share.ts puts it in.
   const docTools = h('span', { class: 'gly-doc-tools', id: 'gly-doc-tools' });
   const stages = h('div', { class: 'gly-stages' }, docTools);
-  const drawIndex = cols.leftBody ? makeIndex(cols.leftBody, id) : () => {};
+  // At 1080 wide or less one thing at a time: the document, or a panel in its
+  // place with the other a strip. A review picked from the index goes back to it.
+  const narrow = narrowMode({ root: app, left: cols.left, right: cols.right });
+  window.addEventListener('pagehide', () => narrow.stop(), { once: true });
+  const drawIndex = cols.leftBody
+    ? makeIndex(cols.leftBody, id, () => narrow.show(null))
+    : () => {};
   const b: BarHandle = connect({
     page: id,
     status: name,
@@ -678,6 +692,7 @@ export function mountShell(verdict: () => void): void {
     refused: () => {},
     draw(pages: PageView[]) {
       drawIndex(pages);
+      narrow.setCount('left', pages.filter((p) => p.state === 'you').length);
       // A page's file under review is its content.md: the list's name is the
       // one it was opened by.
       const here = pages.find((p) => p.id === id);
