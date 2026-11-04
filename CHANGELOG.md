@@ -2,6 +2,10 @@
 
 Newest first. Notes for releases up to 0.10.2 are on the GitHub releases page: https://github.com/subaud-tools/galley/releases
 
+## 0.32.1
+
+- A report event galley doesn't know yet (one a newer pi adds) is taken and changes nothing: the channel drops it without a log line (tools-common 0.66.0), and serve answers 204 instead of a 400 the channel logged on every turn.
+
 ## 0.32.0
 
 - The top-right button never disappears while the round is yours: Approve on a clean document, Revise with its ▾ while drafts or hand edits are pending, and Revise's waiting face (`revising · 12s`) while the agent has the round. Revise & approve in the ▾ is a button of Revise's own shape, under it. The bar under the document keeps the draft count and Discard drafts.
