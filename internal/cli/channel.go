@@ -498,10 +498,6 @@ func debugAsks(in []instructionPayload) []debug.Ask {
 // process that lasts the session. Best-effort in both directions: one that dies
 // without withdrawing is reaped by PID on the next read.
 func aroundChannel(_ context.Context, ch *pageserve.Channel, run func() error) error {
-	// The three measurements from the design spec, answered on every start and
-	// visible in the harness debug log (~/.claude/debug/<session>.txt).
-	cwd, _ := os.Getwd()
-	_, _ = fmt.Fprintf(ch.Log, "[galley channel] cwd=%s session_id_present=%t scope=%s\n", cwd, ch.ID.Session != "", ch.ID.CWD)
 	if id := ch.ID.Session; id != "" {
 		if err := live().AnnounceSession(id); err != nil {
 			_, _ = fmt.Fprintf(ch.Log, "[galley channel] cannot record this session's presence: %v — "+
