@@ -1,6 +1,7 @@
 # tools-common is the family's shared Go module; take each release as a PR
 # into dev, where changes are tested before a release promotes them to main.
-# Other dependencies are updated by hand.
+# Other dependencies are updated by hand, including Node: raise .nvmrc (the
+# one exact version both ci.yml setup-node steps read) to a newer 22.x patch.
 version: 2
 updates:
   - package-ecosystem: gomod
