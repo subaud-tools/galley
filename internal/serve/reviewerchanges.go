@@ -140,8 +140,10 @@ func betweenRounds(reason string) bool {
 	return reason == versions.ReasonHeld || reason == versions.ReasonOutside
 }
 
-// segmentContent reads one segment's two versions; a segment ending at 0 ends
-// at last.
+// segmentContent reads one segment's two versions, with the reviewer's
+// instruction markup stripped as the rail strips it (plainOf): a held version
+// carries unsent highlights, and a highlight is not an edit. A segment ending
+// at 0 ends at last.
 func segmentContent(store *versions.Store, seg [2]int, last int) ([2]string, bool) {
 	if seg[1] == 0 {
 		seg[1] = last
@@ -154,7 +156,7 @@ func segmentContent(store *versions.Store, seg [2]int, last int) ([2]string, boo
 	if err != nil {
 		return [2]string{}, false
 	}
-	return [2]string{before, after}, true
+	return [2]string{plainOf(before), plainOf(after)}, true
 }
 
 // summariseSpan summarises each segment in order, with the cap counted across
