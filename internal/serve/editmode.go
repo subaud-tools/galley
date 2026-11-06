@@ -821,6 +821,7 @@ func (s *EditServer) projectAs(overwrite string) error {
 	// open. See versions.go.
 	s.cutOutside(out)
 	s.cutIfSending(out, false, 0)
+	s.pruneUndone()
 
 	// THE PAGE-MODE SEAM, and the one place a projection reaches outside itself.
 	// It runs AFTER the save decision and the version cut, and with mu

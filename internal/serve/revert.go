@@ -276,15 +276,15 @@ func (s *EditServer) handleRevert(w http.ResponseWriter, r *http.Request) {
 		// compares a cleared copy (ClearInstructions never touches the model it
 		// is given), so the model still carries the marks this revert exists
 		// to keep.
-		pairs, ok := s.liveSpan(model)
-		if !ok || len(pairs) == 0 {
+		segs, ok := s.liveSpan(model)
+		if !ok || len(segs) == 0 {
 			return docmodel.Doc{}, nil, errors.New("this document has no round to revert against yet, or the last one cannot be read")
 		}
 		marked := string(markdown.Serialize(model))
-		changes, _ := spanChanges(pairs, s.undoneComposing())
+		changes, _ := spanChanges(segs, s.undoneComposing())
 		var target *spanChange
 		for i := range changes {
-			if changeKey(changes[i].ReviewerChange) == in.Key {
+			if changes[i].key == in.Key {
 				target = &changes[i]
 				break
 			}
@@ -292,7 +292,7 @@ func (s *EditServer) handleRevert(w http.ResponseWriter, r *http.Request) {
 		if target == nil {
 			return docmodel.Doc{}, nil, errUnknownChange
 		}
-		before := pairs[target.seg][0]
+		before := segs[target.seg].before
 		reverted, err := revertChange(before, marked, target.ReviewerChange, plainOf)
 		if err != nil {
 			return docmodel.Doc{}, nil, err
@@ -301,8 +301,8 @@ func (s *EditServer) handleRevert(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return docmodel.Doc{}, nil, err
 		}
-		if last := len(pairs) - 1; target.seg < last {
-			s.recordRevert(changeKey(target.ReviewerChange), pairs[last], out)
+		if target.seg < len(segs)-1 {
+			s.recordRevert(segs, *target, out)
 		}
 		return out, nil, nil
 	})
@@ -320,11 +320,16 @@ func (s *EditServer) handleRevert(w http.ResponseWriter, r *http.Request) {
 	s.writePending(w)
 }
 
-// undoneRecord is what Revert undid across a held version: each pair is the
-// held change's key and the key of the inverse the revert made in the live
-// segment. A held version cannot change, so without it the rail and the round
-// would list both; spanChanges drops exactly these pairs, and nothing else
-// cancels (DCSN3).
+// undoneRecord is what Revert undid across a held version: each pair names
+// the held change and the inverse the revert made, by occurrence rather than
+// by words (undonePair). A held version cannot change, so without it the rail
+// and the round would list both; spanChanges drops exactly these pairs, and
+// nothing else cancels (DCSN3).
+//
+// A PAIR LIVES ONLY WHILE BOTH OF ITS EDITS DO. pruneUndone drops it at every
+// projection, under mu, the moment either is gone: a reviewer who deletes the
+// restored paragraph has undone the revert, and typing it again afterwards is
+// a new edit, listed (DCSN4).
 //
 // composing is the round being written; a Revise moves it to sent, tagged
 // with that version's number, and the round handed over reads it while that
@@ -335,12 +340,12 @@ func (s *EditServer) handleRevert(w http.ResponseWriter, r *http.Request) {
 // mid-round, or `galley pending` reads the round with no editor running
 // (ReviewerChanges, offline), the reverted pair is listed again.
 type undoneRecord struct {
-	composing [][2]string
-	sent      [][2]string
+	composing []undonePair
+	sent      []undonePair
 	sentN     int
 }
 
-func (s *EditServer) undoneComposing() [][2]string {
+func (s *EditServer) undoneComposing() []undonePair {
 	if r := s.undone.Load(); r != nil {
 		return r.composing
 	}
@@ -351,7 +356,7 @@ func (s *EditServer) undoneComposing() [][2]string {
 // pairs reverted in it.
 func (s *EditServer) handedChanges() ([]ReviewerChange, int) {
 	store := s.Versions()
-	var undone [][2]string
+	var undone []undonePair
 	if r := s.undone.Load(); r != nil && store != nil {
 		if latest, ok, err := store.Latest(); err == nil && ok && latest.N == r.sentN {
 			undone = r.sent
@@ -360,33 +365,113 @@ func (s *EditServer) handedChanges() ([]ReviewerChange, int) {
 	return reviewerChangesLess(store, undone)
 }
 
-// recordRevert records a held change reverted into out, with mu held. The
-// inverse is the one change the revert added to the live segment; with none
-// or several, nothing is recorded and the rail lists what is there.
-func (s *EditServer) recordRevert(held string, live [2]string, out docmodel.Doc) {
-	was := map[string]int{}
-	got, _ := summarise(diff.Diff(live[0], live[1]))
-	for _, c := range got {
-		was[changeKey(c)]++
+// recordRevert records target, a held change, reverted into out, with mu
+// held, as the occurrences it and its inverse are right after the revert.
+//
+// The held occurrence is the first with its key in its segment that no pair
+// names yet. The inverse is the one change the revert added to the live
+// segment, and it is recorded only when nothing after the held segment
+// carried its key before: with an identical change already there, which of
+// the two is the revert's cannot be told, and the rail lists both rather than
+// guess.
+func (s *EditServer) recordRevert(segs []spanSegment, target spanChange, out docmodel.Doc) {
+	last := len(segs) - 1
+	heldN := segs[target.seg].end
+	cur := s.undone.Load()
+	var composing []undonePair
+	if cur != nil {
+		composing = cur.composing
 	}
-	var made []string
-	got, _ = summarise(diff.Diff(live[0], plainText(out)))
-	for _, c := range got {
-		k := changeKey(c)
-		if was[k] > 0 {
-			was[k]--
+	all, _ := spanAll(segs)
+	claimed := map[int]bool{}
+	for _, u := range composing {
+		if u.heldN == heldN && u.held.key == target.key {
+			claimed[u.held.ord] = true
+		}
+	}
+	held := changeRef{key: target.key, ord: -1}
+	n := 0
+	for _, c := range all {
+		if c.seg != target.seg || c.key != target.key {
 			continue
 		}
-		made = append(made, k)
+		if !claimed[n] {
+			held.ord = n
+			break
+		}
+		n++
+	}
+	if held.ord < 0 {
+		return
+	}
+
+	after := append([]spanSegment(nil), segs...)
+	after[last].after = plainText(out)
+	was := map[string]int{}
+	for _, c := range all {
+		if c.seg == last {
+			was[c.key]++
+		}
+	}
+	reverted, _ := spanAll(after)
+	var made []string
+	for _, c := range reverted {
+		if c.seg != last {
+			continue
+		}
+		if was[c.key] > 0 {
+			was[c.key]--
+			continue
+		}
+		made = append(made, c.key)
 	}
 	if len(made) != 1 {
 		return
 	}
-	next := undoneRecord{}
-	if r := s.undone.Load(); r != nil {
-		next = *r
+	for _, c := range all {
+		if c.seg > target.seg && c.key == made[0] {
+			return
+		}
 	}
-	next.composing = append(append([][2]string(nil), next.composing...), [2]string{held, made[0]})
+	next := undoneRecord{}
+	if cur != nil {
+		next = *cur
+	}
+	next.composing = append(append([]undonePair(nil), composing...),
+		undonePair{heldN: heldN, held: held, inverse: changeRef{key: made[0]}})
+	s.undone.Store(&next)
+}
+
+// pruneUndone drops every pair being composed whose held change or inverse is
+// no longer in the span, with mu held. projectAs calls it after each
+// projection, so a pair dies at the write that removed one of its edits and
+// not at whichever read comes next. A span that cannot be read prunes nothing:
+// the rail lists nothing then either.
+func (s *EditServer) pruneUndone() {
+	cur := s.undone.Load()
+	if cur == nil || len(cur.composing) == 0 {
+		return
+	}
+	model, err := s.readLive()
+	if err != nil {
+		return
+	}
+	segs, ok := s.liveSpan(model)
+	if !ok {
+		return
+	}
+	all, _ := spanAll(segs)
+	var kept []undonePair
+	for _, u := range cur.composing {
+		if _, _, ok := findPair(segs, all, u); ok {
+			kept = append(kept, u)
+		}
+	}
+	if len(kept) == len(cur.composing) {
+		return
+	}
+	next := *cur
+	next.composing = kept
 	s.undone.Store(&next)
 }
 

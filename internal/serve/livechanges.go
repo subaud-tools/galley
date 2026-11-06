@@ -51,11 +51,11 @@ func (s *EditServer) liveChanges(model docmodel.Doc) ([]ReviewerChange, int) {
 	if s.handoffLive.Load() {
 		return nil, 0
 	}
-	pairs, ok := s.liveSpan(model)
+	segs, ok := s.liveSpan(model)
 	if !ok {
 		return nil, 0
 	}
-	got, dropped := spanChanges(pairs, s.undoneComposing())
+	got, dropped := spanChanges(segs, s.undoneComposing())
 	out := make([]ReviewerChange, 0, len(got))
 	for _, c := range got {
 		c.Key = changeKey(c.ReviewerChange)
@@ -71,7 +71,7 @@ func (s *EditServer) liveChanges(model docmodel.Doc) ([]ReviewerChange, int) {
 // It reports false on a version that cannot be read rather than failing the
 // poll — the ledger's rule, for the ledger's reason: a read-only checkout must
 // not turn the reviewer's sidebar into an error.
-func (s *EditServer) liveSpan(model docmodel.Doc) ([][2]string, bool) {
+func (s *EditServer) liveSpan(model docmodel.Doc) ([]spanSegment, bool) {
 	store := s.Versions()
 	if store == nil {
 		return nil, false
@@ -81,7 +81,7 @@ func (s *EditServer) liveSpan(model docmodel.Doc) ([][2]string, bool) {
 		return nil, false
 	}
 	live := plainText(model)
-	var pairs [][2]string
+	var segs []spanSegment
 	for _, seg := range reviewerSpan(rs) {
 		before, err := store.Content(seg[0])
 		if err != nil {
@@ -95,9 +95,9 @@ func (s *EditServer) liveSpan(model docmodel.Doc) ([][2]string, bool) {
 			}
 			after = plainOf(raw)
 		}
-		pairs = append(pairs, [2]string{plainOf(before), after})
+		segs = append(segs, spanSegment{before: plainOf(before), after: after, end: seg[1]})
 	}
-	return pairs, true
+	return segs, true
 }
 
 // editedSinceLatest reports whether the live document differs, as the

@@ -272,25 +272,31 @@ func TestTheCapCountsAcrossHeldSegments(t *testing.T) {
 	}
 }
 
-// ONLY A REVERT CANCELS (DCSN3). A later change that mirrors an earlier one is
-// listed with it unless the pair is recorded as undone, and a recorded pair is
-// dropped only while both of its changes are there.
+// ONLY A REVERT CANCELS (DCSN3), AND BY OCCURRENCE (DCSN4). A later change
+// that mirrors an earlier one is listed with it unless the pair is recorded,
+// a recorded pair is dropped only while both of its occurrences are there, and
+// its inverse is found in any segment after the held one.
 func TestOnlyARecordedPairCancels(t *testing.T) {
 	const a, b = "# Doc\n\nOne here.\n\nTwo here.\n", "# Doc\n\nOne here.\n"
-	removed := changeKey(ReviewerChange{Kind: "removed", Before: "Two here."})
-	added := changeKey(ReviewerChange{Kind: "added", After: "Two here."})
+	removed := changeRef{key: changeKey(ReviewerChange{Kind: "removed", Before: "Two here."})}
+	added := changeRef{key: changeKey(ReviewerChange{Kind: "added", After: "Two here."})}
+	reverted := []undonePair{{heldN: 2, held: removed, inverse: added}}
+	twice := []undonePair{{heldN: 2, held: removed, inverse: changeRef{key: added.key, ord: 1}}}
 	for _, tc := range []struct {
 		name   string
-		pairs  [][2]string
-		undone [][2]string
+		segs   []spanSegment
+		undone []undonePair
 		want   int
 	}{
-		{"mirrored, not reverted", [][2]string{{a, b}, {b, a}}, nil, 2},
-		{"reverted", [][2]string{{a, b}, {b, a}}, [][2]string{{removed, added}}, 0},
-		{"reverted, then deleted again", [][2]string{{a, b}, {b, b}}, [][2]string{{removed, added}}, 1},
+		{"mirrored, not reverted", []spanSegment{{a, b, 2}, {b, a, 0}}, nil, 2},
+		{"reverted", []spanSegment{{a, b, 2}, {b, a, 0}}, reverted, 0},
+		{"reverted, then deleted again", []spanSegment{{a, b, 2}, {b, b, 0}}, reverted, 1},
+		{"reverted, then held again", []spanSegment{{a, b, 2}, {b, a, 4}, {a, a, 0}}, reverted, 0},
+		{"another occurrence", []spanSegment{{a, b, 2}, {b, a, 0}}, twice, 2},
+		{"another held version", []spanSegment{{a, b, 3}, {b, a, 0}}, reverted, 2},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, dropped := summariseSpan(tc.pairs, tc.undone)
+			got, dropped := summariseSpan(tc.segs, tc.undone)
 			if len(got) != tc.want || dropped != 0 {
 				t.Errorf("got %+v (dropped %d), want %d changes", got, dropped, tc.want)
 			}

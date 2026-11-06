@@ -77,7 +77,7 @@ func ReviewerChanges(store *versions.Store) ([]ReviewerChange, int) {
 }
 
 // reviewerChangesLess is ReviewerChanges less the pairs a Revert undid.
-func reviewerChangesLess(store *versions.Store, undone [][2]string) ([]ReviewerChange, int) {
+func reviewerChangesLess(store *versions.Store, undone []undonePair) ([]ReviewerChange, int) {
 	if store == nil {
 		return nil, 0
 	}
@@ -92,15 +92,15 @@ func reviewerChangesLess(store *versions.Store, undone [][2]string) ([]ReviewerC
 	if rs[len(rs)-1].Reason != versions.ReasonRevise {
 		return nil, 0
 	}
-	var pairs [][2]string
+	var segs []spanSegment
 	for _, seg := range reviewerSpan(rs[:len(rs)-1]) {
 		pair, ok := segmentContent(store, seg, rs[len(rs)-1].N)
 		if !ok {
 			return nil, 0
 		}
-		pairs = append(pairs, pair)
+		segs = append(segs, spanSegment{before: pair[0], after: pair[1], end: seg[1]})
 	}
-	return summariseSpan(pairs, undone)
+	return summariseSpan(segs, undone)
 }
 
 // reviewerSpan is THE REVIEWER'S HAND SINCE THE LAST ROUND, as segments of the
@@ -164,10 +164,19 @@ func segmentContent(store *versions.Store, seg [2]int, last int) ([2]string, boo
 	return [2]string{plainOf(before), plainOf(after)}, true
 }
 
+// spanSegment is one segment of the reviewer's span, cleaned of instruction
+// markup: its two sides, and the version it ends at (0 for what follows the
+// list, the live document or the Revise being cut). A held segment's end names
+// it for as long as the round lasts.
+type spanSegment struct {
+	before, after string
+	end           int
+}
+
 // summariseSpan summarises each segment in order, with the cap counted across
 // all of them, less the pairs a Revert undid (spanChanges).
-func summariseSpan(pairs [][2]string, undone [][2]string) ([]ReviewerChange, int) {
-	got, dropped := spanChanges(pairs, undone)
+func summariseSpan(segs []spanSegment, undone []undonePair) ([]ReviewerChange, int) {
+	got, dropped := spanChanges(segs, undone)
 	out := make([]ReviewerChange, 0, len(got))
 	for _, c := range got {
 		out = append(out, c.ReviewerChange)
@@ -180,52 +189,105 @@ func summariseSpan(pairs [][2]string, undone [][2]string) ([]ReviewerChange, int
 type spanChange struct {
 	ReviewerChange
 	seg int
+	key string
+}
+
+// changeRef names one occurrence of a change: its key, and which of the
+// changes with that key it is, counted in order over the segments it is
+// looked for in.
+type changeRef struct {
+	key string
+	ord int
+}
+
+// undonePair is one Revert across a held version: the held change, named by
+// the held version its segment ends at, and the inverse the revert made,
+// looked for in every segment after that one (a later held cut can freeze it
+// into one of them).
+type undonePair struct {
+	heldN   int
+	held    changeRef
+	inverse changeRef
 }
 
 // spanChanges summarises each segment in order, drops each pair a Revert
 // undid, and counts the cap across what is left.
 //
 // ONLY A REVERT CANCELS. A held version cannot change, so a held edit put back
-// by Revert on the rail is still in its held segment, and its inverse is in
-// the live one; undone names those two by key (see undoneRecord). Matching
-// words instead hid real edits: "pending" made "approved" in one section, an
+// by Revert on the rail is still in its held segment, and its inverse is after
+// it; undone names those two occurrences (see undoneRecord). Matching words
+// instead hid real edits: "pending" made "approved" in one section, an
 // outside save, then "approved" made "pending" in another, and both vanished
-// (DCSN3). A pair is dropped only when both of its changes are still there:
-// with one gone, the other is the reviewer's hand.
-func spanChanges(pairs [][2]string, undone [][2]string) ([]spanChange, int) {
+// (DCSN3). A pair is dropped only when both of its occurrences are there.
+func spanChanges(segs []spanSegment, undone []undonePair) ([]spanChange, int) {
+	all, dropped := spanAll(segs)
+	gone := map[int]bool{}
+	for _, u := range undone {
+		if h, v, ok := findPair(segs, all, u); ok {
+			gone[h], gone[v] = true, true
+		}
+	}
+	var out []spanChange
+	for i, c := range all {
+		if !gone[i] {
+			out = append(out, c)
+		}
+	}
+	if len(out) > reviewerChangeCap {
+		dropped += len(out) - reviewerChangeCap
+		out = out[:reviewerChangeCap]
+	}
+	return out, dropped
+}
+
+// spanAll is every change of the span in order, uncapped across segments and
+// with nothing cancelled, and how many summarise left out.
+func spanAll(segs []spanSegment) ([]spanChange, int) {
 	var all []spanChange
 	var dropped int
-	for i, p := range pairs {
-		got, more := summarise(diff.Diff(p[0], p[1]))
+	for i, seg := range segs {
+		got, more := summarise(diff.Diff(seg.before, seg.after))
 		dropped += more
 		for _, c := range got {
-			all = append(all, spanChange{c, i})
+			all = append(all, spanChange{c, i, changeKey(c)})
 		}
-	}
-	for _, u := range undone {
-		held, inverse := indexOfKey(all, u[0], len(pairs)-1, false), indexOfKey(all, u[1], len(pairs)-1, true)
-		if held < 0 || inverse < 0 {
-			continue
-		}
-		if held > inverse {
-			held, inverse = inverse, held
-		}
-		all = append(all[:held], append(all[held+1:inverse], all[inverse+1:]...)...)
-	}
-	if len(all) > reviewerChangeCap {
-		dropped += len(all) - reviewerChangeCap
-		all = all[:reviewerChangeCap]
 	}
 	return all, dropped
 }
 
-// indexOfKey is the first change with key in the last segment (last true) or
-// before it, or -1.
-func indexOfKey(all []spanChange, key string, lastSeg int, last bool) int {
-	for i, c := range all {
-		if (c.seg == lastSeg) == last && changeKey(c.ReviewerChange) == key {
+// findPair locates both occurrences a record names, as indexes into all.
+func findPair(segs []spanSegment, all []spanChange, u undonePair) (int, int, bool) {
+	hs := heldSegment(segs, u.heldN)
+	if hs < 0 {
+		return 0, 0, false
+	}
+	h := nthOf(all, u.held, func(c spanChange) bool { return c.seg == hs })
+	v := nthOf(all, u.inverse, func(c spanChange) bool { return c.seg > hs })
+	return h, v, h >= 0 && v >= 0
+}
+
+// heldSegment is the index of the segment ending at held version n, or -1.
+func heldSegment(segs []spanSegment, n int) int {
+	for i, seg := range segs {
+		if n != 0 && seg.end == n {
 			return i
 		}
+	}
+	return -1
+}
+
+// nthOf is the index in all of the occurrence ref names among the changes in
+// counts, or -1.
+func nthOf(all []spanChange, ref changeRef, in func(spanChange) bool) int {
+	n := 0
+	for i, c := range all {
+		if !in(c) || c.key != ref.key {
+			continue
+		}
+		if n == ref.ord {
+			return i
+		}
+		n++
 	}
 	return -1
 }
