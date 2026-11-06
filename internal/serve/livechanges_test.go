@@ -237,3 +237,46 @@ func TestAnEditBesideAnInstructionIsStillReported(t *testing.T) {
 		t.Errorf("want exactly the one real edit, got %+v", view.Changes)
 	}
 }
+
+// A HELD EDIT CAN BE REVERTED FROM THE RAIL (DCSN2). The reviewer deletes a
+// block, then the file changes outside the editor: the deletion is held and
+// stays on the rail, so its card must still revert it. The revert reads the
+// same span the rail does, and the rail then shows the reviewer's net hand,
+// which is nothing.
+func TestAHeldEditIsRevertedFromTheRail(t *testing.T) {
+	s := newEditServer(t, t.TempDir(), "h.md", "# T\n\nAlpha one here.\n\nBeta two here.\n\nGamma three here.\n")
+	t.Cleanup(func() { _ = s.Close() })
+	if err := s.Project(); err != nil {
+		t.Fatal(err)
+	}
+	dropBlock(t, s, "Beta two here.")
+	if err := s.Project(); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, s.MdPath, "# T\n\nAlpha one here.\n\nGamma three here.\n\nA section written outside.\n")
+	if err := s.Project(); err != nil {
+		t.Fatal(err)
+	}
+	var key string
+	for _, c := range getPending(t, s).Changes {
+		if c.Kind == "removed" && c.Before == "Beta two here." {
+			key = c.Key
+		}
+	}
+	if key == "" {
+		t.Fatalf("the held deletion is not on the rail: %+v", getPending(t, s).Changes)
+	}
+	if rec := postRec(t, s, "/_galley/revert", map[string]any{"key": key}); rec.Code >= 300 {
+		t.Fatalf("revert: %d %s", rec.Code, rec.Body.String())
+	}
+	got := liveText(t, s)
+	if !strings.Contains(got, "Beta two here.") {
+		t.Errorf("the held deletion did not come back:\n%s", got)
+	}
+	if !strings.Contains(got, "A section written outside.") {
+		t.Errorf("the revert took the outside section with it:\n%s", got)
+	}
+	if after := getPending(t, s).Changes; len(after) != 0 {
+		t.Errorf("after the revert the rail lists %+v, want nothing: the reviewer's net hand is none", after)
+	}
+}

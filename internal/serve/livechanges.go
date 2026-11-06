@@ -51,39 +51,53 @@ func (s *EditServer) liveChanges(model docmodel.Doc) ([]ReviewerChange, int) {
 	if s.handoffLive.Load() {
 		return nil, 0
 	}
+	pairs, ok := s.liveSpan(model)
+	if !ok {
+		return nil, 0
+	}
+	got, dropped := spanChanges(pairs)
+	out := make([]ReviewerChange, 0, len(got))
+	for _, c := range got {
+		c.Key = changeKey(c.ReviewerChange)
+		out = append(out, c.ReviewerChange)
+	}
+	return out, dropped
+}
+
+// liveSpan reads the reviewer's span (reviewerSpan) with the live document as
+// its last segment, each side cleaned of instruction markup. The rail and
+// Revert both read it, so a card's key is found where the card came from.
+//
+// It reports false on a version that cannot be read rather than failing the
+// poll — the ledger's rule, for the ledger's reason: a read-only checkout must
+// not turn the reviewer's sidebar into an error.
+func (s *EditServer) liveSpan(model docmodel.Doc) ([][2]string, bool) {
 	store := s.Versions()
 	if store == nil {
-		return nil, 0
+		return nil, false
 	}
 	rs, err := store.List()
 	if err != nil || len(rs) == 0 {
-		return nil, 0
+		return nil, false
 	}
 	live := plainText(model)
 	var pairs [][2]string
 	for _, seg := range reviewerSpan(rs) {
 		before, err := store.Content(seg[0])
 		if err != nil {
-			// A version that cannot be read reports nothing rather than failing
-			// the poll — the ledger's rule, for the ledger's reason: a read-only
-			// checkout must not turn the reviewer's sidebar into an error.
-			return nil, 0
+			return nil, false
 		}
 		after := live
 		if seg[1] != 0 {
 			raw, err := store.Content(seg[1])
 			if err != nil {
-				return nil, 0
+				return nil, false
 			}
 			after = plainOf(raw)
 		}
 		pairs = append(pairs, [2]string{plainOf(before), after})
 	}
-	out, dropped := summariseSpan(pairs)
-	for i := range out {
-		out[i].Key = changeKey(out[i])
-	}
-	return out, dropped
+	return pairs, true
 }
 
 // editedSinceLatest reports whether the live document differs, as the

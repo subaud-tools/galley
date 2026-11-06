@@ -160,22 +160,71 @@ func segmentContent(store *versions.Store, seg [2]int, last int) ([2]string, boo
 }
 
 // summariseSpan summarises each segment in order, with the cap counted across
-// all of them.
+// all of them, as the reviewer's net hand (spanChanges).
 func summariseSpan(pairs [][2]string) ([]ReviewerChange, int) {
-	var out []ReviewerChange
+	got, dropped := spanChanges(pairs)
+	out := make([]ReviewerChange, 0, len(got))
+	for _, c := range got {
+		out = append(out, c.ReviewerChange)
+	}
+	return out, dropped
+}
+
+// spanChange is one change of a span with the segment it came from, so a
+// revert can put it back from that segment's before.
+type spanChange struct {
+	ReviewerChange
+	seg int
+}
+
+// spanChanges summarises each segment in order, with the cap counted across
+// all of them, and cancels a change a later segment exactly inverts.
+//
+// THE REVIEWER'S NET HAND. A held version cannot change, so a held edit the
+// reviewer put back afterwards (by hand or by Revert on the rail) is still in
+// its held segment, and its inverse is in a later one. Listing both would
+// offer a card that undoes the undo, and tell the agent of an edit that is not
+// in the document.
+func spanChanges(pairs [][2]string) ([]spanChange, int) {
+	var all []spanChange
 	var dropped int
-	for _, p := range pairs {
+	for i, p := range pairs {
 		got, more := summarise(diff.Diff(p[0], p[1]))
 		dropped += more
 		for _, c := range got {
-			if len(out) >= reviewerChangeCap {
-				dropped++
+			if j := invertedBy(all, c, i); j >= 0 {
+				all = append(all[:j], all[j+1:]...)
 				continue
 			}
-			out = append(out, c)
+			all = append(all, spanChange{c, i})
 		}
 	}
-	return out, dropped
+	if len(all) > reviewerChangeCap {
+		dropped += len(all) - reviewerChangeCap
+		all = all[:reviewerChangeCap]
+	}
+	return all, dropped
+}
+
+// invertedBy is the index of the change in an earlier segment than seg that c
+// exactly undoes, or -1.
+func invertedBy(all []spanChange, c ReviewerChange, seg int) int {
+	for j, e := range all {
+		if e.seg < seg && e.Before == c.After && e.After == c.Before && inverseKind(e.Kind) == c.Kind {
+			return j
+		}
+	}
+	return -1
+}
+
+func inverseKind(kind string) string {
+	switch kind {
+	case "removed":
+		return "added"
+	case "added":
+		return "removed"
+	}
+	return kind
 }
 
 // summarise turns diff ops into the reviewer-facing vocabulary, and reports

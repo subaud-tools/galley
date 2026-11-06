@@ -235,7 +235,7 @@ func plural(n int) string {
 //
 // IT RECOMPUTES THE LIST RATHER THAN TRUSTING THE PRESS. The browser sends a
 // key and nothing else: the words to restore come from the server's own diff of
-// the last version against the live document, so a card left open while the
+// the reviewer's span (liveSpan) ending at the live document, so a card left open while the
 // document moved cannot revert text the server never computed. A key it does
 // not recognise is a 404 and not a guess.
 //
@@ -266,32 +266,24 @@ func (s *EditServer) handleRevert(w http.ResponseWriter, r *http.Request) {
 	}
 
 	code, err := s.mutate(byReviewer, func(model docmodel.Doc) (docmodel.Doc, func(*crdt.Doc, review.Tx), error) {
-		store := s.Versions()
-		latest, ok, err := store.Latest()
-		if err != nil || !ok {
-			return docmodel.Doc{}, nil, errors.New("this document has no round to revert against yet")
-		}
-		before, err := store.Content(latest.N)
-		if err != nil {
-			return docmodel.Doc{}, nil, errors.New("the last round cannot be read, so there is nothing to restore from")
-		}
-		// THE SAME COMPARISON THE RAIL MADE, or the key would not be found and
-		// the revert would be computed against a document that includes the
-		// instruction markup the rail deliberately strips. See plainText.
+		// THE SAME SPAN THE RAIL READ (liveSpan), or a held edit's card would
+		// not be found, and the change is put back from the before of the
+		// segment it came from. The span compares cleared copies; see
+		// plainText.
 		//
 		// THE MARKED SIDE IS SERIALIZED FROM THE MODEL ITSELF. plainText
 		// compares a cleared copy (ClearInstructions never touches the model it
 		// is given), so the model still carries the marks this revert exists
 		// to keep.
-		marked := string(markdown.Serialize(model))
-		before = plainOf(before)
-		changes, _ := summarise(diff.Diff(before, plainText(model)))
-		for i := range changes {
-			changes[i].Key = changeKey(changes[i])
+		pairs, ok := s.liveSpan(model)
+		if !ok || len(pairs) == 0 {
+			return docmodel.Doc{}, nil, errors.New("this document has no round to revert against yet, or the last one cannot be read")
 		}
-		var target *ReviewerChange
+		marked := string(markdown.Serialize(model))
+		changes, _ := spanChanges(pairs)
+		var target *spanChange
 		for i := range changes {
-			if changes[i].Key == in.Key {
+			if changeKey(changes[i].ReviewerChange) == in.Key {
 				target = &changes[i]
 				break
 			}
@@ -299,7 +291,8 @@ func (s *EditServer) handleRevert(w http.ResponseWriter, r *http.Request) {
 		if target == nil {
 			return docmodel.Doc{}, nil, errUnknownChange
 		}
-		reverted, err := revertChange(before, marked, *target, plainOf)
+		before := pairs[target.seg][0]
+		reverted, err := revertChange(before, marked, target.ReviewerChange, plainOf)
 		if err != nil {
 			return docmodel.Doc{}, nil, err
 		}

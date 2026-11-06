@@ -271,3 +271,28 @@ func TestTheCapCountsAcrossHeldSegments(t *testing.T) {
 		}
 	}
 }
+
+// THE SPAN SHOWS THE REVIEWER'S NET HAND. A held version cannot change, so a
+// held edit put back later shows as itself in its segment and its inverse in a
+// later one; the two cancel. Changes in one segment, or that only resemble an
+// inverse, are kept.
+func TestALaterInverseCancelsAnEarlierChange(t *testing.T) {
+	const a, b, c = "# Doc\n\nOne here.\n\nTwo here.\n", "# Doc\n\nOne here.\n", "# Doc\n\nOne here, changed.\n\nTwo here.\n"
+	for _, tc := range []struct {
+		name  string
+		pairs [][2]string
+		want  int
+	}{
+		{"removed then added", [][2]string{{a, b}, {b, a}}, 0},
+		{"added then removed", [][2]string{{b, a}, {a, b}}, 0},
+		{"changed then changed back", [][2]string{{a, c}, {c, a}}, 0},
+		{"removed then something else", [][2]string{{a, b}, {b, "# Doc\n\nOne here.\n\nThree here.\n"}}, 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, dropped := summariseSpan(tc.pairs)
+			if len(got) != tc.want || dropped != 0 {
+				t.Errorf("got %+v (dropped %d), want %d changes", got, dropped, tc.want)
+			}
+		})
+	}
+}
