@@ -969,12 +969,14 @@ func (s *EditServer) saveOnce(overwrite string) (docmodel.Doc, []byte, bool, err
 		// whose marker the file lacks stays, unplaced, and one the reviewer
 		// took back stays taken back (keepCommentsAcrossLocked).
 		//
-		// AND IT IS A VERSION when the reviewer has nothing unsent, so the
-		// rail does not read it as their own hand and the verdict can be
-		// Approve. Their projected but unsent edits are in the file the load
-		// came from, so cutting over them would take them off the rail and out
-		// of the round that sends them: that load stays as it was.
-		unsent, _ := s.liveChanges(model)
+		// AND IT IS A VERSION, so the rail does not read it as the reviewer's
+		// own hand and the verdict can be Approve. When the reviewer has edits
+		// unsent, the document as galley last wrote it holds them, and is cut
+		// first as a held version: the reviewer's span (reviewerSpan) reads
+		// their edits across it and skips the outside load.
+		if s.editedSinceLatest(model) {
+			s.cutHeld(s.baseBytes)
+		}
 		before := s.keepCommentsAcrossLocked(model, theirs)
 		live, err := s.loadLocked(theirs)
 		if err != nil {
@@ -989,7 +991,7 @@ func (s *EditServer) saveOnce(overwrite string) (docmodel.Doc, []byte, bool, err
 			return docmodel.Doc{}, nil, false, err
 		}
 		s.clearNotice()
-		s.loadedOutside = len(unsent) == 0
+		s.loadedOutside = true
 		if s.Log != nil {
 			s.Log(fmt.Sprintf("%s changed outside the editor and was loaded into the review", name))
 		}

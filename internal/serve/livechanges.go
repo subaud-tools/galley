@@ -43,6 +43,10 @@ import (
 // THE AGENT'S in-progress work as the reviewer's own hand. That is the same
 // attribution inversion `ReviewerChanges` filters `ReasonRevise` to avoid,
 // arriving through the other door.
+//
+// AND IT READS THE REVIEWER'S WHOLE SPAN (reviewerSpan), with the live
+// document as its last segment, so edits held when a change outside the editor
+// was loaded stay on the rail beside the ones typed since.
 func (s *EditServer) liveChanges(model docmodel.Doc) ([]ReviewerChange, int) {
 	if s.handoffLive.Load() {
 		return nil, 0
@@ -51,22 +55,55 @@ func (s *EditServer) liveChanges(model docmodel.Doc) ([]ReviewerChange, int) {
 	if store == nil {
 		return nil, 0
 	}
-	latest, ok, err := store.Latest()
-	if err != nil || !ok {
+	rs, err := store.List()
+	if err != nil || len(rs) == 0 {
 		return nil, 0
 	}
-	before, err := store.Content(latest.N)
-	if err != nil {
-		// A version that cannot be read reports nothing rather than failing
-		// the poll — the ledger's rule, for the ledger's reason: a read-only
-		// checkout must not turn the reviewer's sidebar into an error.
-		return nil, 0
+	live := plainText(model)
+	var pairs [][2]string
+	for _, seg := range reviewerSpan(rs) {
+		before, err := store.Content(seg[0])
+		if err != nil {
+			// A version that cannot be read reports nothing rather than failing
+			// the poll — the ledger's rule, for the ledger's reason: a read-only
+			// checkout must not turn the reviewer's sidebar into an error.
+			return nil, 0
+		}
+		after := live
+		if seg[1] != 0 {
+			raw, err := store.Content(seg[1])
+			if err != nil {
+				return nil, 0
+			}
+			after = plainOf(raw)
+		}
+		pairs = append(pairs, [2]string{plainOf(before), after})
 	}
-	out, dropped := summarise(diff.Diff(plainOf(before), plainText(model)))
+	out, dropped := summariseSpan(pairs)
 	for i := range out {
 		out[i].Key = changeKey(out[i])
 	}
 	return out, dropped
+}
+
+// editedSinceLatest reports whether the live document differs, as the
+// reviewer's hand, from the newest version: the edits a change outside the
+// editor would be loaded over. Callers hold mu.
+func (s *EditServer) editedSinceLatest(model docmodel.Doc) bool {
+	store := s.Versions()
+	if store == nil {
+		return false
+	}
+	latest, ok, err := store.Latest()
+	if err != nil || !ok {
+		return false
+	}
+	before, err := store.Content(latest.N)
+	if err != nil {
+		return false
+	}
+	got, dropped := summarise(diff.Diff(plainOf(before), plainText(model)))
+	return len(got)+dropped > 0
 }
 
 // plainText and plainOf strip the reviewer's own INSTRUCTION MARKUP from both

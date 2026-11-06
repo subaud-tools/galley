@@ -550,10 +550,10 @@ func TestAnOutsideEditIsAVersion(t *testing.T) {
 }
 
 // AN UNSENT HAND EDIT IS NOT SWALLOWED BY AN OUTSIDE ONE. The reviewer's typing
-// already reached the file, so the outside save takes the load branch; cutting
-// a version there would take the reviewer's edit off the rail and out of the
-// round it belongs to.
-func TestAnOutsideEditDoesNotCutOverUnsentReviewerEdits(t *testing.T) {
+// already reached the file, so the outside save takes the load branch. Their
+// edit is cut first as a held version and the load as an outside one, and the
+// rail still lists the edit (reviewerSpan).
+func TestAnOutsideEditOverUnsentReviewerEditsHoldsThem(t *testing.T) {
 	s := newEditServer(t, t.TempDir(), "u.md", "# Title\n\nFirst paragraph.\n\nSecond paragraph.\n")
 	t.Cleanup(func() { _ = s.Close() })
 	if err := s.Project(); err != nil {
@@ -570,12 +570,9 @@ func TestAnOutsideEditDoesNotCutOverUnsentReviewerEdits(t *testing.T) {
 	if !strings.Contains(liveText(t, s), "edited outside") {
 		t.Fatal("the outside edit was not loaded")
 	}
-	latest, _, err := s.Versions().Latest()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if latest.Reason == versions.ReasonOutside {
-		t.Error("an outside version was cut over the reviewer's unsent edit")
+	rs := rounds(t, s)
+	if n := len(rs); n < 2 || rs[n-2].Reason != versions.ReasonHeld || rs[n-1].Reason != versions.ReasonOutside {
+		t.Errorf("the outside save over an unsent edit cut %+v, want held then outside", rs)
 	}
 	found := false
 	for _, c := range getPending(t, s).Changes {

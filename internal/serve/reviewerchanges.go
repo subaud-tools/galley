@@ -76,26 +76,104 @@ func ReviewerChanges(store *versions.Store) ([]ReviewerChange, int) {
 	if store == nil {
 		return nil, 0
 	}
-	latest, ok, err := store.Latest()
-	if err != nil || !ok || latest.N < 2 {
+	rs, err := store.List()
+	if err != nil || len(rs) < 2 {
 		return nil, 0
 	}
 	// Only a round the REVIEWER sent describes the reviewer's hand. An
 	// agent's landing diffed the same way would report the agent's work as
 	// the reviewer's, which is the attribution inversion this whole handover
 	// exists to prevent.
-	if latest.Reason != versions.ReasonRevise {
+	if rs[len(rs)-1].Reason != versions.ReasonRevise {
 		return nil, 0
 	}
-	after, err := store.Content(latest.N)
+	var pairs [][2]string
+	for _, seg := range reviewerSpan(rs[:len(rs)-1]) {
+		pair, ok := segmentContent(store, seg, rs[len(rs)-1].N)
+		if !ok {
+			return nil, 0
+		}
+		pairs = append(pairs, pair)
+	}
+	return summariseSpan(pairs)
+}
+
+// reviewerSpan is THE REVIEWER'S HAND SINCE THE LAST ROUND, as segments of the
+// version list, and both the round handed over and the rail read it.
+//
+// rs ends at the version the next segment starts from: the one before a
+// Revise just cut, or the newest when the live document follows. The span
+// starts at the newest version that is neither held nor outside, and runs
+// through every version after it. Each segment is named by the version it
+// ends at, 0 being whatever follows rs. A segment that ends in an outside
+// version is somebody else's change and is skipped; the rest (ending in held,
+// or in what follows) are the reviewer's.
+//
+// It exists for round 8 of the 2026-11-06 week review: an outside save over
+// the reviewer's unsent edits, and the next Revise diffed across both, so the
+// agent was told its own new section was the reviewer's edit.
+func reviewerSpan(rs []versions.Round) [][2]int {
+	if len(rs) == 0 {
+		return nil
+	}
+	base := len(rs) - 1
+	for base > 0 && betweenRounds(rs[base].Reason) {
+		base--
+	}
+	var out [][2]int
+	for k := base; k < len(rs); k++ {
+		end := 0
+		if k+1 < len(rs) {
+			end = rs[k+1].N
+			if rs[k+1].Reason == versions.ReasonOutside {
+				continue
+			}
+		}
+		out = append(out, [2]int{rs[k].N, end})
+	}
+	return out
+}
+
+// betweenRounds is a version cut between two rounds rather than by one: an
+// outside load, and the reviewer's edits held before it.
+func betweenRounds(reason string) bool {
+	return reason == versions.ReasonHeld || reason == versions.ReasonOutside
+}
+
+// segmentContent reads one segment's two versions; a segment ending at 0 ends
+// at last.
+func segmentContent(store *versions.Store, seg [2]int, last int) ([2]string, bool) {
+	if seg[1] == 0 {
+		seg[1] = last
+	}
+	before, err := store.Content(seg[0])
 	if err != nil {
-		return nil, 0
+		return [2]string{}, false
 	}
-	before, err := store.Content(latest.N - 1)
+	after, err := store.Content(seg[1])
 	if err != nil {
-		return nil, 0
+		return [2]string{}, false
 	}
-	return summarise(diff.Diff(before, after))
+	return [2]string{before, after}, true
+}
+
+// summariseSpan summarises each segment in order, with the cap counted across
+// all of them.
+func summariseSpan(pairs [][2]string) ([]ReviewerChange, int) {
+	var out []ReviewerChange
+	var dropped int
+	for _, p := range pairs {
+		got, more := summarise(diff.Diff(p[0], p[1]))
+		dropped += more
+		for _, c := range got {
+			if len(out) >= reviewerChangeCap {
+				dropped++
+				continue
+			}
+			out = append(out, c)
+		}
+	}
+	return out, dropped
 }
 
 // summarise turns diff ops into the reviewer-facing vocabulary, and reports

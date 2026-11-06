@@ -382,6 +382,37 @@ func (s *EditServer) cutOutside(out []byte) {
 	}
 }
 
+// cutHeld commits the reviewer's unsent edits as galley last wrote them, with
+// mu held, just before a change outside the editor is loaded over them.
+//
+// LIKE cutOutside IT IS NOBODY'S SEND: it wakes nobody, leaves the movement
+// flags and lastCutN alone, and the next Revise still names who moved what.
+// It names the reviewer, whose hand it holds.
+func (s *EditServer) cutHeld(content []byte) {
+	store := s.Versions()
+	latest, ok, err := store.Latest()
+	if err != nil {
+		s.logVersionFailure(err)
+		return
+	}
+	if ok && latest.Digest == digestOf(content) {
+		return
+	}
+	r, err := store.Commit(string(content), versions.Round{
+		At:      time.Now().UTC(),
+		Authors: []string{versions.AuthorReviewer},
+		Reason:  versions.ReasonHeld,
+	})
+	if err != nil {
+		s.logVersionFailure(err)
+		return
+	}
+	s.debugVersionCut(r)
+	if s.Log != nil {
+		s.Log(fmt.Sprintf("v%d · %s", r.N, r.Reason))
+	}
+}
+
 // roundAuthors names who moved the document since the last cut.
 //
 // ALTERNATION IS A PROPERTY OF BATCHING, NOT A LAW. The CRDT merges both
