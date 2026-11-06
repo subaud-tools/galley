@@ -2780,7 +2780,11 @@ func (s *EditServer) handleAck(w http.ResponseWriter, r *http.Request) {
 			// reviewer's editor stayed read-only for good. A drifted page is the
 			// work, measurably on disk. Markdown mode has no page and no renderer,
 			// so its gate is unchanged to the byte.
-			changed := func() bool { return imported || s.appliedOpen() || s.pageDrifted() }
+			//
+			// A round of the reviewer's direct edits alone asked for nothing, so
+			// it skips this gate: see windowAsked.
+			asked := s.windowAsked()
+			changed := func() bool { return !asked || imported || s.appliedOpen() || s.pageDrifted() }
 			// A SAVE STILL LANDING IS NOT NOTHING. A harness runs one turn's
 			// tool calls together, so the ack can arrive before the edits it
 			// reports reach the disk. Keep importing for answeredGrace before
@@ -2930,6 +2934,25 @@ func (s *EditServer) messageState() (msgstate.State, bool) {
 		return "", false
 	}
 	return s.msg.state, true
+}
+
+// windowAsked reports whether the open window's round handed over any
+// instruction, from what rounds.jsonl recorded at the handover. Only such a
+// round makes an `answered` with nothing changed a fabrication: a round of the
+// reviewer's direct edits alone asks for nothing, and a note with no change is
+// its honest answer. A round it cannot read counts as asked, the old rule.
+func (s *EditServer) windowAsked() bool {
+	s.reviseMu.Lock()
+	round := 0
+	if s.watch != nil {
+		round = s.watch.round
+	}
+	s.reviseMu.Unlock()
+	r, ok, err := s.Versions().Get(round)
+	if err != nil || !ok || r.Reason != versions.ReasonRevise {
+		return true
+	}
+	return len(r.Asks) > 0 || r.Instruction != ""
 }
 
 // answeredGrace is how long a zero-change `answered` ack waits for the
