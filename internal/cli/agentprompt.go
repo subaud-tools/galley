@@ -118,6 +118,10 @@ reads it under the round's pill. "declined" (you will not do it) and "failed"
 (you tried and could not) settle the round instead of "answered", with why in
 the note.
 
+The reviewer's direct edits lead the round, under "Do not undo these": keep
+them. A round can carry direct edits and no instructions. If nothing more is
+needed, answer it with "answered" and a note, changing nothing.
+
 SAY WHICH CHANGE ANSWERED WHICH INSTRUCTION
 
 With that acknowledgement, list the changes you made — one entry per change,

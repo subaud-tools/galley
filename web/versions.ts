@@ -121,6 +121,18 @@ export const COULD_NOT = 'could-not';
 const OUTSIDE = 'outside';
 const OUTSIDE_SAID = 'changed outside the editor';
 
+// HELD is the reason word of the reviewer's unsent edits, cut just before a
+// change outside the editor was loaded over them. Nobody asked and nobody
+// answered either, so its card says whose edits they are and why they stop.
+const HELD = 'held';
+const HELD_SAID = 'your edits, up to a change outside the editor';
+
+// BETWEEN_SAID is what a version cut between rounds says in place of an ask.
+const BETWEEN_SAID = new Map<string, string>([
+  [OUTSIDE, OUTSIDE_SAID],
+  [HELD, HELD_SAID],
+]);
+
 // The two stages, named so a caller can ask which one is on screen without
 // knowing how it is spelled in a class.
 export const STAGE_ROUNDS = 'rounds';
@@ -1059,10 +1071,11 @@ export class VersionsPanel {
       head.textContent = roundHead(i + 1, round, now);
 
       const body = cardBody(el);
-      if (round.reason === OUTSIDE) {
+      const between = BETWEEN_SAID.get(round.reason);
+      if (between) {
         const said = document.createElement('p');
         said.className = 'gly-versions-ask';
-        said.textContent = OUTSIDE_SAID;
+        said.textContent = between;
         body.appendChild(said);
       } else {
         body.append(...askLines(askOn(this.rounds, round)));
@@ -1079,7 +1092,7 @@ export class VersionsPanel {
       const foot = document.createElement('span');
       foot.className = 'gly-versions-foot';
       foot.textContent = roundFoot(round);
-      if (!round.answers && round.reason !== OUTSIDE) {
+      if (!round.answers && !between) {
         // AN ASK NOBODY HAS ANSWERED YET IS THE ONE THE REVIEWER MOST WANTS TO
         // SEE, and it has no version of the agent's to name — the cut it points
         // at is the reviewer's own draft. So the foot says where it IS rather

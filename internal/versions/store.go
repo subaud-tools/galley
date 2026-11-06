@@ -122,12 +122,17 @@ const (
 	// reason to skip the cut. The spec: an exception *"is not a turn in a
 	// conversation, it is a report"*.
 	ReasonCouldNot = "could-not"
-	// ReasonOutside is the file changed outside the editor while the reviewer
-	// had nothing unsent, loaded into the review. It is a version so the edit
+	// ReasonOutside is the file changed outside the editor, loaded into the
+	// review (after a held version when the reviewer had edits unsent). It is a version so the edit
 	// is not read as the reviewer's own hand: an agent that edits the file
 	// directly, outside a round, has done work the reviewer can approve
 	// without sending it anywhere.
 	ReasonOutside = "outside"
+	// ReasonHeld is the reviewer's unsent edits, cut as galley last wrote
+	// them, at the moment a change outside the editor is loaded over them. It
+	// comes just before that load's outside version, so the reviewer's hand and
+	// the outside change stay two diffs. It is not a send: nobody is woken.
+	ReasonHeld = "held"
 )
 
 // Version is the schema generation of a `rounds.jsonl` line, written as `v` on

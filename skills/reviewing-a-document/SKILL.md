@@ -41,6 +41,8 @@ Between rounds, galley loads your edits to an open document. If you and the revi
 
 A round arrives as an event. In Claude Code it is a turn whose first line reads galley event doc=… reason=… fingerprint=… instructions=…, with the round below it; in pi it is `<channel source="galley" doc="…" reason="…">`. The reason is `revise`, `chat`, `changed`, `approve` or `closed`; a `chat` event is a message, not a round (see Chat, below). The event carries the instructions and their quoted anchors. **Use that captured round.** Do not re-read `galley pending` for it — a sent round is no longer pending, and `pending` will show you only newer unsent work.
 
+The reviewer's direct edits lead the round, under *"Do not undo these"*: keep them. A round can carry direct edits and no instructions — the headline reads `0 instruction(s), N direct edit(s)`. If nothing more is needed, answer it with `galley_ack` `answered` and a note, changing nothing.
+
 1. On a round that takes more than a moment, your first move is `galley_ack` with `state: "working"` and a one line note saying what you are doing. The reviewer reads it under the round's pill beside Revise.
 2. **Edit the `.md` file directly with your normal file tools.** While you hold the round, galley watches the file and streams every save into the reviewer's browser — so save as often as you like. They are watching it happen.
 

@@ -457,3 +457,88 @@ func TestARefusedRoundIsMarkedRefused(t *testing.T) {
 		t.Errorf("a could-not round must be marked refused: %+v", view)
 	}
 }
+
+// ROUND 8 OF THE 2026-11-06 WEEK REVIEW. The reviewer deleted a line and had
+// not sent it when the agent wrote a new section into the file; the reviewer
+// then deleted another line and pressed Revise. The round named the agent's
+// section as the reviewer's own edit. The save now cuts the reviewer's held
+// edits and the outside load as two versions, and the reviewer's span skips
+// the outside one.
+func TestAnOutsideSaveOverUnsentEditsIsKeptOutOfTheReviewersRound(t *testing.T) {
+	s := newEditServer(t, t.TempDir(), "week.md",
+		"# Week\n\nThe arena idea.\n\nKept line.\n\nThe Synopsys line.\n")
+	defer func() { _ = s.Close() }()
+	s.OnRevise = "true"
+	if err := s.Project(); err != nil {
+		t.Fatal(err)
+	}
+	dropBlock(t, s, "The arena idea.")
+	if err := s.Project(); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, s.MdPath, string(mustRead(t, s.MdPath))+"\n## Research data\n\nA section the agent wrote.\n")
+	if err := s.Project(); err != nil {
+		t.Fatal(err)
+	}
+	railSays := func(c []ReviewerChange, words string) bool {
+		for _, x := range c {
+			if strings.Contains(x.Before+x.After, words) {
+				return true
+			}
+		}
+		return false
+	}
+	rail := getPending(t, s).Changes
+	if !railSays(rail, "The arena idea.") || railSays(rail, "A section the agent wrote.") {
+		t.Errorf("after the outside save the rail reads %+v, want the arena deletion and not the agent's section", rail)
+	}
+	dropBlock(t, s, "The Synopsys line.")
+	if err := s.Project(); err != nil {
+		t.Fatal(err)
+	}
+	press(t, s, `{}`)
+	var got []string
+	for _, r := range rounds(t, s) {
+		got = append(got, r.Reason)
+	}
+	if want := "opened held outside revise"; strings.Join(got, " ") != want {
+		t.Errorf("the versions cut are %q, want %q", strings.Join(got, " "), want)
+	}
+	sent, _ := ReviewerChanges(s.Versions())
+	if !railSays(sent, "The arena idea.") || !railSays(sent, "The Synopsys line.") || railSays(sent, "A section the agent wrote.") {
+		t.Errorf("the round hands over %+v, want both deletions and not the agent's section", sent)
+	}
+}
+
+// AN INSTRUCTION'S HIGHLIGHT IS NOT AN EDIT ON EITHER SIDE OF A HOLD. A held
+// version is the file as galley wrote it, unsent instruction markup and all,
+// so the handed-over span strips that markup exactly as the rail does; else
+// the agent is told the reviewer added or removed a highlight.
+func TestAHeldRoundWithAnInstructionHandsOverWhatTheRailShows(t *testing.T) {
+	s := newEditServer(t, t.TempDir(), "week.md",
+		"# Week\n\nThe arena idea.\n\nKept line.\n\nThe Synopsys line.\n")
+	defer func() { _ = s.Close() }()
+	s.OnRevise = "true"
+	if err := s.Project(); err != nil {
+		t.Fatal(err)
+	}
+	if rec := postRec(t, s, "/_galley/instruct", map[string]any{
+		"op": "comment", "target": "Kept line.", "text": "tighten this",
+	}); rec.Code >= 300 {
+		t.Fatalf("instruct: %d %s", rec.Code, rec.Body.String())
+	}
+	dropBlock(t, s, "The arena idea.")
+	if err := s.Project(); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, s.MdPath, string(mustRead(t, s.MdPath))+"\n## Research data\n\nA section the agent wrote.\n")
+	if err := s.Project(); err != nil {
+		t.Fatal(err)
+	}
+	rail := getPending(t, s).Changes
+	press(t, s, `{}`)
+	sent, _ := ReviewerChanges(s.Versions())
+	if len(sent) != 1 || sent[0].Before != "The arena idea." {
+		t.Errorf("the round hands over %+v, want only the arena deletion (the rail read %+v)", sent, rail)
+	}
+}

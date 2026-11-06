@@ -43,30 +43,81 @@ import (
 // THE AGENT'S in-progress work as the reviewer's own hand. That is the same
 // attribution inversion `ReviewerChanges` filters `ReasonRevise` to avoid,
 // arriving through the other door.
+//
+// AND IT READS THE REVIEWER'S WHOLE SPAN (reviewerSpan), with the live
+// document as its last segment, so edits held when a change outside the editor
+// was loaded stay on the rail beside the ones typed since.
 func (s *EditServer) liveChanges(model docmodel.Doc) ([]ReviewerChange, int) {
 	if s.handoffLive.Load() {
 		return nil, 0
 	}
+	segs, ok := s.liveSpan(model)
+	if !ok {
+		return nil, 0
+	}
+	got, dropped := spanChanges(segs, s.undoneComposing())
+	out := make([]ReviewerChange, 0, len(got))
+	for _, c := range got {
+		c.Key = changeKey(c.ReviewerChange)
+		out = append(out, c.ReviewerChange)
+	}
+	return out, dropped
+}
+
+// liveSpan reads the reviewer's span (reviewerSpan) with the live document as
+// its last segment, each side cleaned of instruction markup. The rail and
+// Revert both read it, so a card's key is found where the card came from.
+//
+// It reports false on a version that cannot be read rather than failing the
+// poll — the ledger's rule, for the ledger's reason: a read-only checkout must
+// not turn the reviewer's sidebar into an error.
+func (s *EditServer) liveSpan(model docmodel.Doc) ([]spanSegment, bool) {
 	store := s.Versions()
 	if store == nil {
-		return nil, 0
+		return nil, false
+	}
+	rs, err := store.List()
+	if err != nil || len(rs) == 0 {
+		return nil, false
+	}
+	live := plainText(model)
+	var segs []spanSegment
+	for _, seg := range reviewerSpan(rs) {
+		before, err := store.Content(seg[0])
+		if err != nil {
+			return nil, false
+		}
+		after := live
+		if seg[1] != 0 {
+			raw, err := store.Content(seg[1])
+			if err != nil {
+				return nil, false
+			}
+			after = plainOf(raw)
+		}
+		segs = append(segs, spanSegment{before: plainOf(before), after: after, end: seg[1]})
+	}
+	return segs, true
+}
+
+// editedSinceLatest reports whether the live document differs, as the
+// reviewer's hand, from the newest version: the edits a change outside the
+// editor would be loaded over. Callers hold mu.
+func (s *EditServer) editedSinceLatest(model docmodel.Doc) bool {
+	store := s.Versions()
+	if store == nil {
+		return false
 	}
 	latest, ok, err := store.Latest()
 	if err != nil || !ok {
-		return nil, 0
+		return false
 	}
 	before, err := store.Content(latest.N)
 	if err != nil {
-		// A version that cannot be read reports nothing rather than failing
-		// the poll — the ledger's rule, for the ledger's reason: a read-only
-		// checkout must not turn the reviewer's sidebar into an error.
-		return nil, 0
+		return false
 	}
-	out, dropped := summarise(diff.Diff(plainOf(before), plainText(model)))
-	for i := range out {
-		out[i].Key = changeKey(out[i])
-	}
-	return out, dropped
+	got, dropped := summarise(diff.Diff(plainOf(before), plainText(model)))
+	return len(got)+dropped > 0
 }
 
 // plainText and plainOf strip the reviewer's own INSTRUCTION MARKUP from both

@@ -294,3 +294,29 @@ func TestReplyToolPostsTheAnswer(t *testing.T) {
 		t.Fatalf("thread = %+v, want the message answered and the reply after it", v.Messages)
 	}
 }
+
+// An edits-only round is a round: the wake counts the edits, lists them under
+// the do-not-undo block and says how to answer when nothing more is needed.
+func TestEditsOnlyWakeListsTheEdits(t *testing.T) {
+	text, meta := renderWake(serve.AgentWake{
+		Page: "/tmp/doc.md", Reason: "revise", Fingerprint: "f1",
+		Pending: &serve.PendingView{Changes: []serve.ReviewerChange{{Kind: "removed", Before: "A cut sentence."}}},
+	})
+	for _, want := range []string{"0 instruction(s), 1 direct edit(s)", "Do not undo these", "A cut sentence.", editsOnlyClose} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the edits-only wake lacks %q:\n%s", want, text)
+		}
+	}
+	if meta["edits"] != "1" || meta["instructions"] != "0" {
+		t.Errorf("meta = %v, want instructions=0 edits=1", meta)
+	}
+}
+
+// A round with neither instructions nor edits has the headline and no body.
+func TestEmptyWakeHasNoBody(t *testing.T) {
+	text, _ := renderWake(serve.AgentWake{Page: "/tmp/doc.md", Reason: "revise", Pending: &serve.PendingView{}})
+	head, _, _ := strings.Cut(text, "\n\n---\n")
+	if head != "Revision requested on /tmp/doc.md: 0 instruction(s), 0 direct edit(s)." {
+		t.Errorf("the empty wake reads %q", head)
+	}
+}

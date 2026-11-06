@@ -240,3 +240,66 @@ func TestTwoNeighbouringBlocksAreBothReported(t *testing.T) {
 		})
 	}
 }
+
+// THE CAP COUNTS ACROSS THE SPAN. A round whose edits were held over an
+// outside change is two segments, and the agent is handed one capped list.
+func TestTheCapCountsAcrossHeldSegments(t *testing.T) {
+	var all, half, outside strings.Builder
+	all.WriteString("# Doc\n\n")
+	half.WriteString("# Doc\n\n")
+	for i := 0; i < 2*reviewerChangeCap; i++ {
+		fmt.Fprintf(&all, "Paragraph number %d is distinct from every other one.\n\n", i)
+		if i >= reviewerChangeCap {
+			fmt.Fprintf(&half, "Paragraph number %d is distinct from every other one.\n\n", i)
+		}
+	}
+	outside.WriteString(half.String() + "A section written outside.\n")
+	s := versions.Open(t.TempDir() + "/doc.md")
+	commit(t, s, all.String(), versions.Round{N: 1, Reason: versions.ReasonOpened})
+	commit(t, s, half.String(), versions.Round{N: 2, Reason: versions.ReasonHeld, Authors: []string{"user"}})
+	commit(t, s, outside.String(), versions.Round{N: 3, Reason: versions.ReasonOutside})
+	commit(t, s, "# Doc\n\nA section written outside.\n", versions.Round{N: 4, Reason: versions.ReasonRevise, Authors: []string{"user"}})
+
+	got, dropped := ReviewerChanges(s)
+	if len(got) != reviewerChangeCap || len(got)+dropped != 2*reviewerChangeCap {
+		t.Errorf("two segments of %d removals gave %d listed and %d dropped, want %d listed and the rest dropped",
+			reviewerChangeCap, len(got), dropped, reviewerChangeCap)
+	}
+	for _, c := range got {
+		if strings.Contains(c.Before+c.After, "written outside") {
+			t.Errorf("the outside section is listed as the reviewer's: %+v", c)
+		}
+	}
+}
+
+// ONLY A REVERT CANCELS (DCSN3), AND BY OCCURRENCE (DCSN4). A later change
+// that mirrors an earlier one is listed with it unless the pair is recorded,
+// a recorded pair is dropped only while both of its occurrences are there, and
+// its inverse is found in any segment after the held one.
+func TestOnlyARecordedPairCancels(t *testing.T) {
+	const a, b = "# Doc\n\nOne here.\n\nTwo here.\n", "# Doc\n\nOne here.\n"
+	removed := changeRef{key: changeKey(ReviewerChange{Kind: "removed", Before: "Two here."})}
+	added := changeRef{key: changeKey(ReviewerChange{Kind: "added", After: "Two here."})}
+	reverted := []undonePair{{heldN: 2, held: removed, inverse: added}}
+	twice := []undonePair{{heldN: 2, held: removed, inverse: changeRef{key: added.key, ord: 1}}}
+	for _, tc := range []struct {
+		name   string
+		segs   []spanSegment
+		undone []undonePair
+		want   int
+	}{
+		{"mirrored, not reverted", []spanSegment{{a, b, 2}, {b, a, 0}}, nil, 2},
+		{"reverted", []spanSegment{{a, b, 2}, {b, a, 0}}, reverted, 0},
+		{"reverted, then deleted again", []spanSegment{{a, b, 2}, {b, b, 0}}, reverted, 1},
+		{"reverted, then held again", []spanSegment{{a, b, 2}, {b, a, 4}, {a, a, 0}}, reverted, 0},
+		{"another occurrence", []spanSegment{{a, b, 2}, {b, a, 0}}, twice, 2},
+		{"another held version", []spanSegment{{a, b, 3}, {b, a, 0}}, reverted, 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, dropped := summariseSpan(tc.segs, tc.undone)
+			if len(got) != tc.want || dropped != 0 {
+				t.Errorf("got %+v (dropped %d), want %d changes", got, dropped, tc.want)
+			}
+		})
+	}
+}

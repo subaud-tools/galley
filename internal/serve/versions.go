@@ -330,6 +330,7 @@ func (s *EditServer) cutIfSending(out []byte, landed bool, asked int) {
 			s.lastLanded.Store(int32(r.N)) //nolint:gosec // a round number; a document never reaches 2^31 rounds
 		}
 		s.debugVersionCut(r)
+		s.undoneOnCut(r)
 		authors = nil
 		s.movedByAgent = false
 		s.movedByReviewer.Store(false)
@@ -377,6 +378,38 @@ func (s *EditServer) cutOutside(out []byte) {
 		return
 	}
 	s.debugVersionCut(r)
+	if s.Log != nil {
+		s.Log(fmt.Sprintf("v%d · %s", r.N, r.Reason))
+	}
+}
+
+// cutHeld commits the reviewer's unsent edits as galley last wrote them, with
+// mu held, just before a change outside the editor is loaded over them.
+//
+// LIKE cutOutside IT IS NOBODY'S SEND: it wakes nobody, leaves the movement
+// flags and lastCutN alone, and the next Revise still names who moved what.
+// It names the reviewer, whose hand it holds.
+func (s *EditServer) cutHeld(content []byte) {
+	store := s.Versions()
+	latest, ok, err := store.Latest()
+	if err != nil {
+		s.logVersionFailure(err)
+		return
+	}
+	if ok && latest.Digest == digestOf(content) {
+		return
+	}
+	r, err := store.Commit(string(content), versions.Round{
+		At:      time.Now().UTC(),
+		Authors: []string{versions.AuthorReviewer},
+		Reason:  versions.ReasonHeld,
+	})
+	if err != nil {
+		s.logVersionFailure(err)
+		return
+	}
+	s.debugVersionCut(r)
+	s.undoneOnCut(r)
 	if s.Log != nil {
 		s.Log(fmt.Sprintf("v%d · %s", r.N, r.Reason))
 	}

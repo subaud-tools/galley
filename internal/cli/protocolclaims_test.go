@@ -72,6 +72,10 @@ var fileEditLoopClaims = []string{
 	// written is an ack: `working` first, with one line, on a round that takes
 	// more than a moment; `declined` and `failed` settle it with why.
 	"working", "one line", "declined", "failed",
+	// A ROUND CAN BE THE REVIEWER'S DIRECT EDITS ALONE, with no instruction.
+	// Every carrier says so and that it is answered with a note and no
+	// change: an agent never told this declined such rounds.
+	"direct edits", "no instructions",
 }
 
 // The per-change manifest: there is a list, each entry quotes what was

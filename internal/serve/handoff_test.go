@@ -15,6 +15,7 @@ import (
 	"github.com/subaud-tools/galley/internal/markdown"
 	"github.com/subaud-tools/galley/internal/versions"
 	"github.com/subaud-tools/galley/internal/ydoc"
+	"github.com/subaud-tools/tools-common/msgstate"
 )
 
 // cancelHandoff is the reviewer taking the document back mid-window — the
@@ -675,5 +676,36 @@ func TestADraftWithoutACommentsMarkerKeepsTheComment(t *testing.T) {
 	}
 	if after := keysOf(t, s); len(after) != len(before) {
 		t.Errorf("the draft import dropped the comment: before %v, after %v", before, after)
+	}
+}
+
+// AN EDITS-ONLY ROUND CAN BE ANSWERED WITH A NOTE AND NO CHANGE. It asked for
+// nothing, so nothing changing is the honest answer, and refusing it left the
+// agent only `declined`.
+func TestAnsweredWithNoChangeSettlesAnEditsOnlyRound(t *testing.T) {
+	s := newEditServer(t, t.TempDir(), "doc.md", "# T\n\nKept paragraph.\n\nCut paragraph.\n")
+	defer func() { _ = s.Close() }()
+	s.OnRevise = "true"
+	dropBlock(t, s, "Cut paragraph.")
+	press(t, s, `{}`)
+	if rec := postAckRec(t, s, "answered", "kept your edits"); rec.Code != http.StatusNoContent {
+		t.Fatalf("answered on an edits-only round: got %d, want 204: %s", rec.Code, rec.Body.String())
+	}
+	if st, _ := s.messageState(); st != msgstate.Answered {
+		t.Errorf("the message is %q, want answered", st)
+	}
+}
+
+// A round that asked for something and got no change is still refused, in the
+// same words.
+func TestAnsweredWithNoChangeIsRefusedOnARoundWithInstructions(t *testing.T) {
+	s := newEditServer(t, t.TempDir(), "doc.md", "# T\n\nDraft sentence.\n")
+	defer func() { _ = s.Close() }()
+	s.OnRevise = "true"
+	commentAs(t, s, "Draft sentence", "Make it final.")
+	press(t, s, `{}`)
+	rec := postAckRec(t, s, "answered", "did nothing")
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "nothing has changed since the round was handed over") {
+		t.Fatalf("zero-change answered: got %d %q, want 409 with the refusal", rec.Code, rec.Body.String())
 	}
 }
