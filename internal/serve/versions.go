@@ -330,6 +330,7 @@ func (s *EditServer) cutIfSending(out []byte, landed bool, asked int) {
 			s.lastLanded.Store(int32(r.N)) //nolint:gosec // a round number; a document never reaches 2^31 rounds
 		}
 		s.debugVersionCut(r)
+		s.undoneOnCut(r)
 		authors = nil
 		s.movedByAgent = false
 		s.movedByReviewer.Store(false)
@@ -408,6 +409,7 @@ func (s *EditServer) cutHeld(content []byte) {
 		return
 	}
 	s.debugVersionCut(r)
+	s.undoneOnCut(r)
 	if s.Log != nil {
 		s.Log(fmt.Sprintf("v%d · %s", r.N, r.Reason))
 	}

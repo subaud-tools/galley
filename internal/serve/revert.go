@@ -11,6 +11,7 @@ import (
 	"github.com/subaud-tools/galley/internal/docmodel"
 	"github.com/subaud-tools/galley/internal/markdown"
 	"github.com/subaud-tools/galley/internal/review"
+	"github.com/subaud-tools/galley/internal/versions"
 )
 
 // REVERTING ONE EDIT IS NOT UNDO, AND THAT IS WHY IT EXISTS.
@@ -280,7 +281,7 @@ func (s *EditServer) handleRevert(w http.ResponseWriter, r *http.Request) {
 			return docmodel.Doc{}, nil, errors.New("this document has no round to revert against yet, or the last one cannot be read")
 		}
 		marked := string(markdown.Serialize(model))
-		changes, _ := spanChanges(pairs)
+		changes, _ := spanChanges(pairs, s.undoneComposing())
 		var target *spanChange
 		for i := range changes {
 			if changeKey(changes[i].ReviewerChange) == in.Key {
@@ -300,6 +301,9 @@ func (s *EditServer) handleRevert(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return docmodel.Doc{}, nil, err
 		}
+		if last := len(pairs) - 1; target.seg < last {
+			s.recordRevert(changeKey(target.ReviewerChange), pairs[last], out)
+		}
 		return out, nil, nil
 	})
 	if err != nil {
@@ -314,6 +318,92 @@ func (s *EditServer) handleRevert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.writePending(w)
+}
+
+// undoneRecord is what Revert undid across a held version: each pair is the
+// held change's key and the key of the inverse the revert made in the live
+// segment. A held version cannot change, so without it the rail and the round
+// would list both; spanChanges drops exactly these pairs, and nothing else
+// cancels (DCSN3).
+//
+// composing is the round being written; a Revise moves it to sent, tagged
+// with that version's number, and the round handed over reads it while that
+// version is newest. A landed, could-not or settled cut clears it, as the round
+// has been answered; a held cut clears sent, as a new round is under way.
+//
+// IN MEMORY ONLY, and that is accepted (DCSN3, option A): if galley restarts
+// mid-round, or `galley pending` reads the round with no editor running
+// (ReviewerChanges, offline), the reverted pair is listed again.
+type undoneRecord struct {
+	composing [][2]string
+	sent      [][2]string
+	sentN     int
+}
+
+func (s *EditServer) undoneComposing() [][2]string {
+	if r := s.undone.Load(); r != nil {
+		return r.composing
+	}
+	return nil
+}
+
+// handedChanges is the round handed to the agent: ReviewerChanges less the
+// pairs reverted in it.
+func (s *EditServer) handedChanges() ([]ReviewerChange, int) {
+	store := s.Versions()
+	var undone [][2]string
+	if r := s.undone.Load(); r != nil && store != nil {
+		if latest, ok, err := store.Latest(); err == nil && ok && latest.N == r.sentN {
+			undone = r.sent
+		}
+	}
+	return reviewerChangesLess(store, undone)
+}
+
+// recordRevert records a held change reverted into out, with mu held. The
+// inverse is the one change the revert added to the live segment; with none
+// or several, nothing is recorded and the rail lists what is there.
+func (s *EditServer) recordRevert(held string, live [2]string, out docmodel.Doc) {
+	was := map[string]int{}
+	got, _ := summarise(diff.Diff(live[0], live[1]))
+	for _, c := range got {
+		was[changeKey(c)]++
+	}
+	var made []string
+	got, _ = summarise(diff.Diff(live[0], plainText(out)))
+	for _, c := range got {
+		k := changeKey(c)
+		if was[k] > 0 {
+			was[k]--
+			continue
+		}
+		made = append(made, k)
+	}
+	if len(made) != 1 {
+		return
+	}
+	next := undoneRecord{}
+	if r := s.undone.Load(); r != nil {
+		next = *r
+	}
+	next.composing = append(append([][2]string(nil), next.composing...), [2]string{held, made[0]})
+	s.undone.Store(&next)
+}
+
+// undoneOnCut moves or clears the record as a version is cut, with mu held.
+func (s *EditServer) undoneOnCut(r versions.Round) {
+	cur := s.undone.Load()
+	if cur == nil {
+		return
+	}
+	switch r.Reason {
+	case versions.ReasonRevise:
+		s.undone.Store(&undoneRecord{sent: cur.composing, sentN: r.N})
+	case versions.ReasonLanded, versions.ReasonCouldNot, versions.ReasonSettled:
+		s.undone.Store(nil)
+	case versions.ReasonHeld:
+		s.undone.Store(&undoneRecord{composing: cur.composing})
+	}
 }
 
 // errUnknownChange separates "the card is stale" from "this cannot be reverted",

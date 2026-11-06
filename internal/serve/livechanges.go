@@ -55,7 +55,7 @@ func (s *EditServer) liveChanges(model docmodel.Doc) ([]ReviewerChange, int) {
 	if !ok {
 		return nil, 0
 	}
-	got, dropped := spanChanges(pairs)
+	got, dropped := spanChanges(pairs, s.undoneComposing())
 	out := make([]ReviewerChange, 0, len(got))
 	for _, c := range got {
 		c.Key = changeKey(c.ReviewerChange)

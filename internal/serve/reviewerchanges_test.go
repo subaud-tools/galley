@@ -272,24 +272,25 @@ func TestTheCapCountsAcrossHeldSegments(t *testing.T) {
 	}
 }
 
-// THE SPAN SHOWS THE REVIEWER'S NET HAND. A held version cannot change, so a
-// held edit put back later shows as itself in its segment and its inverse in a
-// later one; the two cancel. Changes in one segment, or that only resemble an
-// inverse, are kept.
-func TestALaterInverseCancelsAnEarlierChange(t *testing.T) {
-	const a, b, c = "# Doc\n\nOne here.\n\nTwo here.\n", "# Doc\n\nOne here.\n", "# Doc\n\nOne here, changed.\n\nTwo here.\n"
+// ONLY A REVERT CANCELS (DCSN3). A later change that mirrors an earlier one is
+// listed with it unless the pair is recorded as undone, and a recorded pair is
+// dropped only while both of its changes are there.
+func TestOnlyARecordedPairCancels(t *testing.T) {
+	const a, b = "# Doc\n\nOne here.\n\nTwo here.\n", "# Doc\n\nOne here.\n"
+	removed := changeKey(ReviewerChange{Kind: "removed", Before: "Two here."})
+	added := changeKey(ReviewerChange{Kind: "added", After: "Two here."})
 	for _, tc := range []struct {
-		name  string
-		pairs [][2]string
-		want  int
+		name   string
+		pairs  [][2]string
+		undone [][2]string
+		want   int
 	}{
-		{"removed then added", [][2]string{{a, b}, {b, a}}, 0},
-		{"added then removed", [][2]string{{b, a}, {a, b}}, 0},
-		{"changed then changed back", [][2]string{{a, c}, {c, a}}, 0},
-		{"removed then something else", [][2]string{{a, b}, {b, "# Doc\n\nOne here.\n\nThree here.\n"}}, 2},
+		{"mirrored, not reverted", [][2]string{{a, b}, {b, a}}, nil, 2},
+		{"reverted", [][2]string{{a, b}, {b, a}}, [][2]string{{removed, added}}, 0},
+		{"reverted, then deleted again", [][2]string{{a, b}, {b, b}}, [][2]string{{removed, added}}, 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, dropped := summariseSpan(tc.pairs)
+			got, dropped := summariseSpan(tc.pairs, tc.undone)
 			if len(got) != tc.want || dropped != 0 {
 				t.Errorf("got %+v (dropped %d), want %d changes", got, dropped, tc.want)
 			}

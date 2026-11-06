@@ -213,6 +213,10 @@ type EditServer struct {
 	// for the projection that made it to cut its version. Set and cleared under
 	// mu; see saveOnce and cutOutside.
 	loadedOutside bool
+	// undone is the pairs Revert undid across a held version, so the span
+	// leaves them out (see undoneRecord). Written under mu; read without it
+	// by pending(), so it is swapped whole.
+	undone atomic.Pointer[undoneRecord]
 
 	// mu serializes every SERVER-side mutation of the document — the
 	// suggest/accept/reject endpoints, Project, and Flush — so no two of them
@@ -3321,7 +3325,7 @@ func (s *EditServer) waitFingerprint() (string, PendingView, error) {
 	// wrote about it. Read here rather than at the press because this is where
 	// the round is composed for handover, and because a version that cannot be
 	// read returns nothing rather than failing the round.
-	view.Changes, view.ChangesDropped = ReviewerChanges(s.Versions())
+	view.Changes, view.ChangesDropped = s.handedChanges()
 	if view.Instructions == nil {
 		view.Instructions = []InstructionView{}
 	}

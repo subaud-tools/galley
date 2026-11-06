@@ -73,6 +73,11 @@ const reviewerChangeCap = 40
 // error page. The cost of returning nothing is an agent told less than it
 // could have been; the cost of returning an error is a review that stops.
 func ReviewerChanges(store *versions.Store) ([]ReviewerChange, int) {
+	return reviewerChangesLess(store, nil)
+}
+
+// reviewerChangesLess is ReviewerChanges less the pairs a Revert undid.
+func reviewerChangesLess(store *versions.Store, undone [][2]string) ([]ReviewerChange, int) {
 	if store == nil {
 		return nil, 0
 	}
@@ -95,7 +100,7 @@ func ReviewerChanges(store *versions.Store) ([]ReviewerChange, int) {
 		}
 		pairs = append(pairs, pair)
 	}
-	return summariseSpan(pairs)
+	return summariseSpan(pairs, undone)
 }
 
 // reviewerSpan is THE REVIEWER'S HAND SINCE THE LAST ROUND, as segments of the
@@ -160,9 +165,9 @@ func segmentContent(store *versions.Store, seg [2]int, last int) ([2]string, boo
 }
 
 // summariseSpan summarises each segment in order, with the cap counted across
-// all of them, as the reviewer's net hand (spanChanges).
-func summariseSpan(pairs [][2]string) ([]ReviewerChange, int) {
-	got, dropped := spanChanges(pairs)
+// all of them, less the pairs a Revert undid (spanChanges).
+func summariseSpan(pairs [][2]string, undone [][2]string) ([]ReviewerChange, int) {
+	got, dropped := spanChanges(pairs, undone)
 	out := make([]ReviewerChange, 0, len(got))
 	for _, c := range got {
 		out = append(out, c.ReviewerChange)
@@ -177,27 +182,35 @@ type spanChange struct {
 	seg int
 }
 
-// spanChanges summarises each segment in order, with the cap counted across
-// all of them, and cancels a change a later segment exactly inverts.
+// spanChanges summarises each segment in order, drops each pair a Revert
+// undid, and counts the cap across what is left.
 //
-// THE REVIEWER'S NET HAND. A held version cannot change, so a held edit the
-// reviewer put back afterwards (by hand or by Revert on the rail) is still in
-// its held segment, and its inverse is in a later one. Listing both would
-// offer a card that undoes the undo, and tell the agent of an edit that is not
-// in the document.
-func spanChanges(pairs [][2]string) ([]spanChange, int) {
+// ONLY A REVERT CANCELS. A held version cannot change, so a held edit put back
+// by Revert on the rail is still in its held segment, and its inverse is in
+// the live one; undone names those two by key (see undoneRecord). Matching
+// words instead hid real edits: "pending" made "approved" in one section, an
+// outside save, then "approved" made "pending" in another, and both vanished
+// (DCSN3). A pair is dropped only when both of its changes are still there:
+// with one gone, the other is the reviewer's hand.
+func spanChanges(pairs [][2]string, undone [][2]string) ([]spanChange, int) {
 	var all []spanChange
 	var dropped int
 	for i, p := range pairs {
 		got, more := summarise(diff.Diff(p[0], p[1]))
 		dropped += more
 		for _, c := range got {
-			if j := invertedBy(all, c, i); j >= 0 {
-				all = append(all[:j], all[j+1:]...)
-				continue
-			}
 			all = append(all, spanChange{c, i})
 		}
+	}
+	for _, u := range undone {
+		held, inverse := indexOfKey(all, u[0], len(pairs)-1, false), indexOfKey(all, u[1], len(pairs)-1, true)
+		if held < 0 || inverse < 0 {
+			continue
+		}
+		if held > inverse {
+			held, inverse = inverse, held
+		}
+		all = append(all[:held], append(all[held+1:inverse], all[inverse+1:]...)...)
 	}
 	if len(all) > reviewerChangeCap {
 		dropped += len(all) - reviewerChangeCap
@@ -206,25 +219,15 @@ func spanChanges(pairs [][2]string) ([]spanChange, int) {
 	return all, dropped
 }
 
-// invertedBy is the index of the change in an earlier segment than seg that c
-// exactly undoes, or -1.
-func invertedBy(all []spanChange, c ReviewerChange, seg int) int {
-	for j, e := range all {
-		if e.seg < seg && e.Before == c.After && e.After == c.Before && inverseKind(e.Kind) == c.Kind {
-			return j
+// indexOfKey is the first change with key in the last segment (last true) or
+// before it, or -1.
+func indexOfKey(all []spanChange, key string, lastSeg int, last bool) int {
+	for i, c := range all {
+		if (c.seg == lastSeg) == last && changeKey(c.ReviewerChange) == key {
+			return i
 		}
 	}
 	return -1
-}
-
-func inverseKind(kind string) string {
-	switch kind {
-	case "removed":
-		return "added"
-	case "added":
-		return "removed"
-	}
-	return kind
 }
 
 // summarise turns diff ops into the reviewer-facing vocabulary, and reports
