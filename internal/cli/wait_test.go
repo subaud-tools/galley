@@ -369,3 +369,26 @@ func TestWaitAcceptsChat(t *testing.T) {
 		t.Errorf("the wake does not print the message:\n%s", got)
 	}
 }
+
+// `galley wait` lists the reviewer's edits on every round: alone, with the
+// closing line, and beside instructions.
+func TestWaitListsTheReviewersEdits(t *testing.T) {
+	edits := []serve.ReviewerChange{{Kind: "removed", Before: "A cut sentence."}}
+	only := wakeText("draft.md", waitResult{Reason: reasonRevise, Fingerprint: "f", Pending: pendingPayload{Changes: edits}})
+	for _, want := range []string{"0 instruction(s), 1 direct edit(s)", "Do not undo these", "A cut sentence.", editsOnlyClose} {
+		if !strings.Contains(only, want) {
+			t.Errorf("the edits-only wake lacks %q:\n%s", want, only)
+		}
+	}
+	both := wakeText("draft.md", waitResult{Reason: reasonRevise, Fingerprint: "f", Pending: pendingPayload{
+		Changes: edits, Instructions: []instructionPayload{{Text: "Make this concrete."}},
+	}})
+	for _, want := range []string{"1 instruction(s), 1 direct edit(s)", "A cut sentence.", "Make this concrete."} {
+		if !strings.Contains(both, want) {
+			t.Errorf("the wake lacks %q:\n%s", want, both)
+		}
+	}
+	if strings.Contains(both, editsOnlyClose) {
+		t.Errorf("a round with instructions carries the edits-only closing line:\n%s", both)
+	}
+}

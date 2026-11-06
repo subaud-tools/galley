@@ -266,11 +266,7 @@ func wakeText(doc string, res waitResult) string {
 		fmt.Fprintf(&b, "re-arm    galley wait %s --since %s\n", doc, res.Fingerprint)
 		return b.String()
 	}
-	fmt.Fprintf(&b, "%d instruction(s) on %s\n", len(res.Pending.Instructions), wk.page)
-	if len(res.Pending.Instructions) > 0 {
-		b.WriteByte('\n')
-		b.WriteString(formatInstructions(res.Pending.Instructions))
-	}
+	b.WriteString(renderRound(wk.page, res.Pending, true))
 	if s := wk.sentence(); s != "" {
 		fmt.Fprintf(&b, "\n%s\n", s)
 	}
@@ -292,7 +288,7 @@ func wakeText(doc string, res waitResult) string {
 		b.WriteString("do not re-arm — a wait on a review that has ended is answered with the same ending, forever\n")
 		return b.String()
 	}
-	fmt.Fprintf(&b, "\nThe instructions above are the captured round. `galley pending` now shows only a newer, unsent round.\n"+
+	fmt.Fprintf(&b, "\nThe round above is the captured round. `galley pending` now shows only a newer, unsent round.\n"+
 		"re-arm    galley wait %s --since %s\n", doc, res.Fingerprint)
 	return b.String()
 }
