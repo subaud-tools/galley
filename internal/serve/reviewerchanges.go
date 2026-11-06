@@ -73,29 +73,223 @@ const reviewerChangeCap = 40
 // error page. The cost of returning nothing is an agent told less than it
 // could have been; the cost of returning an error is a review that stops.
 func ReviewerChanges(store *versions.Store) ([]ReviewerChange, int) {
+	return reviewerChangesLess(store, nil)
+}
+
+// reviewerChangesLess is ReviewerChanges less the pairs a Revert undid.
+func reviewerChangesLess(store *versions.Store, undone []undonePair) ([]ReviewerChange, int) {
 	if store == nil {
 		return nil, 0
 	}
-	latest, ok, err := store.Latest()
-	if err != nil || !ok || latest.N < 2 {
+	rs, err := store.List()
+	if err != nil || len(rs) < 2 {
 		return nil, 0
 	}
 	// Only a round the REVIEWER sent describes the reviewer's hand. An
 	// agent's landing diffed the same way would report the agent's work as
 	// the reviewer's, which is the attribution inversion this whole handover
 	// exists to prevent.
-	if latest.Reason != versions.ReasonRevise {
+	if rs[len(rs)-1].Reason != versions.ReasonRevise {
 		return nil, 0
 	}
-	after, err := store.Content(latest.N)
+	var segs []spanSegment
+	for _, seg := range reviewerSpan(rs[:len(rs)-1]) {
+		pair, ok := segmentContent(store, seg, rs[len(rs)-1].N)
+		if !ok {
+			return nil, 0
+		}
+		segs = append(segs, spanSegment{before: pair[0], after: pair[1], end: seg[1]})
+	}
+	return summariseSpan(segs, undone)
+}
+
+// reviewerSpan is THE REVIEWER'S HAND SINCE THE LAST ROUND, as segments of the
+// version list, and both the round handed over and the rail read it.
+//
+// rs ends at the version the next segment starts from: the one before a
+// Revise just cut, or the newest when the live document follows. The span
+// starts at the newest version that is neither held nor outside, and runs
+// through every version after it. Each segment is named by the version it
+// ends at, 0 being whatever follows rs. A segment that ends in an outside
+// version is somebody else's change and is skipped; the rest (ending in held,
+// or in what follows) are the reviewer's.
+//
+// It exists for round 8 of the 2026-11-06 week review: an outside save over
+// the reviewer's unsent edits, and the next Revise diffed across both, so the
+// agent was told its own new section was the reviewer's edit.
+func reviewerSpan(rs []versions.Round) [][2]int {
+	if len(rs) == 0 {
+		return nil
+	}
+	base := len(rs) - 1
+	for base > 0 && betweenRounds(rs[base].Reason) {
+		base--
+	}
+	var out [][2]int
+	for k := base; k < len(rs); k++ {
+		end := 0
+		if k+1 < len(rs) {
+			end = rs[k+1].N
+			if rs[k+1].Reason == versions.ReasonOutside {
+				continue
+			}
+		}
+		out = append(out, [2]int{rs[k].N, end})
+	}
+	return out
+}
+
+// betweenRounds is a version cut between two rounds rather than by one: an
+// outside load, and the reviewer's edits held before it.
+func betweenRounds(reason string) bool {
+	return reason == versions.ReasonHeld || reason == versions.ReasonOutside
+}
+
+// segmentContent reads one segment's two versions, with the reviewer's
+// instruction markup stripped as the rail strips it (plainOf): a held version
+// carries unsent highlights, and a highlight is not an edit. A segment ending
+// at 0 ends at last.
+func segmentContent(store *versions.Store, seg [2]int, last int) ([2]string, bool) {
+	if seg[1] == 0 {
+		seg[1] = last
+	}
+	before, err := store.Content(seg[0])
 	if err != nil {
-		return nil, 0
+		return [2]string{}, false
 	}
-	before, err := store.Content(latest.N - 1)
+	after, err := store.Content(seg[1])
 	if err != nil {
-		return nil, 0
+		return [2]string{}, false
 	}
-	return summarise(diff.Diff(before, after))
+	return [2]string{plainOf(before), plainOf(after)}, true
+}
+
+// spanSegment is one segment of the reviewer's span, cleaned of instruction
+// markup: its two sides, and the version it ends at (0 for what follows the
+// list, the live document or the Revise being cut). A held segment's end names
+// it for as long as the round lasts.
+type spanSegment struct {
+	before, after string
+	end           int
+}
+
+// summariseSpan summarises each segment in order, with the cap counted across
+// all of them, less the pairs a Revert undid (spanChanges).
+func summariseSpan(segs []spanSegment, undone []undonePair) ([]ReviewerChange, int) {
+	got, dropped := spanChanges(segs, undone)
+	out := make([]ReviewerChange, 0, len(got))
+	for _, c := range got {
+		out = append(out, c.ReviewerChange)
+	}
+	return out, dropped
+}
+
+// spanChange is one change of a span with the segment it came from, so a
+// revert can put it back from that segment's before.
+type spanChange struct {
+	ReviewerChange
+	seg int
+	key string
+}
+
+// changeRef names one occurrence of a change: its key, and which of the
+// changes with that key it is, counted in order over the segments it is
+// looked for in.
+type changeRef struct {
+	key string
+	ord int
+}
+
+// undonePair is one Revert across a held version: the held change, named by
+// the held version its segment ends at, and the inverse the revert made,
+// looked for in every segment after that one (a later held cut can freeze it
+// into one of them).
+type undonePair struct {
+	heldN   int
+	held    changeRef
+	inverse changeRef
+}
+
+// spanChanges summarises each segment in order, drops each pair a Revert
+// undid, and counts the cap across what is left.
+//
+// ONLY A REVERT CANCELS. A held version cannot change, so a held edit put back
+// by Revert on the rail is still in its held segment, and its inverse is after
+// it; undone names those two occurrences (see undoneRecord). Matching words
+// instead hid real edits: "pending" made "approved" in one section, an
+// outside save, then "approved" made "pending" in another, and both vanished
+// (DCSN3). A pair is dropped only when both of its occurrences are there.
+func spanChanges(segs []spanSegment, undone []undonePair) ([]spanChange, int) {
+	all, dropped := spanAll(segs)
+	gone := map[int]bool{}
+	for _, u := range undone {
+		if h, v, ok := findPair(segs, all, u); ok {
+			gone[h], gone[v] = true, true
+		}
+	}
+	var out []spanChange
+	for i, c := range all {
+		if !gone[i] {
+			out = append(out, c)
+		}
+	}
+	if len(out) > reviewerChangeCap {
+		dropped += len(out) - reviewerChangeCap
+		out = out[:reviewerChangeCap]
+	}
+	return out, dropped
+}
+
+// spanAll is every change of the span in order, uncapped across segments and
+// with nothing cancelled, and how many summarise left out.
+func spanAll(segs []spanSegment) ([]spanChange, int) {
+	var all []spanChange
+	var dropped int
+	for i, seg := range segs {
+		got, more := summarise(diff.Diff(seg.before, seg.after))
+		dropped += more
+		for _, c := range got {
+			all = append(all, spanChange{c, i, changeKey(c)})
+		}
+	}
+	return all, dropped
+}
+
+// findPair locates both occurrences a record names, as indexes into all.
+func findPair(segs []spanSegment, all []spanChange, u undonePair) (int, int, bool) {
+	hs := heldSegment(segs, u.heldN)
+	if hs < 0 {
+		return 0, 0, false
+	}
+	h := nthOf(all, u.held, func(c spanChange) bool { return c.seg == hs })
+	v := nthOf(all, u.inverse, func(c spanChange) bool { return c.seg > hs })
+	return h, v, h >= 0 && v >= 0
+}
+
+// heldSegment is the index of the segment ending at held version n, or -1.
+func heldSegment(segs []spanSegment, n int) int {
+	for i, seg := range segs {
+		if n != 0 && seg.end == n {
+			return i
+		}
+	}
+	return -1
+}
+
+// nthOf is the index in all of the occurrence ref names among the changes in
+// counts, or -1.
+func nthOf(all []spanChange, ref changeRef, in func(spanChange) bool) int {
+	n := 0
+	for i, c := range all {
+		if !in(c) || c.key != ref.key {
+			continue
+		}
+		if n == ref.ord {
+			return i
+		}
+		n++
+	}
+	return -1
 }
 
 // summarise turns diff ops into the reviewer-facing vocabulary, and reports

@@ -2,6 +2,13 @@
 
 Newest first. Notes for releases up to 0.10.2 are on the GitHub releases page: https://github.com/subaud-tools/galley/releases
 
+## 0.33.0
+
+- A Revise with direct edits and no instructions now reaches the agent with the edits listed under "Do not undo these", in the channel, `galley wait` and `galley pending` alike; `galley wait` now lists direct edits on every round. The headline counts both: `Revision requested on <doc>: 0 instruction(s), 2 direct edit(s).`
+- The agent can answer an edits-only round `answered` with nothing changed; a round that asked for something is still refused.
+- When the file changes outside the editor while the reviewer has unsent edits, galley keeps the reviewer's edits as a `held` version before the outside one, so the next round hands over only the reviewer's edits, never the agent's text. History labels a held version.
+- Revert works on a held edit after an outside change, and a reverted held edit leaves the rail.
+
 ## 0.32.2
 
 - The channel no longer prints its `[galley channel] cwd=... session_id_present=... scope=...` line on every start: pi showed it in each session as a channel stderr notice that looked like an error. The line printed when a session's presence can't be recorded stays.

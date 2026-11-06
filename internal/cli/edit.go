@@ -308,15 +308,18 @@ func runPending(args []string, out, errw io.Writer) error {
 	if live {
 		source = "live"
 	}
-	if len(view.Instructions) == 0 {
-		fmt.Printf("nothing pending on %s (%s)\n", filepath.Base(doc), source)
-		return nil
-	}
-	fmt.Printf("%d instruction(s) on %s (%s)\n\n", len(view.Instructions), filepath.Base(doc), source)
-	fmt.Print(formatReviewerChanges(view.Changes, view.ChangesDropped))
-	fmt.Print(formatInstructions(view.Instructions))
+	fmt.Print(pendingText(doc, source, view))
 	return nil
+}
 
+// pendingText is what `galley pending` prints: nothing pending only when the
+// unsent round has neither instructions nor edits, and the round otherwise.
+func pendingText(doc, source string, view pendingPayload) string {
+	page := fmt.Sprintf("%s (%s)", filepath.Base(doc), source)
+	if len(view.Instructions) == 0 && roundEdits(view) == 0 {
+		return "nothing pending on " + page + "\n"
+	}
+	return renderRound(page, view, false)
 }
 
 // formatInstructions is the one human rendering of a captured instruction

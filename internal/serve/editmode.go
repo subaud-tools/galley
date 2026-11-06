@@ -213,6 +213,10 @@ type EditServer struct {
 	// for the projection that made it to cut its version. Set and cleared under
 	// mu; see saveOnce and cutOutside.
 	loadedOutside bool
+	// undone is the pairs Revert undid across a held version, so the span
+	// leaves them out (see undoneRecord). Written under mu; read without it
+	// by pending(), so it is swapped whole.
+	undone atomic.Pointer[undoneRecord]
 
 	// mu serializes every SERVER-side mutation of the document — the
 	// suggest/accept/reject endpoints, Project, and Flush — so no two of them
@@ -817,6 +821,7 @@ func (s *EditServer) projectAs(overwrite string) error {
 	// open. See versions.go.
 	s.cutOutside(out)
 	s.cutIfSending(out, false, 0)
+	s.pruneUndone()
 
 	// THE PAGE-MODE SEAM, and the one place a projection reaches outside itself.
 	// It runs AFTER the save decision and the version cut, and with mu
@@ -969,12 +974,14 @@ func (s *EditServer) saveOnce(overwrite string) (docmodel.Doc, []byte, bool, err
 		// whose marker the file lacks stays, unplaced, and one the reviewer
 		// took back stays taken back (keepCommentsAcrossLocked).
 		//
-		// AND IT IS A VERSION when the reviewer has nothing unsent, so the
-		// rail does not read it as their own hand and the verdict can be
-		// Approve. Their projected but unsent edits are in the file the load
-		// came from, so cutting over them would take them off the rail and out
-		// of the round that sends them: that load stays as it was.
-		unsent, _ := s.liveChanges(model)
+		// AND IT IS A VERSION, so the rail does not read it as the reviewer's
+		// own hand and the verdict can be Approve. When the reviewer has edits
+		// unsent, the document as galley last wrote it holds them, and is cut
+		// first as a held version: the reviewer's span (reviewerSpan) reads
+		// their edits across it and skips the outside load.
+		if s.editedSinceLatest(model) {
+			s.cutHeld(s.baseBytes)
+		}
 		before := s.keepCommentsAcrossLocked(model, theirs)
 		live, err := s.loadLocked(theirs)
 		if err != nil {
@@ -989,7 +996,7 @@ func (s *EditServer) saveOnce(overwrite string) (docmodel.Doc, []byte, bool, err
 			return docmodel.Doc{}, nil, false, err
 		}
 		s.clearNotice()
-		s.loadedOutside = len(unsent) == 0
+		s.loadedOutside = true
 		if s.Log != nil {
 			s.Log(fmt.Sprintf("%s changed outside the editor and was loaded into the review", name))
 		}
@@ -2780,7 +2787,11 @@ func (s *EditServer) handleAck(w http.ResponseWriter, r *http.Request) {
 			// reviewer's editor stayed read-only for good. A drifted page is the
 			// work, measurably on disk. Markdown mode has no page and no renderer,
 			// so its gate is unchanged to the byte.
-			changed := func() bool { return imported || s.appliedOpen() || s.pageDrifted() }
+			//
+			// A round of the reviewer's direct edits alone asked for nothing, so
+			// it skips this gate: see windowAsked.
+			asked := s.windowAsked()
+			changed := func() bool { return !asked || imported || s.appliedOpen() || s.pageDrifted() }
 			// A SAVE STILL LANDING IS NOT NOTHING. A harness runs one turn's
 			// tool calls together, so the ack can arrive before the edits it
 			// reports reach the disk. Keep importing for answeredGrace before
@@ -2930,6 +2941,25 @@ func (s *EditServer) messageState() (msgstate.State, bool) {
 		return "", false
 	}
 	return s.msg.state, true
+}
+
+// windowAsked reports whether the open window's round handed over any
+// instruction, from what rounds.jsonl recorded at the handover. Only such a
+// round makes an `answered` with nothing changed a fabrication: a round of the
+// reviewer's direct edits alone asks for nothing, and a note with no change is
+// its honest answer. A round it cannot read counts as asked, the old rule.
+func (s *EditServer) windowAsked() bool {
+	s.reviseMu.Lock()
+	round := 0
+	if s.watch != nil {
+		round = s.watch.round
+	}
+	s.reviseMu.Unlock()
+	r, ok, err := s.Versions().Get(round)
+	if err != nil || !ok || r.Reason != versions.ReasonRevise {
+		return true
+	}
+	return len(r.Asks) > 0 || r.Instruction != ""
 }
 
 // answeredGrace is how long a zero-change `answered` ack waits for the
@@ -3296,7 +3326,7 @@ func (s *EditServer) waitFingerprint() (string, PendingView, error) {
 	// wrote about it. Read here rather than at the press because this is where
 	// the round is composed for handover, and because a version that cannot be
 	// read returns nothing rather than failing the round.
-	view.Changes, view.ChangesDropped = ReviewerChanges(s.Versions())
+	view.Changes, view.ChangesDropped = s.handedChanges()
 	if view.Instructions == nil {
 		view.Instructions = []InstructionView{}
 	}
